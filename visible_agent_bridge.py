@@ -82,7 +82,23 @@ $Sandbox = {_ps(sandbox)}
 $ApprovalPolicy = {_ps(approval_policy)}
 $Model = {_ps(model)}
 $ReasoningEffort = {_ps(reasoning_effort)}
+# Force UTF-8 so Codex's UTF-8 stdout/stdin is decoded correctly (avoids mojibake like the
+# right-single-quote turning into "ΓÇÖ" when PowerShell falls back to the OEM code page).
+$OutputEncoding = New-Object System.Text.UTF8Encoding $false
+[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false
+[Console]::InputEncoding = New-Object System.Text.UTF8Encoding $false
 $Host.UI.RawUI.WindowTitle = "Codex visible worker - $(Split-Path $RunDir -Leaf)"
+
+# UTF-8 tee helper. Tee-Object in Windows PowerShell 5.1 has no -Encoding param and writes
+# UTF-16LE, which corrupts display.log with NUL bytes; this appends UTF-8 instead.
+function Write-Raw {{
+  param([Parameter(ValueFromPipeline=$true)] $InputObject)
+  process {{
+    $text = [string]$InputObject
+    Write-Host $text
+    Add-Content -LiteralPath $DisplayLog -Encoding UTF8 -Value $text
+  }}
+}}
 
 function Set-Status([string]$Status) {{
   @{{ status=$Status; updated_at=(Get-Date).ToString('o'); run_dir=$RunDir }} | ConvertTo-Json | Set-Content -LiteralPath $StatusPath -Encoding UTF8
@@ -122,7 +138,7 @@ function Show-JsonEvent($obj) {{
     $item = $obj.item
     if ($item.type -eq 'agent_message' -and $item.text) {{
       Log-Line 'Agent message:' 'Green'
-      $item.text | Tee-Object -FilePath $DisplayLog -Append
+      $item.text | Write-Raw
       return
     }}
     if ($item.type -eq 'reasoning') {{
@@ -140,7 +156,7 @@ Log-Line "Run directory: $RunDir" 'Cyan'
 Log-Line "CWD: $Cwd" 'Cyan'
 Log-Line "Sandbox: $Sandbox | Approval: $ApprovalPolicy | Model: $Model | Reasoning: $ReasoningEffort" 'Cyan'
 Log-Line 'Prompt follows:' 'Magenta'
-Get-Content -LiteralPath $PromptPath -Raw | Tee-Object -FilePath $DisplayLog -Append
+Get-Content -LiteralPath $PromptPath -Raw | Write-Raw
 Log-Line 'Starting Codex. Raw JSONL is saved to events.jsonl.' 'Magenta'
 
 $argsList = @('exec','--json','-C',$Cwd,'--sandbox',$Sandbox,'-c',"approval_policy=`"$ApprovalPolicy`"")
@@ -166,9 +182,9 @@ Log-Line "Codex exited with code $exitCode" $(if ($exitCode -eq 0) {{ 'Green' }}
 
 try {{
   Log-Line 'Git status:' 'Cyan'
-  & git -C $Cwd status --short | Tee-Object -FilePath $DisplayLog -Append
+  & git -C $Cwd status --short | Write-Raw
   Log-Line 'Git diff stat:' 'Cyan'
-  & git -C $Cwd diff --stat | Tee-Object -FilePath $DisplayLog -Append
+  & git -C $Cwd diff --stat | Write-Raw
 }} catch {{
   Log-Line "Git summary unavailable: $($_.Exception.Message)" 'DarkGray'
 }}
@@ -188,7 +204,21 @@ $Claude = {_ps(CLAUDE)}
 $Cwd = {_ps(cwd)}
 $Model = {_ps(model)}
 $Effort = {_ps(effort)}
+# Force UTF-8 so the child process stdout/stdin is decoded correctly (avoids OEM-codepage mojibake).
+$OutputEncoding = New-Object System.Text.UTF8Encoding $false
+[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false
+[Console]::InputEncoding = New-Object System.Text.UTF8Encoding $false
 $Host.UI.RawUI.WindowTitle = "Claude visible advisor - $(Split-Path $RunDir -Leaf)"
+
+# UTF-8 tee helper (Tee-Object writes UTF-16LE in PowerShell 5.1, corrupting display.log).
+function Write-Raw {{
+  param([Parameter(ValueFromPipeline=$true)] $InputObject)
+  process {{
+    $text = [string]$InputObject
+    Write-Host $text
+    Add-Content -LiteralPath $DisplayLog -Encoding UTF8 -Value $text
+  }}
+}}
 
 function Set-Status([string]$Status) {{
   @{{ status=$Status; updated_at=(Get-Date).ToString('o'); run_dir=$RunDir }} | ConvertTo-Json | Set-Content -LiteralPath $StatusPath -Encoding UTF8
@@ -202,13 +232,13 @@ function Log-Line([string]$Text, [string]$Color = 'Gray') {{
 function Show-ClaudeEvent($obj) {{
   if ($obj.type -eq 'assistant' -and $obj.message) {{
     foreach ($c in $obj.message.content) {{
-      if ($c.type -eq 'text') {{ $c.text | Tee-Object -FilePath $DisplayLog -Append }}
+      if ($c.type -eq 'text') {{ $c.text | Write-Raw }}
     }}
     return
   }}
   if ($obj.type -eq 'result') {{
     Log-Line "Claude result: subtype=$($obj.subtype) cost=$($obj.total_cost_usd) duration_ms=$($obj.duration_ms)" 'Green'
-    if ($obj.result) {{ $obj.result | Tee-Object -FilePath $DisplayLog -Append }}
+    if ($obj.result) {{ $obj.result | Write-Raw }}
     return
   }}
   if ($obj.type -eq 'system') {{ Log-Line "Claude system: $($obj.subtype)" 'DarkCyan'; return }}
@@ -221,7 +251,7 @@ Log-Line "Run directory: $RunDir" 'Cyan'
 Log-Line "CWD: $Cwd" 'Cyan'
 Log-Line "Model: $Model | Effort: $Effort | Permission mode: plan" 'Cyan'
 Log-Line 'Prompt follows:' 'Magenta'
-Get-Content -LiteralPath $PromptPath -Raw | Tee-Object -FilePath $DisplayLog -Append
+Get-Content -LiteralPath $PromptPath -Raw | Write-Raw
 Log-Line 'Starting Claude advisor. Raw stream JSON is saved to events.jsonl.' 'Magenta'
 
 $argsList = @('-p','--output-format','stream-json','--permission-mode','plan','--add-dir',$Cwd)
@@ -379,7 +409,7 @@ def get_visible_run_status(run_dir: str, tail_lines: int = 80) -> dict[str, Any]
         "run_dir": str(path),
         "status": status,
         "metadata": metadata,
-        "thread_id": thread_path.read_text(encoding="utf-8").strip() if thread_path.exists() else None,
+        "thread_id": thread_path.read_text(encoding="utf-8-sig").strip() if thread_path.exists() else None,
         "tail": "\n".join(lines),
     }
 
