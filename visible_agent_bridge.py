@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import atexit
 import datetime as _dt
 import json
 import os
@@ -19,6 +20,67 @@ HOME = Path.home()
 CODEX = Path(r"C:\Users\jonny\AppData\Roaming\npm\codex.cmd")
 CLAUDE = Path(r"C:\Users\jonny\.local\bin\claude.exe")
 PYTHON = Path(r"C:\Users\jonny\AppData\Local\Python\pythoncore-3.14-64\python.exe")
+
+
+# PowerShell function injected into every run script. When a run finishes it reaps the
+# leftover child runtimes (codex / node / codex-windows-sandbox-setup / claude) that Codex
+# leaves behind. It is scoped *strictly* to descendants of this run's own PowerShell window
+# ($PID), so it can never touch the long-lived MCP servers or Claude Code itself — those are
+# launched by a different parent and are not descendants of this console.
+_PS_CLEANUP_FN = r"""
+function Stop-RunDescendants {
+  param([int]$RootPid)
+  $targets = @('codex','codex-windows-sandbox-setup','node','claude')
+  try { $all = Get-CimInstance Win32_Process -ErrorAction Stop } catch { return }
+  $byParent = @{}
+  foreach ($p in $all) {
+    $k = [int]$p.ParentProcessId
+    if (-not $byParent.ContainsKey($k)) { $byParent[$k] = New-Object System.Collections.ArrayList }
+    [void]$byParent[$k].Add($p)
+  }
+  $descendants = New-Object System.Collections.ArrayList
+  $queue = New-Object System.Collections.Queue
+  $queue.Enqueue([int]$RootPid)
+  while ($queue.Count -gt 0) {
+    $cur = [int]$queue.Dequeue()
+    if ($byParent.ContainsKey($cur)) {
+      foreach ($child in $byParent[$cur]) {
+        [void]$descendants.Add($child)
+        $queue.Enqueue([int]$child.ProcessId)
+      }
+    }
+  }
+  $killed = 0
+  foreach ($proc in ($descendants | Sort-Object ProcessId -Descending)) {
+    if ([int]$proc.ProcessId -eq [int]$RootPid) { continue }
+    $base = ($proc.Name -replace '\.exe$','').ToLower()
+    if ($targets -contains $base) {
+      try { Stop-Process -Id $proc.ProcessId -Force -ErrorAction Stop; $killed++ } catch {}
+    }
+  }
+  Log-Line "Reaped $killed leftover agent process(es) for this run." 'DarkGray'
+}
+"""
+
+
+# PIDs of visible-run PowerShell windows this server has launched, so they (and their whole
+# codex/node/sandbox process trees) can be torn down when the MCP server exits at session end.
+_LAUNCHED_PIDS: list[int] = []
+
+
+def _reap_launched() -> None:
+    for pid in _LAUNCHED_PIDS:
+        try:
+            subprocess.run(
+                ["taskkill", "/PID", str(pid), "/T", "/F"],
+                capture_output=True,
+                timeout=10,
+            )
+        except Exception:
+            pass
+
+
+atexit.register(_reap_launched)
 
 
 def _now() -> str:
@@ -64,6 +126,7 @@ def _launch(script_path: Path) -> int:
         cwd=str(script_path.parent),
         creationflags=flags,
     )
+    _LAUNCHED_PIDS.append(int(proc.pid))
     return int(proc.pid)
 
 
@@ -150,6 +213,7 @@ function Show-JsonEvent($obj) {{
   }}
 }}
 
+{_PS_CLEANUP_FN}
 Clear-Host
 Set-Status 'running'
 Log-Line "Run directory: $RunDir" 'Cyan'
@@ -188,7 +252,8 @@ try {{
 }} catch {{
   Log-Line "Git summary unavailable: $($_.Exception.Message)" 'DarkGray'
 }}
-Log-Line 'Window left open for inspection. Close it when finished.' 'Magenta'
+Stop-RunDescendants -RootPid $PID
+Log-Line 'Window left open for inspection. Agents for this run have been closed.' 'Magenta'
 """
 
 
@@ -245,6 +310,7 @@ function Show-ClaudeEvent($obj) {{
   if ($obj.type -eq 'tool_use' -or $obj.type -eq 'tool_result') {{ Log-Line "Claude tool event: $($obj.type)" 'Yellow'; return }}
 }}
 
+{_PS_CLEANUP_FN}
 Clear-Host
 Set-Status 'running'
 Log-Line "Run directory: $RunDir" 'Cyan'
@@ -272,7 +338,8 @@ $prompt | & $Claude @argsList 2>&1 | ForEach-Object {{
 $exitCode = $LASTEXITCODE
 if ($exitCode -eq 0) {{ Set-Status 'completed' }} else {{ Set-Status "failed:$exitCode" }}
 Log-Line "Claude exited with code $exitCode" $(if ($exitCode -eq 0) {{ 'Green' }} else {{ 'Red' }})
-Log-Line 'Window left open for inspection. Close it when finished.' 'Magenta'
+Stop-RunDescendants -RootPid $PID
+Log-Line 'Window left open for inspection. Agents for this run have been closed.' 'Magenta'
 """
 
 

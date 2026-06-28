@@ -1,0 +1,20 @@
+{
+  "mcpServers": {
+    "codex-worker": {
+      "command": "cmd",
+      "args": [
+        "/c",
+        "C:\\Users\\jonny\\AppData\\Roaming\\npm\\codex.cmd",
+        "mcp-server"
+      ],
+      "timeout": 3600000
+    },
+    "agent-visibility": {
+      "command": "C:\\Users\\jonny\\AppData\\Local\\Python\\pythoncore-3.14-64\\python.exe",
+      "args": [
+        "C:\\Users\\jonny\\.agent-bridge\\visible_agent_bridge.py"
+      ],
+      "timeout": 3600000
+    }
+  }
+}

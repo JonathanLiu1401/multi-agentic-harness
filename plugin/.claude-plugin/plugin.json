@@ -1,0 +1,10 @@
+{
+  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+  "name": "claude-manages-codex",
+  "version": "0.1.0",
+  "description": "Use Claude Code as the manager and reviewer while delegating implementation work to Codex through the official Codex MCP server.",
+  "author": {
+    "name": "Jonathan Liu",
+    "email": "jonnyliu4@gmail.com"
+  }
+}
