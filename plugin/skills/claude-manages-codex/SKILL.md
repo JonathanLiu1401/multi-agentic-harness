@@ -5,17 +5,43 @@ description: Use when Claude Code should act as project manager, first mate, arc
 
 # claude-manages-codex
 
-Use Claude as manager, first mate, architect, and reviewer. Use Codex as the worker harness, including Codex root sessions and Codex subagents.
+Use Claude as captain, manager, architect, and reviewer. Use Codex as the first mate and worker harness, including Codex root sessions and Codex subagents.
 
 ## Core Model
 
-- Claude owns architecture, task decomposition, acceptance criteria, risk calls, worker assignment, and final review.
-- Codex owns cheap exploration, first-pass implementation, test repair, mechanical refactors, and noisy command/log work.
+- Claude owns architecture, task decomposition, acceptance criteria, risk calls, worker assignment, and final review. In the first-mate flow, Claude is the captain.
+- Codex owns cheap exploration, first-pass implementation, test repair, mechanical refactors, and noisy command/log work. In the first-mate flow, Codex is the first mate that manages the Codex agent ensemble.
 - Codex subagents are controlled through the Codex root session. Claude starts or resumes the root session with `codex` / `codex-reply`, then explicitly tells Codex when and how to spawn subagents.
 - Claude must review Codex output and local diffs before claiming completion.
 - Prefer Codex MCP over manual copy/paste.
 - Prefer visible workers when the user wants to observe progress. Visible workers show prompts, streamed events, agent messages, commands, token usage, and diffs in a separate terminal plus logs under `.claude-codex/runs/`.
 - Hidden model reasoning is not displayable. Surface useful progress, summaries, commands, and implementation state instead.
+
+## Official OpenAI Codex Plugin
+
+This bridge is designed to work with OpenAI's official Claude Code plugin at `https://github.com/openai/codex-plugin-cc`.
+
+Use the official `codex` plugin when it is installed and the task matches one of its standard workflows:
+
+- `/codex:setup`: check local Codex CLI readiness and authentication; use this before first use or when Codex errors suggest missing setup.
+- `/codex:review`: read-only review of current work or branch diff.
+- `/codex:adversarial-review`: read-only challenge review that pressure-tests implementation direction, assumptions, tradeoffs, and risk areas.
+- `/codex:rescue`: delegate a substantial investigation, bug fix, or follow-up task to Codex through the official companion runtime.
+- `/codex:transfer`: transfer the current Claude Code session into a resumable Codex thread.
+- `/codex:status`, `/codex:result`, `/codex:cancel`: manage official plugin background jobs.
+
+Installation path for the official plugin:
+
+```bash
+/plugin marketplace add openai/codex-plugin-cc
+/plugin install codex@openai-codex
+/reload-plugins
+/codex:setup
+```
+
+Do not copy the official plugin command scripts into this plugin just to expose `/codex:*`; that namespace belongs to the official plugin. If the official plugin is not installed, use this bridge's bundled MCP tools and visible-agent harness as the fallback and tell the user the official plugin can be installed with the commands above.
+
+Use this bridge's visible first-mate pool instead of `/codex:rescue` when the user wants observable multi-agent fan-out, a Claude-as-captain / Codex-as-first-mate hierarchy, or a coordinated ensemble of Codex agents. The official `/codex:rescue` path is best for single delegated rescue tasks and background job management.
 
 ## Routing Mandate: Parallel Agents and Heavy Work → Codex
 
@@ -102,6 +128,8 @@ Use subagents for independent, noisy, read-heavy, or parallelizable work. Avoid 
 
 When a task requires codebase understanding, do not spend Claude tokens reading everything. Start a visible first-mate pool or a read-only Codex root session and tell Codex to map the repo for Claude.
 
+The bridge bundles a Codex-facing Firstmate skill at `codex-skills/firstmate/SKILL.md`. Install or sync it to `~/.codex/skills/firstmate/SKILL.md` when using this repo locally. The visible first-mate runner also embeds the same role contract so the hierarchy works even before Codex refreshes its skill index.
+
 Default first-mate settings:
 
 - model: `gpt-5.5`
@@ -120,7 +148,7 @@ First-mate responsibilities:
 For broad codebase understanding, ask:
 
 ```text
-Act as Codex First Mate for Claude. Spawn claude-explorer subagents to map the codebase by subsystem. Do not edit files. Return a compact manager brief with architecture, key files, tests, risk areas, and recommended implementation plan.
+Use the firstmate skill. Claude is the captain; Codex is the first mate. Spawn claude-explorer subagents to map the codebase by subsystem. Do not edit files. Return a compact manager brief with architecture, key files, tests, risk areas, and recommended implementation plan.
 ```
 
 ## Permission Policy

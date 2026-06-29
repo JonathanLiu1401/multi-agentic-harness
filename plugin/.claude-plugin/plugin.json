@@ -2,7 +2,7 @@
   "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
   "name": "claude-manages-codex",
   "version": "0.1.0",
-  "description": "Use Claude Code as the manager and reviewer while delegating implementation work to Codex through the official Codex MCP server.",
+  "description": "Use Claude Code as captain/manager while delegating work to Codex first-mate pools, visible Codex workers, and the official OpenAI Codex plugin.",
   "author": {
     "name": "Jonathan Liu",
     "email": "jonnyliu4@gmail.com"
