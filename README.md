@@ -4,18 +4,19 @@ A small Python MCP server (`visible_agent_bridge.py`) that powers the **visible-
 `claude-manages-codex` workflow: Claude Code's active manager model acts as captain/executive architect/QA tech lead/reviewer while OpenAI Codex
 does the implementation work. The bridge launches Codex and Claude advisor sessions in visible PowerShell
 windows so you can watch prompts, streamed events, agent messages, commands, token usage, and diffs live,
-while also persisting logs under `.claude-codex/runs/<run-id>/`.
+while also persisting logs under `.claude-codex/runs/<run-id>/`. Claude-managed visible Codex work defaults to real Codex TUI terminals so the user can steer Codex directly; the non-interactive JSON workers remain available for automation and structured event logs.
 
 ## Tools exposed
 
-- `start_visible_codex_worker` - launch `codex exec --json` in a visible window with saved logs.
-- `start_visible_haiku_composed_codex_worker` - let Claude pass a compact captain brief, have Claude Haiku expand the full Codex prompt, then launch Codex.
-- `start_visible_first_mate_codex_pool` - launch a visible Codex root coordinator that spawns/manages subagents.
+- `start_visible_codex_worker` - launch `codex exec --json` in a visible window with saved logs for automated/non-interactive runs.
+- `start_visible_haiku_composed_codex_worker` - let Claude pass a compact captain brief, have Claude Haiku expand the full Codex prompt, then launch an automated/non-interactive Codex worker.
+- `start_visible_first_mate_codex_pool` - launch an automated/non-interactive Codex root coordinator that spawns/manages subagents with structured logs.
 - `start_interactive_codex_tui` - launch the real interactive Codex TUI in a visible terminal so the user can steer Codex directly, while the bridge records sidecar metadata.
 - `start_interactive_first_mate_codex_tui` - launch the first-mate Codex coordinator in the real Codex TUI for direct user steering plus first-mate subagent orchestration.
 - `steer_visible_codex_run` - queue a captain steering note into an active visible Codex run, or launch a visible resume run on the same thread if the window already closed.
 - `request_captain_help` - let a stuck visible Codex worker ask the same Claude captain for feedback through the run mailbox.
 - `list_captain_help_requests` / `respond_to_captain_help_request` - let Claude inspect and answer worker help requests, or escalate to the user before steering the same run.
+- `submit_captain_report` / `list_captain_reports` - let interactive TUI workers hand a final report back to Claude through a sidecar artifact instead of terminal-only text.
 - `start_visible_claude_advisor` - launch a visible Claude Code advisor run.
 - `get_visible_run_status` / `list_visible_runs` - read status and recent log lines from a run directory.
 
@@ -25,12 +26,14 @@ while also persisting logs under `.claude-codex/runs/<run-id>/`.
 - Claude advisor calls use a central model policy: `fable` / `high` through July 7, 2026, then `opus` / `high`. Override with `CLAUDE_MANAGES_CODEX_ADVISOR_MODEL`.
 - The Claude manager model should not write implementation code by default; it writes architecture, constraints, acceptance criteria, steering notes, and review findings.
 - Long Codex delegation prompts should be written by the Haiku prompt composer, not by the manager model.
+- Claude-managed visible Codex work defaults to `start_interactive_first_mate_codex_tui` for fan-out and `start_interactive_codex_tui` for single-worker direct steering.
+- Use the non-interactive `start_visible_*` JSON worker tools only when Claude needs automated queued steering, structured JSONL logs, or unattended execution.
 - Visible Codex workers run with full process/tool access so Python-backed skills, `read-past-sessions`, SSH, test runners, and external CLIs work. The requested `sandbox` is treated as permission intent: `read-only` means no edits, not a crippled process sandbox.
 - Codex and Claude visible runs record resumable ids (`thread_id` for Codex, `session_id` for Claude).
-- Claude can steer visible Codex runs with `steer_visible_codex_run`; active windows consume queued steering on the same Codex thread, then close after a short idle window if no steering arrives.
+- Claude can steer non-interactive visible Codex runs with `steer_visible_codex_run`; active JSON-worker windows consume queued steering on the same Codex thread, then close after a short idle window if no steering arrives.
 - Stuck visible Codex workers can call back to the same Claude captain with `request_captain_help`; Claude answers with `respond_to_captain_help_request` or asks the user first when owner judgment is required.
 - Visible Codex workers set `NODE_PATH` and `PLAYWRIGHT_BROWSERS_PATH` so Playwright MCP and Node-based Playwright tests can run from delegated Codex sessions.
-- Interactive TUI runs use top-level `codex` rather than `codex exec --json`; they are user-steered, default to `on-request` approvals, and record sidecar metadata instead of structured JSONL event logs.
+- Interactive TUI runs use top-level `codex` rather than `codex exec --json`; they are user-steered, default to `on-request` approvals, submit final handoff through `captain_reports/final.*`, and auto-close a few seconds after the report by default.
 
 ## Firstmate skill
 
@@ -110,8 +113,8 @@ Install it in Claude Code with:
 /codex:setup
 ```
 
-Use this bridge's `start_visible_first_mate_codex_pool` when you want the observable Claude-as-captain /
-Codex-as-first-mate hierarchy over multiple Codex agents. Use the official `/codex:rescue` command for single
+Use this bridge's `start_interactive_first_mate_codex_tui` when you want the observable and directly steerable
+Claude-as-captain / Codex-as-first-mate hierarchy over multiple Codex agents. Use the official `/codex:rescue` command for single
 delegated rescue tasks and `/codex:review` or `/codex:adversarial-review` for standard read-only review.
 
 ## Fixes in this snapshot
@@ -161,13 +164,23 @@ This copy includes fixes over the original bridge, found while testing against C
     the decision requires owner judgment, then `respond_to_captain_help_request` queues steering back to the same
     run/thread.
 
+11. **Interactive TUI reports were terminal-only.** Real Codex TUI sessions do not emit `codex exec --json`
+    events or `--output-last-message`, so a final answer typed into the TUI is not a reliable captain handoff.
+    Interactive prompts now require `submit_captain_report`; the bridge writes `captain_reports/final.json` and
+    `final.md`, exposes them through `get_visible_run_status`, and closes the TUI after the report unless the
+    worker sets `close_tui=false`.
+
 ## Interactive TUI Mode
 
-Use `start_interactive_codex_tui` when you want to type directly into a single Codex worker instead of steering through Claude or a queued bridge message. Use `start_interactive_first_mate_codex_tui` when you want that same direct TUI control over the Codex first mate that can coordinate Codex subagents.
+This is the default visible spawn mode for Claude-managed Codex work.
+
+Use `start_interactive_codex_tui` when you want to type directly into a single Codex worker instead of steering through Claude or a queued bridge message. Use `start_interactive_first_mate_codex_tui` by default when you want that same direct TUI control over the Codex first mate that can coordinate Codex subagents.
 
 This mode opens the real Codex TUI in a visible terminal. The user can approve, reject, and steer inside that terminal. The bridge still creates `.claude-codex/runs/<run-id>/` with `prompt.md`, `session_context.md`, `metadata.json`, `status.json`, `notes.md`, and best-effort `session_id.txt`.
 
-This mode is intentionally lower-fidelity than `codex exec --json`: `display.log` contains launcher/status lines, not a full transcript. For automated worker steering and structured event logs, keep using `start_visible_codex_worker` or `start_visible_first_mate_codex_pool`.
+Interactive TUI prompts include a captain handoff contract. Codex must call `submit_captain_report` before stopping, which writes `captain_reports/final.json` and `final.md`; Claude reads those through `get_visible_run_status` or `list_captain_reports`. By default the launcher watches for that report and closes the TUI after about five seconds. Pass `auto_close_after_report=false` or `close_tui=false` when the terminal should stay open.
+
+This mode is intentionally lower-fidelity than `codex exec --json`: `display.log` contains launcher/status lines, not a full transcript, and queued steering is not injected into an already-open TUI. For automated worker steering, structured event logs, or unattended execution, explicitly use `start_visible_codex_worker` or `start_visible_first_mate_codex_pool`.
 
 ## E2E verification
 
@@ -216,6 +229,8 @@ visible-agent tools:
       "mcp__plugin_claude-manages-codex_agent-visibility__request_captain_help",
       "mcp__plugin_claude-manages-codex_agent-visibility__list_captain_help_requests",
       "mcp__plugin_claude-manages-codex_agent-visibility__respond_to_captain_help_request",
+      "mcp__plugin_claude-manages-codex_agent-visibility__submit_captain_report",
+      "mcp__plugin_claude-manages-codex_agent-visibility__list_captain_reports",
       "mcp__plugin_claude-manages-codex_agent-visibility__get_visible_run_status",
       "mcp__plugin_claude-manages-codex_agent-visibility__list_visible_runs"
     ]

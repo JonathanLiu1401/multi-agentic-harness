@@ -34,6 +34,9 @@ CAPTAIN_HELP_DIR = "captain_help"
 CAPTAIN_HELP_REQUESTS_DIR = "requests"
 CAPTAIN_HELP_ANSWERED_DIR = "answered"
 CAPTAIN_HELP_ESCALATED_DIR = "escalated"
+CAPTAIN_REPORTS_DIR = "captain_reports"
+CAPTAIN_REPORT_FINAL_JSON = "final.json"
+CAPTAIN_REPORT_FINAL_MD = "final.md"
 CLAUDE_ADVISOR_MODEL_ENV = "CLAUDE_MANAGES_CODEX_ADVISOR_MODEL"
 CLAUDE_ADVISOR_MODEL_UNTIL_ENV = "CLAUDE_MANAGES_CODEX_FABLE_UNTIL"
 CLAUDE_ADVISOR_PRIMARY_MODEL = "fable"
@@ -47,6 +50,7 @@ CLAUDE_PROMPT_COMPOSER_MAX_BUDGET_USD = "0.25"
 CODEX_STEER_IDLE_SECONDS = 20
 INTERACTIVE_TUI_APPROVAL_POLICY = "on-request"
 INTERACTIVE_TUI_MODE = "interactive_tui"
+INTERACTIVE_TUI_AUTO_CLOSE_DELAY_SECONDS = 5
 
 TOOL_ACCESS_KEYWORDS = (
     "ssh",
@@ -119,6 +123,8 @@ Tool-access requirement: this bridge gives Codex workers full process/tool acces
 Prompt-cost requirement: expect Claude's active manager model to send compact captain briefs. Long Codex worker prompts should be composed by the Haiku/low prompt composer before they reach you.
 
 Captain-help requirement: if you are blocked, confused, or about to make an architectural/safety decision without enough confidence, request help from the same Claude captain through the run's captain-help mailbox. Do not start a separate Claude advisor unless Claude explicitly asked for that. After requesting help, stop the current turn and wait for captain steering. The captain may escalate the question to the owner.
+
+Captain-report requirement: if the caller prompt includes a submit_captain_report tool, a Captain Report Handoff, or a captain_reports path, submit the final outcome through that tool or write the requested report files before stopping. A normal TUI final message is user-visible progress only; it is not a reliable handoff to Claude.
 
 Prime directives:
 - Delegate project-specific work to Codex agents when the task benefits from parallelism, cheaper exploration, noisy command/log work, scoped implementation, verification, review, or recovery.
@@ -349,6 +355,7 @@ def _make_run(cwd: str | None, prefix: str, title: str, prompt: str, metadata: d
         encoding="utf-8",
     )
     _ensure_captain_help_dirs(run_dir)
+    _ensure_captain_report_dir(run_dir)
     return run_dir
 
 
@@ -360,6 +367,47 @@ def _ensure_captain_help_dirs(run_dir: Path) -> dict[str, Path]:
     for path in (requests, answered, escalated):
         path.mkdir(parents=True, exist_ok=True)
     return {"root": root, "requests": requests, "answered": answered, "escalated": escalated}
+
+
+def _ensure_captain_report_dir(run_dir: Path) -> Path:
+    root = run_dir / CAPTAIN_REPORTS_DIR
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
+def _captain_report_contract(run_dir: Path, auto_close_after_report: bool, close_delay_seconds: int) -> str:
+    close_text = (
+        f"The bridge will close this TUI about {close_delay_seconds} second(s) after the report file is written."
+        if auto_close_after_report
+        else "The bridge will leave this TUI open after the report unless the user closes it."
+    )
+    return textwrap.dedent(f"""
+    # Captain Report Handoff
+
+    This is a real interactive Codex TUI. Do not rely on a normal TUI final answer to reach Claude; the captain may not see terminal-only text.
+
+    Run directory: {run_dir}
+
+    At the end of the task, before stopping, call the `submit_captain_report` MCP tool if it is available:
+
+    - `run_dir`: exactly `{run_dir}`
+    - `outcome`: one of `completed`, `partial`, `blocked`, or `failed`
+    - `summary`: compact captain-facing result
+    - `changed_files`: paths changed, or an empty list
+    - `verification`: commands/checks run and their results
+    - `risks`: remaining risks, or an empty list
+    - `questions`: decisions needed from Claude, or an empty list
+    - `close_tui`: true unless Claude or the owner explicitly asked you to keep the TUI open
+
+    If `submit_captain_report` is unavailable, write the same report yourself to:
+
+    - `{run_dir / CAPTAIN_REPORTS_DIR / CAPTAIN_REPORT_FINAL_JSON}`
+    - `{run_dir / CAPTAIN_REPORTS_DIR / CAPTAIN_REPORT_FINAL_MD}`
+
+    After the report is submitted, stop working. {close_text}
+
+    If you are blocked before finishing, use `request_captain_help` with the same run directory. The final report is still required when the run reaches a terminal outcome.
+    """).strip()
 
 
 def _captain_help_contract(run_dir: Path) -> str:
@@ -651,6 +699,8 @@ def _interactive_codex_tui_runner(
     resume_session_id: str,
     no_alt_screen: bool,
     close_on_exit: bool,
+    auto_close_after_report: bool,
+    auto_close_delay_seconds: int,
 ) -> str:
     args = _codex_tui_args(
         cwd=cwd,
@@ -662,6 +712,8 @@ def _interactive_codex_tui_runner(
     )
     ps_args = "\n".join([f"$argsList += @({_ps_tui_arg(arg)})" for arg in args])
     keep_open = "$true" if not close_on_exit else "$false"
+    auto_close = "$true" if auto_close_after_report else "$false"
+    delay = max(0, min(int(auto_close_delay_seconds), 600))
     return textwrap.dedent(f"""
     $ErrorActionPreference = 'Continue'
     { _PS_CLEANUP_FN }
@@ -669,8 +721,11 @@ def _interactive_codex_tui_runner(
     $Cwd = {_ps(cwd)}
     $StatusPath = Join-Path $RunDir 'status.json'
     $DisplayLog = Join-Path $RunDir 'display.log'
+    $ReportsDir = Join-Path $RunDir '{CAPTAIN_REPORTS_DIR}'
     $CodexCmd = {_ps(CODEX)}
     $KeepOpen = {keep_open}
+    $AutoCloseAfterReport = {auto_close}
+    $AutoCloseDelaySeconds = {delay}
 
     [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
     [Console]::InputEncoding = [System.Text.Encoding]::UTF8
@@ -697,6 +752,40 @@ def _interactive_codex_tui_runner(
     Set-Location -LiteralPath $Cwd
     Set-Status "running"
     Write-Log "Starting interactive Codex TUI. This terminal is user-steered; display.log is launcher/status only."
+
+    if ($AutoCloseAfterReport) {{
+      try {{
+        $null = Start-Job -ScriptBlock {{
+          param([string]$ReportsDir, [int]$RootPid, [int]$DelaySeconds)
+          $finalJson = Join-Path $ReportsDir '{CAPTAIN_REPORT_FINAL_JSON}'
+          $finalMd = Join-Path $ReportsDir '{CAPTAIN_REPORT_FINAL_MD}'
+          while ($true) {{
+            if (-not (Get-Process -Id $RootPid -ErrorAction SilentlyContinue)) {{ break }}
+            $shouldClose = $false
+            if (Test-Path -LiteralPath $finalJson) {{
+              try {{
+                $report = Get-Content -LiteralPath $finalJson -Raw -Encoding UTF8 | ConvertFrom-Json
+                $shouldClose = -not ($report.PSObject.Properties.Name -contains 'close_tui' -and $report.close_tui -eq $false)
+              }} catch {{
+                $shouldClose = $true
+              }}
+            }} elseif (Test-Path -LiteralPath $finalMd) {{
+              $shouldClose = $true
+            }}
+            if ($shouldClose) {{
+              Start-Sleep -Seconds $DelaySeconds
+              try {{ Stop-Process -Id $RootPid -Force -ErrorAction Stop }} catch {{}}
+              break
+            }}
+            if ((Test-Path -LiteralPath $finalJson) -or (Test-Path -LiteralPath $finalMd)) {{ break }}
+            Start-Sleep -Seconds 1
+          }}
+        }} -ArgumentList $ReportsDir, $PID, $AutoCloseDelaySeconds
+        Write-Log ("Auto-close watcher armed for captain report; delay=" + $AutoCloseDelaySeconds + "s.")
+      }} catch {{
+        Write-Log ("Auto-close watcher failed to start: " + $_.Exception.Message)
+      }}
+    }}
 
     $argsList = @()
     {ps_args}
@@ -1407,7 +1496,9 @@ def start_interactive_first_mate_codex_tui(
     resume_session_id: str = "",
     requires_tool_access: bool = False,
     no_alt_screen: bool = False,
-    close_on_exit: bool = False,
+    close_on_exit: bool = True,
+    auto_close_after_report: bool = True,
+    auto_close_delay_seconds: int = INTERACTIVE_TUI_AUTO_CLOSE_DELAY_SECONDS,
 ) -> dict[str, Any]:
     """Launch the first-mate Codex coordinator in the real interactive Codex TUI."""
     prompt, auto_full_tool_access = _first_mate_prompt(
@@ -1430,6 +1521,8 @@ def start_interactive_first_mate_codex_tui(
         requires_tool_access=requires_tool_access or auto_full_tool_access,
         no_alt_screen=no_alt_screen,
         close_on_exit=close_on_exit,
+        auto_close_after_report=auto_close_after_report,
+        auto_close_delay_seconds=auto_close_delay_seconds,
         model=model,
         reasoning_effort=reasoning_effort,
     )
@@ -1446,7 +1539,9 @@ def start_interactive_codex_tui(
     resume_session_id: str = "",
     requires_tool_access: bool = False,
     no_alt_screen: bool = False,
-    close_on_exit: bool = False,
+    close_on_exit: bool = True,
+    auto_close_after_report: bool = True,
+    auto_close_delay_seconds: int = INTERACTIVE_TUI_AUTO_CLOSE_DELAY_SECONDS,
     model: str = CODEX_MODEL,
     reasoning_effort: str = CODEX_REASONING_EFFORT,
     service_tier: str = CODEX_SERVICE_TIER,
@@ -1458,7 +1553,8 @@ def start_interactive_codex_tui(
     auto_full_tool_access = _needs_full_tool_access("\n".join([title, prompt, session_context]))
     effective_sandbox = CODEX_FULL_TOOL_SANDBOX
     requested_approval = approval_policy or INTERACTIVE_TUI_APPROVAL_POLICY
-    effective_prompt = _with_session_context_bootstrap(
+    close_delay = max(0, min(int(auto_close_delay_seconds), 600))
+    base_prompt = _with_session_context_bootstrap(
         "\n\n".join([
             _codex_permission_contract(sandbox, effective_sandbox),
             prompt,
@@ -1467,7 +1563,7 @@ def start_interactive_codex_tui(
         "Interactive Codex TUI",
         session_context,
     )
-    run_dir = _make_run(cwd, "codex-tui-resume" if resume_session_id else "codex-tui", title, effective_prompt, {
+    run_dir = _make_run(cwd, "codex-tui-resume" if resume_session_id else "codex-tui", title, base_prompt, {
         "agent": "codex",
         "mode": INTERACTIVE_TUI_MODE,
         "cwd": str(Path(cwd).resolve()),
@@ -1489,11 +1585,20 @@ def start_interactive_codex_tui(
         "tool_access_default": "full-process-access",
         "no_alt_screen": bool(no_alt_screen),
         "close_on_exit": bool(close_on_exit),
+        "auto_close_after_report": bool(auto_close_after_report),
+        "auto_close_delay_seconds": close_delay,
     })
+    effective_prompt = "\n\n".join([
+        _captain_report_contract(run_dir, bool(auto_close_after_report), close_delay),
+        _captain_help_contract(run_dir),
+        base_prompt,
+    ])
+    (run_dir / "prompt.md").write_text(effective_prompt, encoding="utf-8")
     (run_dir / "session_context.md").write_text(session_context.strip(), encoding="utf-8")
     (run_dir / "notes.md").write_text(
         "# Interactive Codex TUI Notes\n\n"
-        "This run is user-steered through the Codex TUI. display.log contains launcher/status lines, not a full transcript.\n",
+        "This run is user-steered through the Codex TUI. display.log contains launcher/status lines, not a full transcript.\n"
+        "The captain-facing outcome is written under captain_reports/ by submit_captain_report.\n",
         encoding="utf-8",
     )
     (run_dir / "display.log").write_text("", encoding="utf-8")
@@ -1508,6 +1613,8 @@ def start_interactive_codex_tui(
             resume_session_id=resume_session_id,
             no_alt_screen=no_alt_screen,
             close_on_exit=close_on_exit,
+            auto_close_after_report=bool(auto_close_after_report),
+            auto_close_delay_seconds=close_delay,
         ),
         encoding="utf-8",
     )
@@ -1533,7 +1640,8 @@ def start_interactive_codex_tui(
         "session_id": None,
         "session_id_file": str(run_dir / "session_id.txt"),
         "metadata": str(run_dir / "metadata.json"),
-        "note": "A real interactive Codex TUI was launched. You can steer it directly in the terminal. The sidecar records metadata and status only; use Codex saved sessions, git diff, and notes for review.",
+        "captain_reports": str(run_dir / CAPTAIN_REPORTS_DIR),
+        "note": "A real interactive Codex TUI was launched. You can steer it directly in the terminal. Codex must call submit_captain_report or write captain_reports/final.* for Claude handoff; the TUI auto-closes after that report by default.",
     }
 
 
@@ -1707,6 +1815,196 @@ def _summarize_help_requests(run_dir: Path, include_answered: bool = False, limi
         if len(records) >= max(1, min(limit, 100)):
             break
     return records
+
+
+def _format_report_items(values: list[str] | None) -> str:
+    if not values:
+        return "- none"
+    lines = [f"- {str(value).strip()}" for value in values if str(value).strip()]
+    return "\n".join(lines) if lines else "- none"
+
+
+def _captain_report_markdown(record: dict[str, Any]) -> str:
+    return textwrap.dedent(f"""
+    # Captain Report
+
+    Report ID: {record["report_id"]}
+    Outcome: {record["outcome"]}
+    Created: {record["created_at"]}
+    Run directory: {record["run_dir"]}
+    Close TUI: {record["close_tui"]}
+
+    ## Summary
+
+    {record["summary"] or "None supplied."}
+
+    ## Changed Files
+
+    {_format_report_items(record.get("changed_files") or [])}
+
+    ## Verification
+
+    {_format_report_items(record.get("verification") or [])}
+
+    ## Risks
+
+    {_format_report_items(record.get("risks") or [])}
+
+    ## Questions
+
+    {_format_report_items(record.get("questions") or [])}
+    """).strip()
+
+
+def _latest_captain_report(run_dir: Path) -> dict[str, Any] | None:
+    reports_dir = _ensure_captain_report_dir(run_dir)
+    final = reports_dir / CAPTAIN_REPORT_FINAL_JSON
+    if final.exists():
+        report = _read_json(final, {})
+        return report or None
+    reports = sorted(
+        [path for path in reports_dir.glob("*.json") if path.name != CAPTAIN_REPORT_FINAL_JSON],
+        key=lambda path: path.name,
+        reverse=True,
+    )
+    for path in reports:
+        report = _read_json(path, {})
+        if report:
+            return report
+    return None
+
+
+def _list_captain_reports_for_run(run_dir: Path, include_text: bool = False, limit: int = 20) -> list[dict[str, Any]]:
+    reports_dir = _ensure_captain_report_dir(run_dir)
+    paths = sorted(
+        [path for path in reports_dir.glob("*.json") if path.name != CAPTAIN_REPORT_FINAL_JSON],
+        key=lambda path: path.name,
+        reverse=True,
+    )
+    if not paths and (reports_dir / CAPTAIN_REPORT_FINAL_JSON).exists():
+        paths = [reports_dir / CAPTAIN_REPORT_FINAL_JSON]
+    records: list[dict[str, Any]] = []
+    for path in paths[: max(1, min(limit, 100))]:
+        record = _read_json(path, {})
+        if not record:
+            continue
+        item = {
+            "report_id": record.get("report_id"),
+            "outcome": record.get("outcome"),
+            "created_at": record.get("created_at"),
+            "updated_at": record.get("updated_at"),
+            "summary": record.get("summary"),
+            "run_dir": str(run_dir),
+            "report": str(path),
+            "report_markdown": str(path.with_suffix(".md")),
+        }
+        if include_text:
+            item["changed_files"] = record.get("changed_files") or []
+            item["verification"] = record.get("verification") or []
+            item["risks"] = record.get("risks") or []
+            item["questions"] = record.get("questions") or []
+        records.append(item)
+    return records
+
+
+@mcp.tool()
+def submit_captain_report(
+    run_dir: str,
+    outcome: str,
+    summary: str,
+    changed_files: list[str] | None = None,
+    verification: list[str] | None = None,
+    risks: list[str] | None = None,
+    questions: list[str] | None = None,
+    close_tui: bool = True,
+) -> dict[str, Any]:
+    """Submit the final captain-facing report for an interactive Codex TUI run."""
+    path = Path(run_dir).expanduser().resolve()
+    if not path.exists():
+        return {"ok": False, "error": f"run_dir does not exist: {path}"}
+    metadata = _read_json(path / "metadata.json", {})
+    if metadata.get("agent") not in (None, "codex"):
+        return {"ok": False, "error": f"run_dir is not a Codex run: {path}", "metadata": metadata}
+    normalized_outcome = (outcome or "").strip().lower()
+    if normalized_outcome not in {"completed", "partial", "blocked", "failed"}:
+        return {"ok": False, "error": "outcome must be one of: completed, partial, blocked, failed"}
+    reports_dir = _ensure_captain_report_dir(path)
+    report_id = f"{_now()}-report-{uuid.uuid4().hex[:8]}"
+    now = _dt.datetime.now().isoformat()
+    record = {
+        "report_id": report_id,
+        "status": "submitted",
+        "outcome": normalized_outcome,
+        "created_at": now,
+        "updated_at": now,
+        "run_dir": str(path),
+        "thread_id": (path / "thread_id.txt").read_text(encoding="utf-8-sig").strip() if (path / "thread_id.txt").exists() else None,
+        "session_id": _visible_run_session_id(path, metadata),
+        "summary": summary.strip(),
+        "changed_files": [str(item).strip() for item in (changed_files or []) if str(item).strip()],
+        "verification": [str(item).strip() for item in (verification or []) if str(item).strip()],
+        "risks": [str(item).strip() for item in (risks or []) if str(item).strip()],
+        "questions": [str(item).strip() for item in (questions or []) if str(item).strip()],
+        "close_tui": bool(close_tui),
+    }
+    report_json = reports_dir / f"{report_id}.json"
+    report_md = reports_dir / f"{report_id}.md"
+    final_json = reports_dir / CAPTAIN_REPORT_FINAL_JSON
+    final_md = reports_dir / CAPTAIN_REPORT_FINAL_MD
+    markdown = _captain_report_markdown(record)
+    for target in (report_json, final_json):
+        target.write_text(json.dumps(record, indent=2), encoding="utf-8")
+    for target in (report_md, final_md):
+        target.write_text(markdown, encoding="utf-8")
+    status = _read_json(path / "status.json", {"status": "unknown"})
+    status.update({
+        "status": "reported",
+        "outcome": normalized_outcome,
+        "captain_report_id": report_id,
+        "captain_report": str(final_json),
+        "updated_at": now,
+    })
+    _write_json(path / "status.json", status)
+    try:
+        with (path / "display.log").open("a", encoding="utf-8") as log:
+            log.write(f"[{_dt.datetime.now().strftime('%H:%M:%S')}] Captain report submitted: {report_id} ({normalized_outcome})\n")
+    except Exception:
+        pass
+    return {
+        "ok": True,
+        "report_id": report_id,
+        "run_dir": str(path),
+        "report": str(final_json),
+        "report_markdown": str(final_md),
+        "close_tui": bool(close_tui),
+        "note": "Captain report recorded. Claude can read it with get_visible_run_status or list_captain_reports.",
+    }
+
+
+@mcp.tool()
+def list_captain_reports(
+    cwd: str | None = None,
+    run_dir: str = "",
+    include_text: bool = False,
+    limit: int = 20,
+) -> list[dict[str, Any]]:
+    """List captain reports submitted by interactive Codex TUI runs."""
+    if run_dir.strip():
+        path = Path(run_dir).expanduser().resolve()
+        if not path.exists():
+            return []
+        return _list_captain_reports_for_run(path, include_text=include_text, limit=limit)
+    root = _run_root(cwd)
+    if not root.exists():
+        return []
+    rows: list[dict[str, Any]] = []
+    for run in sorted(root.glob("*"), key=lambda p: p.name, reverse=True):
+        if not run.is_dir():
+            continue
+        rows.extend(_list_captain_reports_for_run(run, include_text=include_text, limit=limit))
+        if len(rows) >= max(1, min(limit, 100)):
+            break
+    return rows[: max(1, min(limit, 100))]
 
 
 @mcp.tool()
@@ -1954,9 +2252,11 @@ def get_visible_run_status(run_dir: str, tail_lines: int = 80) -> dict[str, Any]
     steer_queue = path / "steer_queue"
     steer_done = path / "steer_done"
     help_dirs = _ensure_captain_help_dirs(path)
+    reports_dir = _ensure_captain_report_dir(path)
     status = json.loads(status_path.read_text(encoding="utf-8-sig")) if status_path.exists() else {"status": "unknown"}
     metadata = json.loads(metadata_path.read_text(encoding="utf-8-sig")) if metadata_path.exists() else {}
     session_id = _visible_run_session_id(path, metadata)
+    captain_report = _latest_captain_report(path)
     lines: list[str] = []
     if display_path.exists():
         all_lines = display_path.read_text(encoding="utf-8-sig", errors="replace").splitlines()
@@ -1973,6 +2273,8 @@ def get_visible_run_status(run_dir: str, tail_lines: int = 80) -> dict[str, Any]
         "answered_help_requests": len(list(help_dirs["answered"].glob("*.json"))),
         "escalated_help_requests": len(list(help_dirs["escalated"].glob("*.json"))),
         "help_requests": _summarize_help_requests(path, include_answered=False, limit=10),
+        "captain_report": captain_report,
+        "captain_reports_count": len([p for p in reports_dir.glob("*.json") if p.name != CAPTAIN_REPORT_FINAL_JSON]),
         "tail": "\n".join(lines),
     }
 
@@ -1991,6 +2293,7 @@ def list_visible_runs(cwd: str | None = None, limit: int = 20) -> list[dict[str,
         thread_path = run / "thread_id.txt"
         steer_queue = run / "steer_queue"
         steer_done = run / "steer_done"
+        reports_dir = _ensure_captain_report_dir(run)
         metadata = json.loads(metadata_path.read_text(encoding="utf-8-sig")) if metadata_path.exists() else {}
         session_id = _visible_run_session_id(run, metadata)
         result.append({
@@ -2002,6 +2305,8 @@ def list_visible_runs(cwd: str | None = None, limit: int = 20) -> list[dict[str,
             "session_id": session_id,
             "pending_steers": len(list(steer_queue.glob("*.md"))) if steer_queue.exists() else 0,
             "completed_steers": len(list(steer_done.glob("*.md"))) if steer_done.exists() else 0,
+            "captain_report": _latest_captain_report(run),
+            "captain_reports_count": len([p for p in reports_dir.glob("*.json") if p.name != CAPTAIN_REPORT_FINAL_JSON]),
         })
     return result
 

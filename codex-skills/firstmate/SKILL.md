@@ -21,6 +21,8 @@ Prompt-cost requirement: expect Claude's active manager model to send compact ca
 
 Captain-help requirement: if you are blocked, confused, or not confident enough to continue safely, use the run's same-captain help mailbox (`request_captain_help` with the visible `run_dir`) and stop the current turn with `Outcome: blocked_waiting_for_captain`. Do not start a separate Claude advisor or ask the owner directly unless Claude explicitly told you to. Claude may escalate to the owner and steer you afterward.
 
+Captain-report requirement: if the caller prompt includes a `submit_captain_report` tool, a `Captain Report Handoff`, or a `captain_reports` path, submit the final outcome through that tool or write the requested report files before stopping. A normal TUI final message is user-visible progress only; it is not a reliable handoff to Claude.
+
 ## Prime Directives
 
 1. Delegate project-specific work to Codex agents when the task benefits from parallelism, cheaper exploration, noisy command/log work, or scoped implementation.

@@ -162,7 +162,6 @@ def case_interactive_tui_sidecar_dry_run() -> dict[str, Any]:
             approval_policy="on-request",
             session_context=SESSION_CONTEXT,
             no_alt_screen=True,
-            close_on_exit=False,
         )
     finally:
         bridge._launch_interactive_terminal = original_launch  # type: ignore[assignment]
@@ -184,7 +183,15 @@ def case_interactive_tui_sidecar_dry_run() -> dict[str, Any]:
     assert metadata["requested_sandbox"] == "read-only", metadata
     assert metadata["approval_policy"] == "on-request", metadata
     assert metadata["session_context_supplied"] is True, metadata
+    assert metadata["close_on_exit"] is True, metadata
+    assert metadata["auto_close_after_report"] is True, metadata
     assert status["status"] == "launched", status
+
+    prompt = (run_dir / "prompt.md").read_text(encoding="utf-8-sig")
+    assert "submit_captain_report" in prompt, prompt
+    assert str(run_dir) in prompt, prompt
+    assert "Do not rely on a normal TUI final answer to reach Claude" in prompt, prompt
+    assert "Captain Report Handoff" in prompt, prompt
 
     assert "codex.cmd" in script, script
     assert "'-m'" in script and "'gpt-5.5'" in script, script
@@ -192,6 +199,9 @@ def case_interactive_tui_sidecar_dry_run() -> dict[str, Any]:
     assert "model_reasoning_effort=`\"xhigh`\"" in script, script
     assert "service_tier=`\"fast`\"" in script, script
     assert "--no-alt-screen" in script, script
+    assert "$KeepOpen = $false" in script, script
+    assert "$AutoCloseAfterReport = $true" in script, script
+    assert "captain_reports" in script and "final.json" in script, script
     assert "--json" not in script, script
     assert "exec" not in script.split("$argsList", 1)[1].split("Write-Log", 1)[0], script
 
@@ -199,8 +209,30 @@ def case_interactive_tui_sidecar_dry_run() -> dict[str, Any]:
     assert (run_dir / "session_context.md").exists(), run_dir
     assert (run_dir / "notes.md").exists(), run_dir
     assert (run_dir / "display.log").exists(), run_dir
+    assert (run_dir / "captain_reports").is_dir(), run_dir
 
     original_find_session = bridge._find_recent_codex_session_id
+    try:
+        bridge._find_recent_codex_session_id = lambda started_at, cwd, limit=50: ""  # type: ignore[assignment]
+        report = bridge.submit_captain_report(
+            str(run_dir),
+            outcome="completed",
+            summary="Interactive TUI dry-run report reached the captain sidecar.",
+            changed_files=[],
+            verification=["dry-run launcher inspected"],
+            risks=["none"],
+            questions=[],
+            close_tui=False,
+        )
+        reported_status = bridge.get_visible_run_status(str(run_dir), tail_lines=20)
+    finally:
+        bridge._find_recent_codex_session_id = original_find_session  # type: ignore[assignment]
+    assert report["ok"], report
+    assert Path(report["report"]).exists(), report
+    assert Path(report["report_markdown"]).exists(), report
+    assert reported_status["captain_report"]["outcome"] == "completed", reported_status
+    assert reported_status["captain_reports_count"] >= 1, reported_status
+
     find_calls: list[tuple[float, str, int]] = []
 
     def fake_find_session(started_at: float, cwd: str, limit: int = 50) -> str:
@@ -318,7 +350,6 @@ def case_interactive_first_mate_tui_dry_run() -> dict[str, Any]:
             max_workers=2,
             session_context=SESSION_CONTEXT,
             no_alt_screen=True,
-            close_on_exit=False,
         )
     finally:
         bridge._launch_interactive_terminal = original_launch  # type: ignore[assignment]
@@ -336,7 +367,10 @@ def case_interactive_first_mate_tui_dry_run() -> dict[str, Any]:
     assert metadata["approval_policy"] == "on-request", metadata
     assert metadata["requested_sandbox"] == "read-only", metadata
     assert metadata["model"] == bridge.CODEX_MODEL, metadata
+    assert metadata["auto_close_after_report"] is True, metadata
     assert "Use the `firstmate` skill" in prompt, prompt
+    assert "submit_captain_report" in prompt, prompt
+    assert "Captain Report Handoff" in prompt, prompt
     assert "Keep fan-out bounded to at most 2 workers." in prompt, prompt
     assert "Claude-requested permission intent: read-only" in prompt, prompt
     assert "Self-contained interactive first-mate TUI dry-run" in prompt, prompt
