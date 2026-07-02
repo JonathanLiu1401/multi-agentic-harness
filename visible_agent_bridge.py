@@ -1281,22 +1281,15 @@ def start_visible_haiku_composed_codex_worker(
     )
 
 
-@mcp.tool()
-def start_visible_first_mate_codex_pool(
+def _first_mate_prompt(
     goal: str,
-    cwd: str,
     scout_areas: list[str] | None = None,
     implementation_items: list[str] | None = None,
     sandbox: str = "read-only",
     max_workers: int = 6,
-    model: str = CODEX_MODEL,
-    reasoning_effort: str = CODEX_REASONING_EFFORT,
     session_context: str = "",
-    resume_session_id: str = "",
     requires_tool_access: bool = False,
-    steer_idle_seconds: int = CODEX_STEER_IDLE_SECONDS,
-) -> dict[str, Any]:
-    """Launch a visible Codex root session instructed to act as first mate and manage parallel Codex subagents."""
+) -> tuple[str, bool]:
     scout_areas = scout_areas or []
     implementation_items = implementation_items or []
     auto_full_tool_access = _needs_full_tool_access("\n".join([goal, session_context, *scout_areas, *implementation_items]))
@@ -1330,8 +1323,36 @@ Actual process sandbox for this root run: {effective_root_sandbox}
 Claude-requested permission intent: {sandbox}
 If the intent is read-only/no-edit, do not attempt implementation. Scout and summarize.
 """
+    return textwrap.dedent(prompt).strip(), auto_full_tool_access
+
+
+@mcp.tool()
+def start_visible_first_mate_codex_pool(
+    goal: str,
+    cwd: str,
+    scout_areas: list[str] | None = None,
+    implementation_items: list[str] | None = None,
+    sandbox: str = "read-only",
+    max_workers: int = 6,
+    model: str = CODEX_MODEL,
+    reasoning_effort: str = CODEX_REASONING_EFFORT,
+    session_context: str = "",
+    resume_session_id: str = "",
+    requires_tool_access: bool = False,
+    steer_idle_seconds: int = CODEX_STEER_IDLE_SECONDS,
+) -> dict[str, Any]:
+    """Launch a visible Codex root session instructed to act as first mate and manage parallel Codex subagents."""
+    prompt, auto_full_tool_access = _first_mate_prompt(
+        goal=goal,
+        scout_areas=scout_areas,
+        implementation_items=implementation_items,
+        sandbox=sandbox,
+        max_workers=max_workers,
+        session_context=session_context,
+        requires_tool_access=requires_tool_access,
+    )
     return start_visible_codex_worker(
-        prompt=textwrap.dedent(prompt).strip(),
+        prompt=prompt,
         cwd=cwd,
         title="Codex first mate pool",
         sandbox=sandbox,
@@ -1342,6 +1363,49 @@ If the intent is read-only/no-edit, do not attempt implementation. Scout and sum
         resume_session_id=resume_session_id,
         requires_tool_access=requires_tool_access or auto_full_tool_access,
         steer_idle_seconds=steer_idle_seconds,
+    )
+
+
+@mcp.tool()
+def start_interactive_first_mate_codex_tui(
+    goal: str,
+    cwd: str,
+    scout_areas: list[str] | None = None,
+    implementation_items: list[str] | None = None,
+    sandbox: str = "read-only",
+    approval_policy: str = INTERACTIVE_TUI_APPROVAL_POLICY,
+    max_workers: int = 6,
+    model: str = CODEX_MODEL,
+    reasoning_effort: str = CODEX_REASONING_EFFORT,
+    session_context: str = "",
+    resume_session_id: str = "",
+    requires_tool_access: bool = False,
+    no_alt_screen: bool = False,
+    close_on_exit: bool = False,
+) -> dict[str, Any]:
+    """Launch the first-mate Codex coordinator in the real interactive Codex TUI."""
+    prompt, auto_full_tool_access = _first_mate_prompt(
+        goal=goal,
+        scout_areas=scout_areas,
+        implementation_items=implementation_items,
+        sandbox=sandbox,
+        max_workers=max_workers,
+        session_context=session_context,
+        requires_tool_access=requires_tool_access,
+    )
+    return start_interactive_codex_tui(
+        prompt=prompt,
+        cwd=cwd,
+        title="Interactive Codex first mate TUI",
+        sandbox=sandbox,
+        approval_policy=approval_policy,
+        session_context=session_context,
+        resume_session_id=resume_session_id,
+        requires_tool_access=requires_tool_access or auto_full_tool_access,
+        no_alt_screen=no_alt_screen,
+        close_on_exit=close_on_exit,
+        model=model,
+        reasoning_effort=reasoning_effort,
     )
 
 

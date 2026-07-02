@@ -298,6 +298,56 @@ def case_interactive_tui_sidecar_dry_run() -> dict[str, Any]:
     return {"run_dir": str(run_dir), "script": str(launched_scripts[0])}
 
 
+def case_interactive_first_mate_tui_dry_run() -> dict[str, Any]:
+    original_launch = bridge._launch
+    launched_scripts: list[Path] = []
+
+    def fake_launch(script_path: Path) -> int:
+        launched_scripts.append(script_path)
+        return 424243
+
+    try:
+        bridge._launch = fake_launch  # type: ignore[assignment]
+        result = bridge.start_interactive_first_mate_codex_tui(
+            goal="Self-contained interactive first-mate TUI dry-run. Do not edit files.",
+            cwd=str(ROOT),
+            scout_areas=["Confirm this dry-run keeps the first-mate prompt contract."],
+            implementation_items=[],
+            sandbox="read-only",
+            approval_policy="on-request",
+            max_workers=2,
+            session_context=SESSION_CONTEXT,
+            no_alt_screen=True,
+            close_on_exit=False,
+        )
+    finally:
+        bridge._launch = original_launch  # type: ignore[assignment]
+
+    assert result["ok"], result
+    assert result["pid"] == 424243, result
+    assert launched_scripts, result
+
+    run_dir = _run_dir(result)
+    script = launched_scripts[0].read_text(encoding="utf-8-sig")
+    prompt = (run_dir / "prompt.md").read_text(encoding="utf-8-sig")
+    metadata = _read_json(run_dir / "metadata.json", {})
+
+    assert metadata["mode"] == "interactive_tui", metadata
+    assert metadata["approval_policy"] == "on-request", metadata
+    assert metadata["requested_sandbox"] == "read-only", metadata
+    assert metadata["model"] == bridge.CODEX_MODEL, metadata
+    assert "Use the `firstmate` skill" in prompt, prompt
+    assert "Keep fan-out bounded to at most 2 workers." in prompt, prompt
+    assert "Claude-requested permission intent: read-only" in prompt, prompt
+    assert "Self-contained interactive first-mate TUI dry-run" in prompt, prompt
+    assert "Confirm this dry-run keeps the first-mate prompt contract." in prompt, prompt
+    assert "codex.cmd" in script, script
+    assert "--no-alt-screen" in script, script
+    assert "--json" not in script, script
+    assert "exec" not in script.split("$argsList", 1)[1].split("Write-Log", 1)[0], script
+    return {"run_dir": str(run_dir), "script": str(launched_scripts[0])}
+
+
 def _wait_completed(run_dir: Path, markers: list[str], timeout_s: int = 300) -> str:
     display = run_dir / "display.log"
     deadline = time.time() + timeout_s
@@ -499,39 +549,43 @@ def main() -> None:
     args = parser.parse_args()
 
     results: dict[str, Any] = {}
-    print("[0/8] advisor model policy", flush=True)
+    print("[0/9] advisor model policy", flush=True)
     _assert_model_policy()
 
-    print("[1/8] captain help mailbox", flush=True)
+    print("[1/9] captain help mailbox", flush=True)
     results["captain_help"] = case_captain_help_mailbox()
     print(json.dumps(results["captain_help"], indent=2), flush=True)
 
-    print("[2/8] interactive TUI sidecar dry-run", flush=True)
+    print("[2/9] interactive TUI sidecar dry-run", flush=True)
     results["interactive_tui"] = case_interactive_tui_sidecar_dry_run()
     print(json.dumps(results["interactive_tui"], indent=2), flush=True)
 
-    print("[3/8] visible worker + queued steer", flush=True)
+    print("[3/9] interactive first-mate TUI dry-run", flush=True)
+    results["interactive_firstmate_tui"] = case_interactive_first_mate_tui_dry_run()
+    print(json.dumps(results["interactive_firstmate_tui"], indent=2), flush=True)
+
+    print("[4/9] visible worker + queued steer", flush=True)
     results["queued"] = case_visible_worker_and_queued_steer()
     print(json.dumps(results["queued"], indent=2), flush=True)
 
-    print("[4/8] closed run resume + permission override", flush=True)
+    print("[5/9] closed run resume + permission override", flush=True)
     results["resume"] = case_closed_run_resume(results["queued"])
     print(json.dumps(results["resume"], indent=2), flush=True)
 
-    print("[5/8] interrupt current turn + resume steering", flush=True)
+    print("[6/9] interrupt current turn + resume steering", flush=True)
     results["interrupt"] = case_interrupt_steering()
     print(json.dumps(results["interrupt"], indent=2), flush=True)
 
     if not args.skip_expensive:
-        print("[6/8] Haiku-composed Codex worker", flush=True)
+        print("[7/9] Haiku-composed Codex worker", flush=True)
         results["haiku"] = case_haiku_composed_worker()
         print(json.dumps(results["haiku"], indent=2), flush=True)
 
-        print("[7/8] first-mate visible pool", flush=True)
+        print("[8/9] first-mate visible pool", flush=True)
         results["firstmate"] = case_first_mate_pool()
         print(json.dumps(results["firstmate"], indent=2), flush=True)
 
-        print("[8/8] Claude advisor visible run", flush=True)
+        print("[9/9] Claude advisor visible run", flush=True)
         results["claude_advisor"] = case_claude_advisor()
         print(json.dumps(results["claude_advisor"], indent=2), flush=True)
 
