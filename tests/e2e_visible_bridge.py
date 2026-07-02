@@ -144,6 +144,160 @@ def case_captain_help_mailbox() -> dict[str, Any]:
     return {"run_dir": str(run_dir), "request_id": request["request_id"]}
 
 
+def case_interactive_tui_sidecar_dry_run() -> dict[str, Any]:
+    original_launch = bridge._launch
+    launched_scripts: list[Path] = []
+
+    def fake_launch(script_path: Path) -> int:
+        launched_scripts.append(script_path)
+        return 424242
+
+    try:
+        bridge._launch = fake_launch  # type: ignore[assignment]
+        result = bridge.start_interactive_codex_tui(
+            prompt="Self-contained interactive TUI dry-run. Do not edit files.",
+            cwd=str(ROOT),
+            title="E2E interactive Codex TUI dry-run",
+            sandbox="read-only",
+            approval_policy="on-request",
+            session_context=SESSION_CONTEXT,
+            no_alt_screen=True,
+            close_on_exit=False,
+        )
+    finally:
+        bridge._launch = original_launch  # type: ignore[assignment]
+
+    assert result["ok"], result
+    assert result["pid"] == 424242, result
+    assert launched_scripts, result
+
+    run_dir = _run_dir(result)
+    script = launched_scripts[0].read_text(encoding="utf-8-sig")
+    metadata = _read_json(run_dir / "metadata.json", {})
+    status = _read_json(run_dir / "status.json", {})
+
+    assert metadata["agent"] == "codex", metadata
+    assert metadata["mode"] == "interactive_tui", metadata
+    assert metadata["model"] == bridge.CODEX_MODEL, metadata
+    assert metadata["reasoning_effort"] == bridge.CODEX_REASONING_EFFORT, metadata
+    assert metadata["service_tier"] == bridge.CODEX_SERVICE_TIER, metadata
+    assert metadata["requested_sandbox"] == "read-only", metadata
+    assert metadata["approval_policy"] == "on-request", metadata
+    assert metadata["session_context_supplied"] is True, metadata
+    assert status["status"] == "launched", status
+
+    assert "codex.cmd" in script, script
+    assert "'-m'" in script and "'gpt-5.5'" in script, script
+    assert "'-a'" in script and "'on-request'" in script, script
+    assert "model_reasoning_effort=`\"xhigh`\"" in script, script
+    assert "service_tier=`\"fast`\"" in script, script
+    assert "--no-alt-screen" in script, script
+    assert "--json" not in script, script
+    assert "exec" not in script.split("$argsList", 1)[1].split("Write-Log", 1)[0], script
+
+    assert (run_dir / "prompt.md").exists(), run_dir
+    assert (run_dir / "session_context.md").exists(), run_dir
+    assert (run_dir / "notes.md").exists(), run_dir
+    assert (run_dir / "display.log").exists(), run_dir
+
+    original_find_session = bridge._find_recent_codex_session_id
+    find_calls: list[tuple[float, str, int]] = []
+
+    def fake_find_session(started_at: float, cwd: str, limit: int = 50) -> str:
+        find_calls.append((started_at, cwd, limit))
+        return ""
+
+    try:
+        bridge._find_recent_codex_session_id = fake_find_session  # type: ignore[assignment]
+        status_result = bridge.get_visible_run_status(str(run_dir), tail_lines=20)
+        assert status_result["metadata"]["mode"] == "interactive_tui", status_result
+        assert status_result["session_id"] is None, status_result
+        assert not (run_dir / "session_id.txt").exists(), run_dir
+
+        listed = bridge.list_visible_runs(str(ROOT), limit=5)
+        listed_run = next((item for item in listed if item["run_dir"] == str(run_dir)), None)
+        assert listed_run is not None and listed_run["metadata"].get("mode") == "interactive_tui", listed
+        assert listed_run["session_id"] is None, listed_run
+        assert not (run_dir / "session_id.txt").exists(), run_dir
+    finally:
+        bridge._find_recent_codex_session_id = original_find_session  # type: ignore[assignment]
+    assert find_calls, status_result
+
+    fake_session = run_dir / "fake-session.jsonl"
+    fake_session.write_text(
+        json.dumps({"type": "session_meta", "payload": {"id": "019f-test-session"}}) + "\n",
+        encoding="utf-8",
+    )
+    assert bridge._extract_session_id_from_jsonl(fake_session) == "019f-test-session"
+
+    metadata_path = run_dir / "metadata.json"
+    original_metadata = metadata_path.read_text(encoding="utf-8-sig")
+    original_write_json = bridge._write_json
+    original_path_write_text = Path.write_text
+
+    def assert_best_effort_failure(
+        label: str,
+        metadata_override: dict[str, Any] | None = None,
+        find_session: Any = None,
+        write_text: Any = None,
+        write_json: Any = None,
+    ) -> None:
+        if (run_dir / "session_id.txt").exists():
+            (run_dir / "session_id.txt").unlink()
+        metadata_path.write_text(original_metadata, encoding="utf-8")
+        if metadata_override:
+            failing_metadata = _read_json(metadata_path, {})
+            failing_metadata.update(metadata_override)
+            metadata_path.write_text(json.dumps(failing_metadata, indent=2), encoding="utf-8")
+        bridge._find_recent_codex_session_id = find_session or (lambda started_at, cwd, limit=50: "")
+        bridge._write_json = write_json or original_write_json  # type: ignore[assignment]
+        Path.write_text = write_text or original_path_write_text  # type: ignore[assignment]
+        try:
+            failure_status = bridge.get_visible_run_status(str(run_dir), tail_lines=20)
+            assert failure_status["session_id"] is None, (label, failure_status)
+            assert not (run_dir / "session_id.txt").exists(), label
+            failure_list = bridge.list_visible_runs(str(ROOT), limit=5)
+            failure_item = next(item for item in failure_list if item["run_dir"] == str(run_dir))
+            assert failure_item["session_id"] is None, (label, failure_item)
+            assert not (run_dir / "session_id.txt").exists(), label
+        finally:
+            bridge._find_recent_codex_session_id = original_find_session  # type: ignore[assignment]
+            bridge._write_json = original_write_json  # type: ignore[assignment]
+            Path.write_text = original_path_write_text  # type: ignore[assignment]
+            if (run_dir / "session_id.txt").exists():
+                (run_dir / "session_id.txt").unlink()
+            metadata_path.write_text(original_metadata, encoding="utf-8")
+
+    assert_best_effort_failure("invalid started_at", metadata_override={"started_at_epoch": "not-a-float"})
+
+    def raise_discovery(started_at: float, cwd: str, limit: int = 50) -> str:
+        raise RuntimeError("discovery failed")
+
+    assert_best_effort_failure("discovery failure", find_session=raise_discovery)
+
+    def raise_session_write(self: Path, *args: Any, **kwargs: Any) -> int:
+        if self == run_dir / "session_id.txt":
+            raise OSError("session write failed")
+        return original_path_write_text(self, *args, **kwargs)
+
+    assert_best_effort_failure(
+        "session_id write failure",
+        find_session=lambda started_at, cwd, limit=50: "019f-write-failure",
+        write_text=raise_session_write,
+    )
+
+    def raise_write_json(path: Path, value: Any) -> None:
+        raise OSError("metadata write failed")
+
+    assert_best_effort_failure(
+        "metadata write failure",
+        find_session=lambda started_at, cwd, limit=50: "019f-metadata-failure",
+        write_json=raise_write_json,
+    )
+
+    return {"run_dir": str(run_dir), "script": str(launched_scripts[0])}
+
+
 def _wait_completed(run_dir: Path, markers: list[str], timeout_s: int = 300) -> str:
     display = run_dir / "display.log"
     deadline = time.time() + timeout_s
@@ -345,35 +499,39 @@ def main() -> None:
     args = parser.parse_args()
 
     results: dict[str, Any] = {}
-    print("[0/7] advisor model policy", flush=True)
+    print("[0/8] advisor model policy", flush=True)
     _assert_model_policy()
 
-    print("[1/7] captain help mailbox", flush=True)
+    print("[1/8] captain help mailbox", flush=True)
     results["captain_help"] = case_captain_help_mailbox()
     print(json.dumps(results["captain_help"], indent=2), flush=True)
 
-    print("[2/7] visible worker + queued steer", flush=True)
+    print("[2/8] interactive TUI sidecar dry-run", flush=True)
+    results["interactive_tui"] = case_interactive_tui_sidecar_dry_run()
+    print(json.dumps(results["interactive_tui"], indent=2), flush=True)
+
+    print("[3/8] visible worker + queued steer", flush=True)
     results["queued"] = case_visible_worker_and_queued_steer()
     print(json.dumps(results["queued"], indent=2), flush=True)
 
-    print("[3/7] closed run resume + permission override", flush=True)
+    print("[4/8] closed run resume + permission override", flush=True)
     results["resume"] = case_closed_run_resume(results["queued"])
     print(json.dumps(results["resume"], indent=2), flush=True)
 
-    print("[4/7] interrupt current turn + resume steering", flush=True)
+    print("[5/8] interrupt current turn + resume steering", flush=True)
     results["interrupt"] = case_interrupt_steering()
     print(json.dumps(results["interrupt"], indent=2), flush=True)
 
     if not args.skip_expensive:
-        print("[5/7] Haiku-composed Codex worker", flush=True)
+        print("[6/8] Haiku-composed Codex worker", flush=True)
         results["haiku"] = case_haiku_composed_worker()
         print(json.dumps(results["haiku"], indent=2), flush=True)
 
-        print("[6/7] first-mate visible pool", flush=True)
+        print("[7/8] first-mate visible pool", flush=True)
         results["firstmate"] = case_first_mate_pool()
         print(json.dumps(results["firstmate"], indent=2), flush=True)
 
-        print("[7/7] Claude advisor visible run", flush=True)
+        print("[8/8] Claude advisor visible run", flush=True)
         results["claude_advisor"] = case_claude_advisor()
         print(json.dumps(results["claude_advisor"], indent=2), flush=True)
 

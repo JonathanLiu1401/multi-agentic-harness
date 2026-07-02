@@ -135,6 +135,7 @@ The server exposes:
 - `start_visible_codex_worker`: launches `codex exec --json` in a separate visible PowerShell window, saves the prompt and event logs, and returns a run directory.
 - `start_visible_haiku_composed_codex_worker`: launches a visible run where Claude passes a compact `prompt_brief`, Haiku/low composes the full Codex prompt, then Codex executes it.
 - `start_visible_first_mate_codex_pool`: launches a visible Codex root coordinator instructed to spawn and manage Codex subagents.
+- `start_interactive_codex_tui`: launches the real interactive Codex TUI in a visible terminal for direct user steering, with bridge sidecar metadata but no structured JSONL event stream.
 - `steer_visible_codex_run`: sends a captain steering instruction to an existing visible Codex run. If the visible window is active, the instruction is queued and consumed on the same Codex thread. If the window already closed and a `thread_id` exists, it launches a visible resume run on that thread.
 - `request_captain_help`: worker-side callback for a stuck visible Codex run to ask the same Claude captain for feedback.
 - `list_captain_help_requests`: captain-side view of pending stuck-worker requests.
@@ -161,6 +162,8 @@ Use visible tools for:
 - long implementation or test-repair runs
 - SSH, live-device, serial, hardware, network, Docker, package-manager, or external-tool debugging where Codex must run the same tools a developer would run
 - any user request to see live work
+
+Use `start_interactive_codex_tui` when the user explicitly wants to type into Codex directly, approve actions in the Codex TUI, or steer the worker without routing every message through Claude. Treat this mode as user-steered: Claude provides the initial architecture brief and later review, but should not expect `steer_visible_codex_run` to inject live text into the TUI.
 
 Default to `start_visible_haiku_composed_codex_worker` for non-trivial single-worker delegation so the manager model emits a compact brief instead of the full Codex prompt. Use direct `start_visible_codex_worker` only for tiny prompts or when a final prompt already exists outside Claude output.
 

@@ -7,6 +7,7 @@ import os
 import re
 import subprocess
 import textwrap
+import time
 import uuid
 from pathlib import Path
 from typing import Any
@@ -44,6 +45,8 @@ CLAUDE_PROMPT_COMPOSER_MODEL = "haiku"
 CLAUDE_PROMPT_COMPOSER_EFFORT = "low"
 CLAUDE_PROMPT_COMPOSER_MAX_BUDGET_USD = "0.25"
 CODEX_STEER_IDLE_SECONDS = 20
+INTERACTIVE_TUI_APPROVAL_POLICY = "on-request"
+INTERACTIVE_TUI_MODE = "interactive_tui"
 
 TOOL_ACCESS_KEYWORDS = (
     "ssh",
@@ -388,6 +391,120 @@ def _read_json(path: Path, default: Any) -> Any:
     return default
 
 
+def _write_json(path: Path, value: Any) -> None:
+    path.write_text(json.dumps(value, indent=2), encoding="utf-8")
+
+
+def _read_session_id_file(session_path: Path) -> str | None:
+    try:
+        if session_path.exists():
+            value = session_path.read_text(encoding="utf-8-sig").strip()
+            return value or None
+    except Exception:
+        return None
+    return None
+
+
+def _extract_session_id_from_jsonl(path: Path) -> str:
+    try:
+        with path.open("r", encoding="utf-8-sig", errors="replace") as handle:
+            for _ in range(200):
+                line = handle.readline()
+                if not line:
+                    break
+                try:
+                    event = json.loads(line)
+                except Exception:
+                    continue
+                payload = event.get("payload") if isinstance(event, dict) else None
+                if isinstance(payload, dict) and isinstance(payload.get("id"), str):
+                    return payload["id"]
+                session_meta = event.get("session_meta") if isinstance(event, dict) else None
+                if isinstance(session_meta, dict):
+                    nested_payload = session_meta.get("payload")
+                    if isinstance(nested_payload, dict) and isinstance(nested_payload.get("id"), str):
+                        return nested_payload["id"]
+    except Exception:
+        return ""
+    return ""
+
+
+def _find_recent_codex_session_id(started_at: float, cwd: str, limit: int = 50) -> str:
+    sessions_root = HOME / ".codex" / "sessions"
+    if not sessions_root.exists():
+        return ""
+    try:
+        files = sorted(
+            [path for path in sessions_root.rglob("*.jsonl") if path.is_file()],
+            key=lambda path: path.stat().st_mtime,
+            reverse=True,
+        )
+    except Exception:
+        return ""
+    cwd_text = str(Path(cwd).resolve()).lower()
+    fallback = ""
+    for path in files[: max(1, min(limit, 200))]:
+        try:
+            if path.stat().st_mtime + 2 < started_at:
+                continue
+        except Exception:
+            continue
+        session_id = _extract_session_id_from_jsonl(path)
+        if not session_id:
+            continue
+        if not fallback:
+            fallback = session_id
+        try:
+            sample = path.read_text(encoding="utf-8-sig", errors="replace")[:20000].lower()
+        except Exception:
+            sample = ""
+        if cwd_text and cwd_text in sample:
+            return session_id
+    return fallback
+
+
+def _record_interactive_session_id(run_dir: Path, metadata: dict[str, Any]) -> str | None:
+    session_path = run_dir / "session_id.txt"
+    wrote_session_path = False
+    try:
+        if metadata.get("mode") != INTERACTIVE_TUI_MODE:
+            return None
+        if session_path.exists():
+            return _read_session_id_file(session_path)
+        started_at = float(metadata.get("started_at_epoch") or metadata.get("created_at_epoch") or 0.0)
+        cwd = str(metadata.get("cwd") or _infer_cwd_from_run_dir(run_dir, metadata))
+        if started_at <= 0:
+            try:
+                started_at = (run_dir / "metadata.json").stat().st_mtime
+            except Exception:
+                started_at = time.time()
+        session_id = _find_recent_codex_session_id(started_at, cwd)
+        if not session_id:
+            return None
+        session_path.write_text(session_id, encoding="utf-8")
+        wrote_session_path = True
+        updated_metadata = dict(metadata)
+        updated_metadata["session_id"] = session_id
+        updated_metadata["session_id_detected_at"] = _dt.datetime.now().isoformat()
+        _write_json(run_dir / "metadata.json", updated_metadata)
+        metadata.clear()
+        metadata.update(updated_metadata)
+        return session_id
+    except Exception:
+        if wrote_session_path:
+            try:
+                session_path.unlink()
+            except Exception:
+                pass
+        return None
+
+
+def _visible_run_session_id(run_dir: Path, metadata: dict[str, Any]) -> str | None:
+    if isinstance(metadata, dict) and metadata.get("mode") == INTERACTIVE_TUI_MODE:
+        return _record_interactive_session_id(run_dir, metadata)
+    return _read_session_id_file(run_dir / "session_id.txt")
+
+
 def _infer_cwd_from_run_dir(run_dir: Path, metadata: dict[str, Any]) -> str:
     cwd = metadata.get("cwd")
     if cwd:
@@ -459,6 +576,121 @@ def _launch(script_path: Path) -> int:
     )
     _LAUNCHED_PIDS.append(int(proc.pid))
     return int(proc.pid)
+
+
+def _codex_tui_args(
+    cwd: str,
+    sandbox: str,
+    approval_policy: str,
+    prompt: str,
+    resume_session_id: str = "",
+    no_alt_screen: bool = False,
+) -> list[str]:
+    args: list[str] = []
+    if resume_session_id.strip():
+        args.extend(["resume", resume_session_id.strip()])
+    args.extend([
+        "-m",
+        CODEX_MODEL,
+        "-C",
+        str(Path(cwd).resolve()),
+        "-s",
+        sandbox,
+        "-a",
+        approval_policy or INTERACTIVE_TUI_APPROVAL_POLICY,
+        "-c",
+        f'model_reasoning_effort="{CODEX_REASONING_EFFORT}"',
+        "-c",
+        f'service_tier="{CODEX_SERVICE_TIER}"',
+    ])
+    if no_alt_screen:
+        args.append("--no-alt-screen")
+    if prompt.strip():
+        args.append(prompt.strip())
+    return args
+
+
+def _ps_tui_arg(value: str) -> str:
+    if value.startswith(("model_reasoning_effort=", "service_tier=")):
+        return '"' + value.replace("`", "``").replace('"', '`"') + '"'
+    return _ps(value)
+
+
+def _interactive_codex_tui_runner(
+    run_dir: Path,
+    cwd: str,
+    sandbox: str,
+    approval_policy: str,
+    prompt: str,
+    resume_session_id: str,
+    no_alt_screen: bool,
+    close_on_exit: bool,
+) -> str:
+    args = _codex_tui_args(
+        cwd=cwd,
+        sandbox=sandbox,
+        approval_policy=approval_policy,
+        prompt=prompt,
+        resume_session_id=resume_session_id,
+        no_alt_screen=no_alt_screen,
+    )
+    ps_args = "\n".join([f"$argsList += @({_ps_tui_arg(arg)})" for arg in args])
+    keep_open = "$true" if not close_on_exit else "$false"
+    return textwrap.dedent(f"""
+    $ErrorActionPreference = 'Continue'
+    { _PS_CLEANUP_FN }
+    $RunDir = {_ps(run_dir)}
+    $Cwd = {_ps(cwd)}
+    $StatusPath = Join-Path $RunDir 'status.json'
+    $DisplayLog = Join-Path $RunDir 'display.log'
+    $CodexCmd = {_ps(CODEX)}
+    $KeepOpen = {keep_open}
+
+    [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+    [Console]::InputEncoding = [System.Text.Encoding]::UTF8
+    $OutputEncoding = [System.Text.Encoding]::UTF8
+    $Host.UI.RawUI.WindowTitle = "Codex interactive TUI - $(Split-Path $RunDir -Leaf)"
+
+    function Write-Log([string]$Message) {{
+      $line = "[{{0}}] {{1}}" -f (Get-Date).ToString("o"), $Message
+      Write-Host $line
+      Add-Content -LiteralPath $DisplayLog -Value $line -Encoding UTF8
+    }}
+
+    function Set-Status([string]$Status, [int]$ExitCode = 0) {{
+      $obj = [ordered]@{{
+        status = $Status
+        run_id = (Split-Path $RunDir -Leaf)
+        updated_at = (Get-Date).ToString("o")
+        exit_code = $ExitCode
+        mode = "interactive_tui"
+      }}
+      $obj | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $StatusPath -Encoding UTF8
+    }}
+
+    Set-Location -LiteralPath $Cwd
+    Set-Status "running"
+    Write-Log "Starting interactive Codex TUI. This terminal is user-steered; display.log is launcher/status only."
+
+    $argsList = @()
+    {ps_args}
+
+    Write-Log ("Command: " + $CodexCmd + " " + ($argsList -join " "))
+    & $CodexCmd @argsList
+    $exitCode = if ($LASTEXITCODE -eq $null) {{ 0 }} else {{ $LASTEXITCODE }}
+    if ($exitCode -eq 0) {{
+      Set-Status "closed" $exitCode
+      Write-Log "Interactive Codex TUI exited cleanly."
+    }} else {{
+      Set-Status "failed" $exitCode
+      Write-Log ("Interactive Codex TUI exited with code " + $exitCode)
+    }}
+
+    if ($KeepOpen) {{
+      Write-Host ""
+      Read-Host "Codex TUI exited. Press Enter to close this window" | Out-Null
+    }}
+    """).strip()
 
 
 def _codex_runner(
@@ -1114,6 +1346,108 @@ If the intent is read-only/no-edit, do not attempt implementation. Scout and sum
 
 
 @mcp.tool()
+def start_interactive_codex_tui(
+    prompt: str,
+    cwd: str,
+    title: str = "Interactive Codex TUI",
+    sandbox: str = "read-only",
+    approval_policy: str = INTERACTIVE_TUI_APPROVAL_POLICY,
+    session_context: str = "",
+    resume_session_id: str = "",
+    requires_tool_access: bool = False,
+    no_alt_screen: bool = False,
+    close_on_exit: bool = False,
+    model: str = CODEX_MODEL,
+    reasoning_effort: str = CODEX_REASONING_EFFORT,
+    service_tier: str = CODEX_SERVICE_TIER,
+) -> dict[str, Any]:
+    """Launch the real interactive Codex TUI in a visible terminal with sidecar metadata."""
+    effective_model = CODEX_MODEL
+    effective_reasoning = CODEX_REASONING_EFFORT
+    effective_service_tier = CODEX_SERVICE_TIER
+    auto_full_tool_access = _needs_full_tool_access("\n".join([title, prompt, session_context]))
+    effective_sandbox = CODEX_FULL_TOOL_SANDBOX
+    requested_approval = approval_policy or INTERACTIVE_TUI_APPROVAL_POLICY
+    effective_prompt = _with_session_context_bootstrap(
+        "\n\n".join([
+            _codex_permission_contract(sandbox, effective_sandbox),
+            prompt,
+        ]),
+        cwd,
+        "Interactive Codex TUI",
+        session_context,
+    )
+    run_dir = _make_run(cwd, "codex-tui-resume" if resume_session_id else "codex-tui", title, effective_prompt, {
+        "agent": "codex",
+        "mode": INTERACTIVE_TUI_MODE,
+        "cwd": str(Path(cwd).resolve()),
+        "sandbox": effective_sandbox,
+        "requested_sandbox": sandbox,
+        "approval_policy": requested_approval,
+        "model": effective_model,
+        "reasoning_effort": effective_reasoning,
+        "service_tier": effective_service_tier,
+        "requested_model": model,
+        "requested_reasoning_effort": reasoning_effort,
+        "requested_service_tier": service_tier,
+        "resume_session_id": resume_session_id or None,
+        "started_at_epoch": time.time(),
+        "session_context_supplied": bool(session_context.strip()),
+        "requires_tool_access": requires_tool_access,
+        "auto_full_tool_access": auto_full_tool_access,
+        "sandbox_bypass_enabled": True,
+        "tool_access_default": "full-process-access",
+        "no_alt_screen": bool(no_alt_screen),
+        "close_on_exit": bool(close_on_exit),
+    })
+    (run_dir / "session_context.md").write_text(session_context.strip(), encoding="utf-8")
+    (run_dir / "notes.md").write_text(
+        "# Interactive Codex TUI Notes\n\n"
+        "This run is user-steered through the Codex TUI. display.log contains launcher/status lines, not a full transcript.\n",
+        encoding="utf-8",
+    )
+    (run_dir / "display.log").write_text("", encoding="utf-8")
+    script = run_dir / "run.ps1"
+    script.write_text(
+        _interactive_codex_tui_runner(
+            run_dir=run_dir,
+            cwd=str(Path(cwd).resolve()),
+            sandbox=effective_sandbox,
+            approval_policy=requested_approval,
+            prompt=effective_prompt,
+            resume_session_id=resume_session_id,
+            no_alt_screen=no_alt_screen,
+            close_on_exit=close_on_exit,
+        ),
+        encoding="utf-8",
+    )
+    pid = _launch(script)
+    (run_dir / "launcher_pid.txt").write_text(str(pid), encoding="utf-8")
+    status = _read_json(run_dir / "status.json", {})
+    status.update({
+        "status": "launched",
+        "mode": INTERACTIVE_TUI_MODE,
+        "pid": pid,
+        "updated_at": _dt.datetime.now().isoformat(),
+    })
+    _write_json(run_dir / "status.json", status)
+    return {
+        "ok": True,
+        "run_id": run_dir.name,
+        "pid": pid,
+        "run_dir": str(run_dir),
+        "prompt": str(run_dir / "prompt.md"),
+        "session_context": str(run_dir / "session_context.md"),
+        "display_log": str(run_dir / "display.log"),
+        "status": str(run_dir / "status.json"),
+        "session_id": None,
+        "session_id_file": str(run_dir / "session_id.txt"),
+        "metadata": str(run_dir / "metadata.json"),
+        "note": "A real interactive Codex TUI was launched. You can steer it directly in the terminal. The sidecar records metadata and status only; use Codex saved sessions, git diff, and notes for review.",
+    }
+
+
+@mcp.tool()
 def steer_visible_codex_run(
     run_dir: str,
     instruction: str,
@@ -1526,13 +1860,13 @@ def get_visible_run_status(run_dir: str, tail_lines: int = 80) -> dict[str, Any]
     status_path = path / "status.json"
     display_path = path / "display.log"
     thread_path = path / "thread_id.txt"
-    session_path = path / "session_id.txt"
     metadata_path = path / "metadata.json"
     steer_queue = path / "steer_queue"
     steer_done = path / "steer_done"
     help_dirs = _ensure_captain_help_dirs(path)
     status = json.loads(status_path.read_text(encoding="utf-8-sig")) if status_path.exists() else {"status": "unknown"}
     metadata = json.loads(metadata_path.read_text(encoding="utf-8-sig")) if metadata_path.exists() else {}
+    session_id = _visible_run_session_id(path, metadata)
     lines: list[str] = []
     if display_path.exists():
         all_lines = display_path.read_text(encoding="utf-8-sig", errors="replace").splitlines()
@@ -1542,7 +1876,7 @@ def get_visible_run_status(run_dir: str, tail_lines: int = 80) -> dict[str, Any]
         "status": status,
         "metadata": metadata,
         "thread_id": thread_path.read_text(encoding="utf-8-sig").strip() if thread_path.exists() else None,
-        "session_id": session_path.read_text(encoding="utf-8-sig").strip() if session_path.exists() else None,
+        "session_id": session_id,
         "pending_steers": len(list(steer_queue.glob("*.md"))) if steer_queue.exists() else 0,
         "completed_steers": len(list(steer_done.glob("*.md"))) if steer_done.exists() else 0,
         "pending_help_requests": len(list(help_dirs["requests"].glob("*.json"))),
@@ -1565,16 +1899,17 @@ def list_visible_runs(cwd: str | None = None, limit: int = 20) -> list[dict[str,
         status_path = run / "status.json"
         metadata_path = run / "metadata.json"
         thread_path = run / "thread_id.txt"
-        session_path = run / "session_id.txt"
         steer_queue = run / "steer_queue"
         steer_done = run / "steer_done"
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8-sig")) if metadata_path.exists() else {}
+        session_id = _visible_run_session_id(run, metadata)
         result.append({
             "run_id": run.name,
             "run_dir": str(run),
             "status": json.loads(status_path.read_text(encoding="utf-8-sig")) if status_path.exists() else {"status": "unknown"},
-            "metadata": json.loads(metadata_path.read_text(encoding="utf-8-sig")) if metadata_path.exists() else {},
+            "metadata": metadata,
             "thread_id": thread_path.read_text(encoding="utf-8-sig").strip() if thread_path.exists() else None,
-            "session_id": session_path.read_text(encoding="utf-8-sig").strip() if session_path.exists() else None,
+            "session_id": session_id,
             "pending_steers": len(list(steer_queue.glob("*.md"))) if steer_queue.exists() else 0,
             "completed_steers": len(list(steer_done.glob("*.md"))) if steer_done.exists() else 0,
         })
