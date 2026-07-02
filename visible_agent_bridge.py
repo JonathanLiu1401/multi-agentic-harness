@@ -424,7 +424,7 @@ def _captain_help_contract(run_dir: Path) -> str:
     2. Pass `run_dir` exactly as shown above.
     3. Include the question, observed facts, commands/results, files involved, options considered, and your recommended next step.
     4. After submitting the request, stop the current turn with `Outcome: blocked_waiting_for_captain`.
-    5. Do not ask the human owner directly. The same Claude captain may answer you via `steer_visible_codex_run` or escalate to the owner if needed.
+    5. Do not ask the human owner directly. The same Claude captain may answer the mailbox or escalate to the owner if needed. Non-interactive workers can receive that answer through queued steering; interactive TUI workers may need direct terminal steering or a resumed TUI session.
 
     Use `start_visible_claude_advisor` only when Claude explicitly asked you to consult a separate one-shot advisor. The default stuck-worker path is this same-captain mailbox.
     """).strip()
@@ -1874,6 +1874,30 @@ def _latest_captain_report(run_dir: Path) -> dict[str, Any] | None:
     return None
 
 
+def _captain_reports_count(run_dir: Path) -> int:
+    reports_dir = _ensure_captain_report_dir(run_dir)
+    count = len([path for path in reports_dir.glob("*.json") if path.name != CAPTAIN_REPORT_FINAL_JSON])
+    if count == 0 and (reports_dir / CAPTAIN_REPORT_FINAL_JSON).exists():
+        return 1
+    return count
+
+
+def _status_with_captain_report(status: dict[str, Any], captain_report: dict[str, Any] | None, run_dir: Path) -> dict[str, Any]:
+    if not captain_report:
+        return status
+    updated = dict(status)
+    status_name = _status_name(updated)
+    if status_name == "reported":
+        updated.setdefault("outcome", captain_report.get("outcome"))
+        updated.setdefault("captain_report", str(run_dir / CAPTAIN_REPORTS_DIR / CAPTAIN_REPORT_FINAL_JSON))
+        return updated
+    if status_name in {"created", "launched", "running", "unknown"} or status_name.startswith("running"):
+        updated["status"] = "reported"
+        updated["outcome"] = captain_report.get("outcome")
+        updated["captain_report"] = str(run_dir / CAPTAIN_REPORTS_DIR / CAPTAIN_REPORT_FINAL_JSON)
+    return updated
+
+
 def _list_captain_reports_for_run(run_dir: Path, include_text: bool = False, limit: int = 20) -> list[dict[str, Any]]:
     reports_dir = _ensure_captain_report_dir(run_dir)
     paths = sorted(
@@ -2252,11 +2276,11 @@ def get_visible_run_status(run_dir: str, tail_lines: int = 80) -> dict[str, Any]
     steer_queue = path / "steer_queue"
     steer_done = path / "steer_done"
     help_dirs = _ensure_captain_help_dirs(path)
-    reports_dir = _ensure_captain_report_dir(path)
     status = json.loads(status_path.read_text(encoding="utf-8-sig")) if status_path.exists() else {"status": "unknown"}
     metadata = json.loads(metadata_path.read_text(encoding="utf-8-sig")) if metadata_path.exists() else {}
     session_id = _visible_run_session_id(path, metadata)
     captain_report = _latest_captain_report(path)
+    status = _status_with_captain_report(status, captain_report, path)
     lines: list[str] = []
     if display_path.exists():
         all_lines = display_path.read_text(encoding="utf-8-sig", errors="replace").splitlines()
@@ -2274,7 +2298,7 @@ def get_visible_run_status(run_dir: str, tail_lines: int = 80) -> dict[str, Any]
         "escalated_help_requests": len(list(help_dirs["escalated"].glob("*.json"))),
         "help_requests": _summarize_help_requests(path, include_answered=False, limit=10),
         "captain_report": captain_report,
-        "captain_reports_count": len([p for p in reports_dir.glob("*.json") if p.name != CAPTAIN_REPORT_FINAL_JSON]),
+        "captain_reports_count": _captain_reports_count(path),
         "tail": "\n".join(lines),
     }
 
@@ -2293,20 +2317,22 @@ def list_visible_runs(cwd: str | None = None, limit: int = 20) -> list[dict[str,
         thread_path = run / "thread_id.txt"
         steer_queue = run / "steer_queue"
         steer_done = run / "steer_done"
-        reports_dir = _ensure_captain_report_dir(run)
         metadata = json.loads(metadata_path.read_text(encoding="utf-8-sig")) if metadata_path.exists() else {}
         session_id = _visible_run_session_id(run, metadata)
+        captain_report = _latest_captain_report(run)
+        status = json.loads(status_path.read_text(encoding="utf-8-sig")) if status_path.exists() else {"status": "unknown"}
+        status = _status_with_captain_report(status, captain_report, run)
         result.append({
             "run_id": run.name,
             "run_dir": str(run),
-            "status": json.loads(status_path.read_text(encoding="utf-8-sig")) if status_path.exists() else {"status": "unknown"},
+            "status": status,
             "metadata": metadata,
             "thread_id": thread_path.read_text(encoding="utf-8-sig").strip() if thread_path.exists() else None,
             "session_id": session_id,
             "pending_steers": len(list(steer_queue.glob("*.md"))) if steer_queue.exists() else 0,
             "completed_steers": len(list(steer_done.glob("*.md"))) if steer_done.exists() else 0,
-            "captain_report": _latest_captain_report(run),
-            "captain_reports_count": len([p for p in reports_dir.glob("*.json") if p.name != CAPTAIN_REPORT_FINAL_JSON]),
+            "captain_report": captain_report,
+            "captain_reports_count": _captain_reports_count(run),
         })
     return result
 

@@ -201,6 +201,7 @@ Claude owns the response:
 - answer with `respond_to_captain_help_request` when Claude can decide
 - ask the user a focused question when the request needs owner judgment, credentials, destructive permission, product direction, or risk acceptance
 - after the user answers, send the decision back with `respond_to_captain_help_request`
+- for interactive TUI runs, expect the answer to be a recorded mailbox artifact; direct terminal steering or a resumed TUI may still be needed because queued steering cannot type into an already-open TUI
 
 Do not route same-captain help through `start_visible_claude_advisor` unless Claude explicitly wants a separate one-shot advisor. The point of the callback is to keep the spawned worker connected to the captain that launched it.
 

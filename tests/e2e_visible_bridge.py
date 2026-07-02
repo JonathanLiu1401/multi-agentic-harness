@@ -233,6 +233,23 @@ def case_interactive_tui_sidecar_dry_run() -> dict[str, Any]:
     assert reported_status["captain_report"]["outcome"] == "completed", reported_status
     assert reported_status["captain_reports_count"] >= 1, reported_status
 
+    fallback_report = {
+        "run_dir": str(run_dir),
+        "outcome": "completed",
+        "summary": "Fallback final.json report is captain-readable.",
+        "changed_files": [],
+        "verification": ["fallback report inspected"],
+        "risks": [],
+        "questions": [],
+        "close_tui": True,
+    }
+    (run_dir / "captain_reports" / "final.json").write_text(json.dumps(fallback_report, indent=2), encoding="utf-8")
+    (run_dir / "status.json").write_text(json.dumps({"status": "running", "mode": "interactive_tui"}, indent=2), encoding="utf-8")
+    fallback_status = bridge.get_visible_run_status(str(run_dir), tail_lines=20)
+    assert fallback_status["status"]["status"] == "reported", fallback_status
+    assert fallback_status["status"]["outcome"] == "completed", fallback_status
+    assert fallback_status["captain_reports_count"] >= 1, fallback_status
+
     find_calls: list[tuple[float, str, int]] = []
 
     def fake_find_session(started_at: float, cwd: str, limit: int = 50) -> str:

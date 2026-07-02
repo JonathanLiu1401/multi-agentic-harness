@@ -162,7 +162,8 @@ This copy includes fixes over the original bridge, found while testing against C
 10. **Stuck workers had no same-captain callback.** Visible Codex prompts now include a per-run captain-help
     mailbox. A stuck worker calls `request_captain_help` and stops; Claude polls the request, can ask the user if
     the decision requires owner judgment, then `respond_to_captain_help_request` queues steering back to the same
-    run/thread.
+    run/thread for non-interactive workers. Open TUI workers need direct terminal steering or a resumed TUI session
+    because queued steering cannot type into an already-open TUI.
 
 11. **Interactive TUI reports were terminal-only.** Real Codex TUI sessions do not emit `codex exec --json`
     events or `--output-last-message`, so a final answer typed into the TUI is not a reliable captain handoff.
