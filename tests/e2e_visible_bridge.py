@@ -7,6 +7,7 @@ import os
 import subprocess
 import sys
 import time
+import tomllib
 from pathlib import Path
 from typing import Any
 
@@ -101,6 +102,30 @@ def _assert_model_policy() -> None:
             os.environ.pop(bridge.CLAUDE_ADVISOR_MODEL_UNTIL_ENV, None)
         else:
             os.environ[bridge.CLAUDE_ADVISOR_MODEL_UNTIL_ENV] = saved_until
+
+
+def _assert_codex_mcp_tool_allowlists() -> None:
+    required = {"request_captain_help", "submit_captain_report"}
+
+    manifest = _read_json(ROOT / "codex-plugin" / ".mcp.json", {})
+    manifest_tools = set(
+        manifest.get("mcpServers", {})
+        .get("agent-visibility", {})
+        .get("enabled_tools", [])
+    )
+    assert required <= manifest_tools, {"source_manifest": sorted(manifest_tools), "missing": sorted(required - manifest_tools)}
+
+    config_path = Path.home() / ".codex" / "config.toml"
+    if config_path.exists():
+        config = tomllib.loads(config_path.read_text(encoding="utf-8-sig"))
+        active_tools = set(
+            config.get("plugins", {})
+            .get("codex-consults-claude@personal", {})
+            .get("mcp_servers", {})
+            .get("agent-visibility", {})
+            .get("enabled_tools", [])
+        )
+        assert required <= active_tools, {"active_config": sorted(active_tools), "missing": sorted(required - active_tools)}
 
 
 def case_captain_help_mailbox() -> dict[str, Any]:
@@ -201,6 +226,9 @@ def case_interactive_tui_sidecar_dry_run() -> dict[str, Any]:
     assert "--no-alt-screen" in script, script
     assert "$KeepOpen = $false" in script, script
     assert "$AutoCloseAfterReport = $true" in script, script
+    assert "GenerateConsoleCtrlEvent" in script, script
+    assert "taskkill.exe" in script, script
+    assert "Close-InteractiveTuiTree" in script, script
     assert "captain_reports" in script and "final.json" in script, script
     assert "--json" not in script, script
     assert "exec" not in script.split("$argsList", 1)[1].split("Write-Log", 1)[0], script
@@ -245,7 +273,11 @@ def case_interactive_tui_sidecar_dry_run() -> dict[str, Any]:
     }
     (run_dir / "captain_reports" / "final.json").write_text(json.dumps(fallback_report, indent=2), encoding="utf-8")
     (run_dir / "status.json").write_text(json.dumps({"status": "running", "mode": "interactive_tui"}, indent=2), encoding="utf-8")
-    fallback_status = bridge.get_visible_run_status(str(run_dir), tail_lines=20)
+    try:
+        bridge._find_recent_codex_session_id = lambda started_at, cwd, limit=50: ""  # type: ignore[assignment]
+        fallback_status = bridge.get_visible_run_status(str(run_dir), tail_lines=20)
+    finally:
+        bridge._find_recent_codex_session_id = original_find_session  # type: ignore[assignment]
     assert fallback_status["status"]["status"] == "reported", fallback_status
     assert fallback_status["status"]["outcome"] == "completed", fallback_status
     assert fallback_status["captain_reports_count"] >= 1, fallback_status
@@ -446,6 +478,9 @@ def _assert_no_git_changes() -> None:
         " M visible_agent_bridge.py",
         "M  visible_agent_bridge.py",
         "M visible_agent_bridge.py",
+        " M tests/",
+        "M  tests/",
+        "M tests/",
         "?? tests/",
     )
     unexpected = [
@@ -534,12 +569,13 @@ def case_interrupt_steering() -> dict[str, Any]:
         launch_if_closed=True,
     )
     assert steer["ok"], steer
-    assert steer["mode"] in {"launched_resume", "queued_interrupt_failed", "queued_no_interrupt_no_pid"}, steer
-    if steer["mode"] != "launched_resume":
-        raise AssertionError(f"interrupt did not launch resume run: {steer}")
+    launched_modes = {"launched_resume", "launched_restart_after_interrupt"}
+    assert steer["mode"] in launched_modes | {"queued_interrupt_failed", "queued_no_interrupt_no_pid"}, steer
+    if steer["mode"] not in launched_modes:
+        raise AssertionError(f"interrupt did not launch follow-up run: {steer}")
     followup = _run_dir(steer["followup_run"])
     _wait_completed(followup, ["E2E_INTERRUPTED_OK"], timeout_s=300)
-    return {"run_dir": str(followup), "thread_id": _thread_id(followup)}
+    return {"run_dir": str(followup), "mode": steer["mode"], "thread_id": _thread_id(followup)}
 
 
 def case_haiku_composed_worker() -> dict[str, Any]:
@@ -600,43 +636,46 @@ def main() -> None:
     args = parser.parse_args()
 
     results: dict[str, Any] = {}
-    print("[0/9] advisor model policy", flush=True)
+    print("[0/10] advisor model policy", flush=True)
     _assert_model_policy()
 
-    print("[1/9] captain help mailbox", flush=True)
+    print("[1/10] Codex MCP tool allowlists", flush=True)
+    _assert_codex_mcp_tool_allowlists()
+
+    print("[2/10] captain help mailbox", flush=True)
     results["captain_help"] = case_captain_help_mailbox()
     print(json.dumps(results["captain_help"], indent=2), flush=True)
 
-    print("[2/9] interactive TUI sidecar dry-run", flush=True)
+    print("[3/10] interactive TUI sidecar dry-run", flush=True)
     results["interactive_tui"] = case_interactive_tui_sidecar_dry_run()
     print(json.dumps(results["interactive_tui"], indent=2), flush=True)
 
-    print("[3/9] interactive first-mate TUI dry-run", flush=True)
+    print("[4/10] interactive first-mate TUI dry-run", flush=True)
     results["interactive_firstmate_tui"] = case_interactive_first_mate_tui_dry_run()
     print(json.dumps(results["interactive_firstmate_tui"], indent=2), flush=True)
 
-    print("[4/9] visible worker + queued steer", flush=True)
+    print("[5/10] visible worker + queued steer", flush=True)
     results["queued"] = case_visible_worker_and_queued_steer()
     print(json.dumps(results["queued"], indent=2), flush=True)
 
-    print("[5/9] closed run resume + permission override", flush=True)
+    print("[6/10] closed run resume + permission override", flush=True)
     results["resume"] = case_closed_run_resume(results["queued"])
     print(json.dumps(results["resume"], indent=2), flush=True)
 
-    print("[6/9] interrupt current turn + resume steering", flush=True)
+    print("[7/10] interrupt current turn + resume steering", flush=True)
     results["interrupt"] = case_interrupt_steering()
     print(json.dumps(results["interrupt"], indent=2), flush=True)
 
     if not args.skip_expensive:
-        print("[7/9] Haiku-composed Codex worker", flush=True)
+        print("[8/10] Haiku-composed Codex worker", flush=True)
         results["haiku"] = case_haiku_composed_worker()
         print(json.dumps(results["haiku"], indent=2), flush=True)
 
-        print("[8/9] first-mate visible pool", flush=True)
+        print("[9/10] first-mate visible pool", flush=True)
         results["firstmate"] = case_first_mate_pool()
         print(json.dumps(results["firstmate"], indent=2), flush=True)
 
-        print("[9/9] Claude advisor visible run", flush=True)
+        print("[10/10] Claude advisor visible run", flush=True)
         results["claude_advisor"] = case_claude_advisor()
         print(json.dumps(results["claude_advisor"], indent=2), flush=True)
 

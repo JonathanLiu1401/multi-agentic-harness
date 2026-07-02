@@ -31,9 +31,10 @@ while also persisting logs under `.claude-codex/runs/<run-id>/`. Claude-managed 
 - Visible Codex workers run with full process/tool access so Python-backed skills, `read-past-sessions`, SSH, test runners, and external CLIs work. The requested `sandbox` is treated as permission intent: `read-only` means no edits, not a crippled process sandbox.
 - Codex and Claude visible runs record resumable ids (`thread_id` for Codex, `session_id` for Claude).
 - Claude can steer non-interactive visible Codex runs with `steer_visible_codex_run`; active JSON-worker windows consume queued steering on the same Codex thread, then close after a short idle window if no steering arrives.
+- If Claude interrupts an active JSON worker, the bridge sends Ctrl+C first and resumes the same Codex thread when its session file is readable; if Codex left an empty interrupted thread, the bridge launches a fresh follow-up with the saved run context and steering instruction.
 - Stuck visible Codex workers can call back to the same Claude captain with `request_captain_help`; Claude answers with `respond_to_captain_help_request` or asks the user first when owner judgment is required.
 - Visible Codex workers set `NODE_PATH` and `PLAYWRIGHT_BROWSERS_PATH` so Playwright MCP and Node-based Playwright tests can run from delegated Codex sessions.
-- Interactive TUI runs use top-level `codex` rather than `codex exec --json`; they are user-steered, default to `on-request` approvals, submit final handoff through `captain_reports/final.*`, and auto-close a few seconds after the report by default.
+- Interactive TUI runs use top-level `codex` rather than `codex exec --json`; they are user-steered, default to `on-request` approvals, submit final handoff through `captain_reports/final.*`, and auto-close a few seconds after the report by sending Ctrl+C to the run's console with a scoped process-tree fallback.
 
 ## Firstmate skill
 
@@ -171,6 +172,16 @@ This copy includes fixes over the original bridge, found while testing against C
     `final.md`, exposes them through `get_visible_run_status`, and closes the TUI after the report unless the
     worker sets `close_tui=false`.
 
+12. **Interactive TUI windows could outlive the finished agent turn.** Closing only the launcher PowerShell
+    process could leave the `cmd.exe`/Codex TUI process that owned the visible terminal window. The report
+    watcher now sends Ctrl+C to the run's console, waits briefly, then falls back to `taskkill /T /F` for that
+    launcher tree only.
+
+13. **Interrupt steering could race Codex's local thread store.** A forced kill could return a thread id whose
+    rollout JSONL was still empty, making `codex resume` fail. Interrupt steering now tries Ctrl+C first,
+    waits for a readable thread before resuming, and falls back to a fresh context-rich follow-up when the
+    interrupted thread is not recoverable.
+
 ## Interactive TUI Mode
 
 This is the default visible spawn mode for Claude-managed Codex work.
@@ -179,7 +190,7 @@ Use `start_interactive_codex_tui` when you want to type directly into a single C
 
 This mode opens the real Codex TUI in a visible terminal. The user can approve, reject, and steer inside that terminal. The bridge still creates `.claude-codex/runs/<run-id>/` with `prompt.md`, `session_context.md`, `metadata.json`, `status.json`, `notes.md`, and best-effort `session_id.txt`.
 
-Interactive TUI prompts include a captain handoff contract. Codex must call `submit_captain_report` before stopping, which writes `captain_reports/final.json` and `final.md`; Claude reads those through `get_visible_run_status` or `list_captain_reports`. By default the launcher watches for that report and closes the TUI after about five seconds. Pass `auto_close_after_report=false` or `close_tui=false` when the terminal should stay open.
+Interactive TUI prompts include a captain handoff contract. Codex must call `submit_captain_report` before stopping, which writes `captain_reports/final.json` and `final.md`; Claude reads those through `get_visible_run_status` or `list_captain_reports`. By default the launcher watches for that report, waits about five seconds, sends Ctrl+C to the TUI console, and uses a scoped process-tree fallback if the window does not exit. Pass `auto_close_after_report=false` or `close_tui=false` when the terminal should stay open.
 
 This mode is intentionally lower-fidelity than `codex exec --json`: `display.log` contains launcher/status lines, not a full transcript, and queued steering is not injected into an already-open TUI. For automated worker steering, structured event logs, or unattended execution, explicitly use `start_visible_codex_worker` or `start_visible_first_mate_codex_pool`.
 

@@ -216,6 +216,145 @@ def _reap_launched() -> None:
 atexit.register(_reap_launched)
 
 
+def _pid_is_running(pid: str | int) -> bool:
+    try:
+        pid_int = int(str(pid).strip())
+    except (TypeError, ValueError):
+        return False
+    if pid_int <= 0:
+        return False
+    try:
+        proc = subprocess.run(
+            ["tasklist", "/FI", f"PID eq {pid_int}", "/FO", "CSV", "/NH"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except Exception:
+        return False
+    output = (proc.stdout or "").strip()
+    return proc.returncode == 0 and output.startswith('"')
+
+
+def _wait_for_pid_exit(pid: str | int, timeout_sec: float = 5.0) -> bool:
+    deadline = time.time() + max(0.0, timeout_sec)
+    while time.time() < deadline:
+        if not _pid_is_running(pid):
+            return True
+        time.sleep(0.25)
+    return not _pid_is_running(pid)
+
+
+def _send_ctrl_c_to_console(pid: str | int) -> tuple[bool, str]:
+    if os.name != "nt":
+        return False, "Ctrl+C console signaling is only implemented on Windows."
+    try:
+        pid_int = int(str(pid).strip())
+    except (TypeError, ValueError):
+        return False, f"Invalid pid for Ctrl+C: {pid!r}"
+    script = textwrap.dedent(f"""
+    $ErrorActionPreference = 'Continue'
+    $TargetPid = {pid_int}
+    $source = @"
+using System;
+using System.Runtime.InteropServices;
+public static class BridgeConsoleSignal {{
+  [DllImport("kernel32.dll", SetLastError=true)] public static extern bool AttachConsole(uint dwProcessId);
+  [DllImport("kernel32.dll", SetLastError=true)] public static extern bool FreeConsole();
+  [DllImport("kernel32.dll", SetLastError=true)] public static extern bool GenerateConsoleCtrlEvent(uint dwCtrlEvent, uint dwProcessGroupId);
+  [DllImport("kernel32.dll", SetLastError=true)] public static extern bool SetConsoleCtrlHandler(IntPtr handlerRoutine, bool add);
+}}
+"@
+    try {{ Add-Type -TypeDefinition $source -ErrorAction SilentlyContinue | Out-Null }} catch {{}}
+    try {{
+      [void][BridgeConsoleSignal]::FreeConsole()
+      if ([BridgeConsoleSignal]::AttachConsole([uint32]$TargetPid)) {{
+        [void][BridgeConsoleSignal]::SetConsoleCtrlHandler([IntPtr]::Zero, $true)
+        [void][BridgeConsoleSignal]::GenerateConsoleCtrlEvent(0, 0)
+        Start-Sleep -Milliseconds 500
+        [void][BridgeConsoleSignal]::FreeConsole()
+        [void][BridgeConsoleSignal]::SetConsoleCtrlHandler([IntPtr]::Zero, $false)
+        exit 0
+      }}
+    }} catch {{
+      Write-Error $_.Exception.Message
+      try {{ [void][BridgeConsoleSignal]::FreeConsole() }} catch {{}}
+    }}
+    exit 1
+    """).strip()
+    try:
+        proc = subprocess.run(
+            ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except Exception as exc:
+        return False, str(exc)
+    output = "\n".join(part for part in [proc.stdout.strip(), proc.stderr.strip()] if part)
+    return proc.returncode == 0, output
+
+
+def _find_codex_thread_file(thread_id: str) -> Path | None:
+    value = (thread_id or "").strip()
+    if not value:
+        return None
+    sessions_root = HOME / ".codex" / "sessions"
+    if not sessions_root.exists():
+        return None
+    try:
+        matches = [path for path in sessions_root.rglob(f"*{value}.jsonl") if path.is_file()]
+    except Exception:
+        return None
+    if not matches:
+        return None
+    try:
+        return max(matches, key=lambda path: path.stat().st_mtime)
+    except Exception:
+        return matches[0]
+
+
+def _wait_for_codex_thread_ready(thread_id: str, timeout_sec: float = 12.0) -> bool:
+    deadline = time.time() + max(0.0, timeout_sec)
+    while time.time() < deadline:
+        path = _find_codex_thread_file(thread_id)
+        try:
+            if path and path.stat().st_size > 0:
+                return True
+        except Exception:
+            pass
+        time.sleep(0.25)
+    path = _find_codex_thread_file(thread_id)
+    try:
+        return bool(path and path.stat().st_size > 0)
+    except Exception:
+        return False
+
+
+def _interrupt_visible_run(pid: str | int, graceful_timeout_sec: float = 12.0) -> tuple[bool, str]:
+    ctrlc_ok, ctrlc_warning = _send_ctrl_c_to_console(pid)
+    if ctrlc_ok and _wait_for_pid_exit(pid, timeout_sec=graceful_timeout_sec):
+        return True, ctrlc_warning
+
+    warnings = [ctrlc_warning] if ctrlc_warning else []
+    try:
+        killed = subprocess.run(
+            ["taskkill", "/PID", str(pid), "/T", "/F"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        kill_warning = (killed.stderr or killed.stdout or "").strip()
+        if killed.returncode != 0 and kill_warning:
+            warnings.append(kill_warning)
+    except Exception as exc:
+        warnings.append(str(exc))
+
+    if not _wait_for_pid_exit(pid, timeout_sec=5.0):
+        return False, "\n".join(warnings).strip()
+    return True, "\n".join(warnings).strip()
+
+
 def _now() -> str:
     return _dt.datetime.now().strftime("%Y%m%d-%H%M%S")
 
@@ -759,6 +898,68 @@ def _interactive_codex_tui_runner(
           param([string]$ReportsDir, [int]$RootPid, [int]$DelaySeconds)
           $finalJson = Join-Path $ReportsDir '{CAPTAIN_REPORT_FINAL_JSON}'
           $finalMd = Join-Path $ReportsDir '{CAPTAIN_REPORT_FINAL_MD}'
+          function Get-DescendantPids([int]$StartPid) {{
+            $result = New-Object System.Collections.ArrayList
+            try {{ $all = Get-CimInstance Win32_Process -ErrorAction Stop }} catch {{ return @($StartPid) }}
+            $byParent = @{{}}
+            foreach ($p in $all) {{
+              $parent = [int]$p.ParentProcessId
+              if (-not $byParent.ContainsKey($parent)) {{ $byParent[$parent] = New-Object System.Collections.ArrayList }}
+              [void]$byParent[$parent].Add([int]$p.ProcessId)
+            }}
+            $queue = New-Object System.Collections.Queue
+            $queue.Enqueue([int]$StartPid)
+            while ($queue.Count -gt 0) {{
+              $cur = [int]$queue.Dequeue()
+              [void]$result.Add($cur)
+              if ($byParent.ContainsKey($cur)) {{
+                foreach ($child in $byParent[$cur]) {{ $queue.Enqueue([int]$child) }}
+              }}
+            }}
+            return @($result)
+          }}
+          function Send-CtrlCToConsole([int]$TargetPid) {{
+            $source = @"
+using System;
+using System.Runtime.InteropServices;
+public static class BridgeConsoleSignal {{
+  [DllImport("kernel32.dll", SetLastError=true)] public static extern bool AttachConsole(uint dwProcessId);
+  [DllImport("kernel32.dll", SetLastError=true)] public static extern bool FreeConsole();
+  [DllImport("kernel32.dll", SetLastError=true)] public static extern bool GenerateConsoleCtrlEvent(uint dwCtrlEvent, uint dwProcessGroupId);
+  [DllImport("kernel32.dll", SetLastError=true)] public static extern bool SetConsoleCtrlHandler(IntPtr handlerRoutine, bool add);
+}}
+"@
+            try {{ Add-Type -TypeDefinition $source -ErrorAction SilentlyContinue | Out-Null }} catch {{}}
+            try {{
+              [void][BridgeConsoleSignal]::FreeConsole()
+              if ([BridgeConsoleSignal]::AttachConsole([uint32]$TargetPid)) {{
+                [void][BridgeConsoleSignal]::SetConsoleCtrlHandler([IntPtr]::Zero, $true)
+                [void][BridgeConsoleSignal]::GenerateConsoleCtrlEvent(0, 0)
+                Start-Sleep -Milliseconds 500
+                [void][BridgeConsoleSignal]::FreeConsole()
+                [void][BridgeConsoleSignal]::SetConsoleCtrlHandler([IntPtr]::Zero, $false)
+                return $true
+              }}
+            }} catch {{
+              try {{ [void][BridgeConsoleSignal]::FreeConsole() }} catch {{}}
+            }}
+            return $false
+          }}
+          function Close-InteractiveTuiTree([int]$TargetPid) {{
+            $pids = @(Get-DescendantPids $TargetPid)
+            [void](Send-CtrlCToConsole $TargetPid)
+            Start-Sleep -Seconds 3
+            if (Get-Process -Id $TargetPid -ErrorAction SilentlyContinue) {{
+              try {{
+                Start-Process -FilePath 'taskkill.exe' -ArgumentList @('/PID', [string]$TargetPid, '/T', '/F') -WindowStyle Hidden | Out-Null
+                return
+              }} catch {{}}
+            }}
+            foreach ($target in ($pids | Sort-Object -Descending)) {{
+              if ([int]$target -eq [int]$PID) {{ continue }}
+              try {{ Stop-Process -Id ([int]$target) -Force -ErrorAction SilentlyContinue }} catch {{}}
+            }}
+          }}
           while ($true) {{
             if (-not (Get-Process -Id $RootPid -ErrorAction SilentlyContinue)) {{ break }}
             $shouldClose = $false
@@ -774,7 +975,7 @@ def _interactive_codex_tui_runner(
             }}
             if ($shouldClose) {{
               Start-Sleep -Seconds $DelaySeconds
-              try {{ Stop-Process -Id $RootPid -Force -ErrorAction Stop }} catch {{}}
+              Close-InteractiveTuiTree $RootPid
               break
             }}
             if ((Test-Path -LiteralPath $finalJson) -or (Test-Path -LiteralPath $finalMd)) {{ break }}
@@ -1689,6 +1890,10 @@ def steer_visible_codex_run(
     if active and not interrupt_current_turn:
         return result
 
+    resume_session_id = thread_id
+    resume_mode = "launched_resume"
+    resume_note = "The previous visible run was not available for in-window steering, so a visible Codex resume run was launched on the same thread."
+
     if interrupt_current_turn and active:
         if not thread_id:
             result["mode"] = "queued_no_interrupt_no_thread"
@@ -1701,13 +1906,30 @@ def steer_visible_codex_run(
             return result
         try:
             pid = pid_path.read_text(encoding="utf-8-sig").strip()
-            killed = subprocess.run(["taskkill", "/PID", pid, "/T", "/F"], capture_output=True, text=True, timeout=10)
-            if killed.returncode != 0:
+            interrupted, interrupt_warning = _interrupt_visible_run(pid)
+            if not interrupted:
                 result["mode"] = "queued_interrupt_failed"
-                result["interrupt_warning"] = (killed.stderr or killed.stdout or "").strip()
+                if interrupt_warning:
+                    result["interrupt_warning"] = interrupt_warning
                 result["note"] = "Steering was queued, but the active visible run could not be interrupted cleanly."
                 return result
             result["interrupted_pid"] = pid
+            if interrupt_warning:
+                result["interrupt_warning"] = interrupt_warning
+            if not _wait_for_codex_thread_ready(thread_id, timeout_sec=12.0):
+                resume_session_id = ""
+                resume_mode = "launched_restart_after_interrupt"
+                resume_note = (
+                    "The active run was interrupted, but its Codex thread file was empty. "
+                    "A fresh visible Codex follow-up was launched with the saved run context and steering instruction."
+                )
+                result["resume_warning"] = "Interrupted Codex thread file was empty; codex resume was skipped."
+                result["interrupt_warning"] = "\n".join(
+                    part for part in [
+                        result.get("interrupt_warning", ""),
+                        f"Codex thread {thread_id} did not become readable before resume.",
+                    ] if part
+                )
         except Exception as exc:
             result["mode"] = "queued_interrupt_failed"
             result["interrupt_warning"] = str(exc)
@@ -1741,7 +1963,7 @@ def steer_visible_codex_run(
         sandbox=requested_sandbox or metadata.get("requested_sandbox") or "read-only",
         approval_policy=metadata.get("approval_policy") or "never",
         session_context=resume_context,
-        resume_session_id=thread_id,
+        resume_session_id=resume_session_id,
         requires_tool_access=bool(requires_tool_access or metadata.get("requires_tool_access") or metadata.get("auto_full_tool_access")),
         compose_with_haiku=False,
         steer_idle_seconds=int(metadata.get("steer_idle_seconds") or CODEX_STEER_IDLE_SECONDS),
@@ -1752,9 +1974,9 @@ def steer_visible_codex_run(
         steer_path.replace(done_dir / steer_path.name)
     except Exception:
         pass
-    result["mode"] = "launched_resume"
+    result["mode"] = resume_mode
     result["followup_run"] = followup
-    result["note"] = "The previous visible run was not available for in-window steering, so a visible Codex resume run was launched on the same thread."
+    result["note"] = resume_note
     return result
 
 

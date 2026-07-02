@@ -28,6 +28,7 @@ Use the plugin-provided `agent-visibility` MCP server for all Claude consultatio
 Available tools:
 
 - `start_visible_claude_advisor`
+- `request_captain_help`
 - `get_visible_run_status`
 - `list_visible_runs`
 

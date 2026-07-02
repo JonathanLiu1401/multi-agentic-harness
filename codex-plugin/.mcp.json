@@ -10,6 +10,7 @@
       "enabled_tools": [
         "start_visible_claude_advisor",
         "request_captain_help",
+        "submit_captain_report",
         "get_visible_run_status",
         "list_visible_runs"
       ]

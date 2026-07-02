@@ -19,6 +19,7 @@ Use Codex as the worker harness and Claude Code's active manager model as the ex
 - Do not ask the Claude manager model to write long Codex worker prompts or implementation code. It should return decisions, constraints, acceptance criteria, and review findings; the Claude-side bridge uses Haiku/low to compose detailed Codex prompts.
 - When the user wants visibility, use visible advisor tools so the prompt and streamed output appear in a terminal and logs.
 - If this Codex session was spawned by a visible Claude-managed run and is stuck mid-run, prefer the same-captain mailbox: call `request_captain_help` with the visible `run_dir`, then stop and wait for captain steering. Do not start a separate Claude advisor for that case unless Claude explicitly told you to.
+- If the prompt includes a `Captain Report Handoff`, call `submit_captain_report` before stopping. Fallback files are only for when the tool is truly unavailable.
 
 Consult Claude when:
 
@@ -49,6 +50,7 @@ The server exposes:
 
 - `start_visible_claude_advisor`: launches `claude -p --output-format stream-json --max-budget-usd <budget>` in a visible PowerShell window, saves logs, and records a resumable Claude session id.
 - `request_captain_help`: asks the same Claude captain who spawned this visible Codex run for feedback.
+- `submit_captain_report`: sends the final interactive TUI outcome to the captain and lets the bridge close the TUI.
 - `get_visible_run_status`: reads status and recent display log lines.
 - `list_visible_runs`: lists recent visible runs.
 
@@ -67,6 +69,10 @@ When a visible Codex worker needs the captain who launched it:
 5. Wait for Claude to respond through steering on the same run/thread.
 
 Claude may escalate the issue to the user. Do not contact the user directly.
+
+## Captain Report Handoff
+
+When the prompt includes a `Captain Report Handoff`, use `submit_captain_report` for the terminal outcome. Pass the exact `run_dir`, outcome, compact summary, changed files, verification, risks, questions, and `close_tui: true` unless the captain or user asked to keep the TUI open. After the tool succeeds, stop working. Do not rely on a normal TUI final message as the captain handoff.
 
 Use these optional arguments:
 
