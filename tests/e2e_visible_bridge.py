@@ -145,7 +145,7 @@ def case_captain_help_mailbox() -> dict[str, Any]:
 
 
 def case_interactive_tui_sidecar_dry_run() -> dict[str, Any]:
-    original_launch = bridge._launch
+    original_launch = bridge._launch_interactive_terminal
     launched_scripts: list[Path] = []
 
     def fake_launch(script_path: Path) -> int:
@@ -153,7 +153,7 @@ def case_interactive_tui_sidecar_dry_run() -> dict[str, Any]:
         return 424242
 
     try:
-        bridge._launch = fake_launch  # type: ignore[assignment]
+        bridge._launch_interactive_terminal = fake_launch  # type: ignore[assignment]
         result = bridge.start_interactive_codex_tui(
             prompt="Self-contained interactive TUI dry-run. Do not edit files.",
             cwd=str(ROOT),
@@ -165,7 +165,7 @@ def case_interactive_tui_sidecar_dry_run() -> dict[str, Any]:
             close_on_exit=False,
         )
     finally:
-        bridge._launch = original_launch  # type: ignore[assignment]
+        bridge._launch_interactive_terminal = original_launch  # type: ignore[assignment]
 
     assert result["ok"], result
     assert result["pid"] == 424242, result
@@ -299,7 +299,7 @@ def case_interactive_tui_sidecar_dry_run() -> dict[str, Any]:
 
 
 def case_interactive_first_mate_tui_dry_run() -> dict[str, Any]:
-    original_launch = bridge._launch
+    original_launch = bridge._launch_interactive_terminal
     launched_scripts: list[Path] = []
 
     def fake_launch(script_path: Path) -> int:
@@ -307,7 +307,7 @@ def case_interactive_first_mate_tui_dry_run() -> dict[str, Any]:
         return 424243
 
     try:
-        bridge._launch = fake_launch  # type: ignore[assignment]
+        bridge._launch_interactive_terminal = fake_launch  # type: ignore[assignment]
         result = bridge.start_interactive_first_mate_codex_tui(
             goal="Self-contained interactive first-mate TUI dry-run. Do not edit files.",
             cwd=str(ROOT),
@@ -321,7 +321,7 @@ def case_interactive_first_mate_tui_dry_run() -> dict[str, Any]:
             close_on_exit=False,
         )
     finally:
-        bridge._launch = original_launch  # type: ignore[assignment]
+        bridge._launch_interactive_terminal = original_launch  # type: ignore[assignment]
 
     assert result["ok"], result
     assert result["pid"] == 424243, result

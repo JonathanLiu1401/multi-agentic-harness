@@ -578,6 +578,32 @@ def _launch(script_path: Path) -> int:
     return int(proc.pid)
 
 
+def _launch_interactive_terminal(script_path: Path) -> int:
+    if os.name != "nt":
+        return _launch(script_path)
+    command = textwrap.dedent(f"""
+    $ErrorActionPreference = 'Stop'
+    $argList = @(
+      '-NoProfile',
+      '-ExecutionPolicy',
+      'Bypass',
+      '-File',
+      {_ps(script_path)}
+    )
+    $proc = Start-Process -FilePath 'powershell.exe' -ArgumentList $argList -WindowStyle Normal -PassThru
+    Write-Output $proc.Id
+    """).strip()
+    proc = subprocess.run(
+        ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command],
+        cwd=str(script_path.parent),
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=True,
+    )
+    return int(proc.stdout.strip().splitlines()[-1])
+
+
 def _codex_tui_args(
     cwd: str,
     sandbox: str,
@@ -1485,7 +1511,7 @@ def start_interactive_codex_tui(
         ),
         encoding="utf-8",
     )
-    pid = _launch(script)
+    pid = _launch_interactive_terminal(script)
     (run_dir / "launcher_pid.txt").write_text(str(pid), encoding="utf-8")
     status = _read_json(run_dir / "status.json", {})
     status.update({
