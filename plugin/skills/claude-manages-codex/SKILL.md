@@ -78,7 +78,7 @@ Default manager loop:
 
 1. Decide the architecture and acceptance criteria.
 2. Start or resume an interactive Codex TUI worker or first-mate TUI pool with a compact `session_context`, unless the task explicitly needs automated JSON steering.
-3. Poll status and steer with short captain instructions when drift appears.
+3. Poll status, captain-help mailboxes, and worker health; steer with short captain instructions before drift compounds.
 4. Let Codex implement, verify, and summarize.
 5. Claude reviews the diff, tests, risks, and worker ledger. Reject or steer repair when the output does not match the architecture.
 6. Claude writes the final user response only after the review gate passes or clearly reports incomplete verification.
@@ -179,13 +179,16 @@ Claude should actively manage non-interactive visible Codex runs instead of lett
 
 1. Start one interactive Codex TUI root or first-mate run with the goal, constraints, and acceptance criteria by default. Start a non-interactive visible run only for automated queued steering or structured logs.
 2. Poll with `get_visible_run_status`; read the tail, pending steer count, pending help requests, thread/session id, status, and `captain_report`.
-3. If `pending_help_requests` is nonzero, read `help_requests` or call `list_captain_help_requests`, then answer with `respond_to_captain_help_request`.
-4. For non-interactive workers, when Codex needs correction, narrowing, extra context, changed priorities, or a review checkpoint, call `steer_visible_codex_run` with a short captain instruction and the same run directory. For interactive TUI workers, steer directly in the terminal or resume the saved session; queued steering does not type into the open TUI.
-5. If the worker is right to escalate, ask the user the specific decision question yourself, then call `respond_to_captain_help_request` with the user's answer. Do not tell Codex to ask the user directly.
-6. Prefer queued steering over a new run. Use `interrupt_current_turn: true` only when Codex is actively doing harmful or clearly wasted work and a `thread_id` has already been recorded.
-7. If Claude changes permission intent mid-session, pass `sandbox: workspace-write` or `sandbox: danger-full-access` in the steering call so Codex receives an updated permission contract.
-8. If a non-interactive visible window closed, let `steer_visible_codex_run` or `respond_to_captain_help_request` launch a visible resume run on the same thread. For interactive TUI runs, resume with `start_interactive_codex_tui` / `start_interactive_first_mate_codex_tui` and the saved session id when available. Start fresh only for unrelated work or polluted context.
-9. Treat TUI terminal text as user-visible progress only. The captain-facing outcome is the `submit_captain_report` artifact.
+3. For long-running fleets, check the captain-help mailbox every monitor cycle, not only terminal state. A run can look "busy" while a blocking question waits unanswered.
+4. Periodically check up with active agents before they spiral: ask for a compact health/status checkpoint, current assumption, blocker, next action, and expected verification. Use short steering notes; do not wait for obvious failure if output quality is drifting.
+5. If `pending_help_requests` is nonzero, read `help_requests` or call `list_captain_help_requests`, then answer with `respond_to_captain_help_request`.
+6. For non-interactive workers, when Codex needs correction, narrowing, extra context, changed priorities, or a review checkpoint, call `steer_visible_codex_run` with a short captain instruction and the same run directory. For interactive TUI workers, steer directly in the terminal or resume the saved session; queued steering does not type into the open TUI.
+7. When multiple agents converge on the same root cause or design decision from different directions, consolidate it into one canonical world model and steer every active run to that model. Do not let stale assumptions keep running in parallel.
+8. If the worker is right to escalate, ask the user the specific decision question yourself, then call `respond_to_captain_help_request` with the user's answer. Do not tell Codex to ask the user directly.
+9. Prefer queued steering over a new run. Use `interrupt_current_turn: true` only when Codex is actively doing harmful or clearly wasted work and a `thread_id` has already been recorded.
+10. If Claude changes permission intent mid-session, pass `sandbox: workspace-write` or `sandbox: danger-full-access` in the steering call so Codex receives an updated permission contract.
+11. If a non-interactive visible window closed, let `steer_visible_codex_run` or `respond_to_captain_help_request` launch a visible resume run on the same thread. For interactive TUI runs, resume with `start_interactive_codex_tui` / `start_interactive_first_mate_codex_tui` and the saved session id when available. Start fresh only for unrelated work or polluted context.
+12. Treat TUI terminal text as user-visible progress only. The captain-facing outcome is the `submit_captain_report` artifact.
 
 Keep steering notes short. State the decision, changed scope, files or tests to focus on, and required next response shape. Do not restate the whole task unless the thread lost context.
 
