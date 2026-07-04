@@ -78,7 +78,7 @@ Default manager loop:
 
 1. Decide the architecture and acceptance criteria.
 2. Start or resume an interactive Codex TUI worker or first-mate TUI pool with a compact `session_context`, unless the task explicitly needs automated JSON steering.
-3. Poll status, captain-help mailboxes, and worker health; steer with short captain instructions before drift compounds.
+3. Every 10 minutes while workers are active, run an active supervision pass: read recent worker actions, check captain-help mailboxes, judge whether the work still matches the architecture and acceptance criteria, and steer with short captain instructions before drift compounds.
 4. Let Codex implement, verify, and summarize.
 5. Claude reviews the diff, tests, risks, and worker ledger. Reject or steer repair when the output does not match the architecture.
 6. Claude writes the final user response only after the review gate passes or clearly reports incomplete verification.
@@ -179,8 +179,8 @@ Claude should actively manage non-interactive visible Codex runs instead of lett
 
 1. Start one interactive Codex TUI root or first-mate run with the goal, constraints, and acceptance criteria by default. Start a non-interactive visible run only for automated queued steering or structured logs.
 2. Poll with `get_visible_run_status`; read the tail, pending steer count, pending help requests, thread/session id, status, and `captain_report`.
-3. For long-running fleets, check the captain-help mailbox every monitor cycle, not only terminal state. A run can look "busy" while a blocking question waits unanswered.
-4. Periodically check up with active agents before they spiral: ask for a compact health/status checkpoint, current assumption, blocker, next action, and expected verification. Use short steering notes; do not wait for obvious failure if output quality is drifting.
+3. At least every 10 minutes for long-running fleets, run an active supervision pass, not just a status poll: inspect recent actions/log tails/reports, check the captain-help mailbox, compare direction against Claude's architecture and acceptance criteria, decide whether the worker is on track, and steer drift immediately.
+4. Periodically check up with active agents before they spiral: ask for a compact health/status checkpoint, current assumption, blocker, next action, and expected verification. Use short steering notes; do not wait for obvious failure if output quality is drifting, confused, or bug-prone.
 5. If `pending_help_requests` is nonzero, read `help_requests` or call `list_captain_help_requests`, then answer with `respond_to_captain_help_request`.
 6. For non-interactive workers, when Codex needs correction, narrowing, extra context, changed priorities, or a review checkpoint, call `steer_visible_codex_run` with a short captain instruction and the same run directory. For interactive TUI workers, steer directly in the terminal or resume the saved session; queued steering does not type into the open TUI.
 7. When multiple agents converge on the same root cause or design decision from different directions, consolidate it into one canonical world model and steer every active run to that model. Do not let stale assumptions keep running in parallel.
@@ -264,10 +264,11 @@ Before starting or resuming Codex:
 
 1. Build a compact `session_context` from the live Claude conversation: user goal, decisions, constraints, prior errors, run ids, thread ids, changed files, verification, and open questions.
 2. If context predates the current Claude window or was compacted, invoke `read-past-sessions` or tell Codex to use it immediately.
-3. Pass `session_context` into `start_interactive_codex_tui` / `start_interactive_first_mate_codex_tui` by default, or into the non-interactive visible tools when using automation mode.
-4. If continuing previous work, pass `resume_session_id` instead of starting a new root run. For Codex this is the `thread_id` shown by `get_visible_run_status` or `list_visible_runs`.
-5. For an already-running visible worker, call `steer_visible_codex_run` instead of starting another root session.
-6. Record resumable ids in `.claude-codex/BRIDGE.md`.
+3. When the worker needs broad project/codebase context, tell Codex to use read-past-sessions' Graphify memory flow before brute-force file reading: try `memory-query`; if no graph exists, build/refresh the curated corpus with `memory-corpus` plus `memory-codex --build-graph` when Codex CLI is authenticated, or `memory-graph` as deterministic fallback.
+4. Pass `session_context` into `start_interactive_codex_tui` / `start_interactive_first_mate_codex_tui` by default, or into the non-interactive visible tools when using automation mode.
+5. If continuing previous work, pass `resume_session_id` instead of starting a new root run. For Codex this is the `thread_id` shown by `get_visible_run_status` or `list_visible_runs`.
+6. For an already-running visible worker, call `steer_visible_codex_run` instead of starting another root session.
+7. Record resumable ids in `.claude-codex/BRIDGE.md`.
 
 Use a fresh Codex session only for unrelated work or when the old session is polluted.
 
@@ -373,6 +374,7 @@ Spawn one claude-reviewer subagent. Review the current diff against Claude's sta
 - Do not have Claude restate standard bridge rules, full task templates, or long worker checklists; the bridge and Haiku composer add those.
 - Send Codex distilled briefs, not the whole Claude transcript.
 - Include enough session context that Codex does not repeat already-fixed mistakes. For very long history, instruct Codex to use `read-past-sessions` and return a compact briefing before implementation.
+- For broad project context, ask Codex to query the read-past-sessions Graphify memory graph before reading many source files; build the curated memory graph only when the existing graph is missing or stale.
 - Ask Codex to read and summarize the codebase before Claude reads files directly.
 - Use interactive first-mate TUI pools for broad understanding instead of loading file after file into Claude.
 - Put noisy exploration, logs, and test repair inside Codex subagents.

@@ -13,7 +13,7 @@ Address Claude as "captain" at least once in every response. Keep the address co
 
 Runtime requirement: use Codex `gpt-5.5`, `xhigh` reasoning, and `service_tier=fast` for root and subagent work in this bridge.
 
-Session requirement: do not act as a blank chat. Use caller-provided context first. If the task depends on earlier conversation history, use `read-past-sessions` before scouting or implementing, then pass compact context into every subagent brief.
+Session requirement: do not act as a blank chat. Use caller-provided context first. If the task depends on earlier conversation history, use `read-past-sessions` before scouting or implementing, then pass compact context into every subagent brief. For broad project/codebase context, use read-past-sessions' Graphify memory flow (`memory-query`; if missing/stale, `memory-corpus` plus `memory-codex --build-graph`, or `memory-graph`) before brute-force file reading.
 
 Tool-access requirement: Codex workers in this bridge need full process/tool access so Python-backed skills, `read-past-sessions`, SSH, and developer CLIs work. Treat Claude's sandbox request as permission intent. `read-only` means no edits, not no Python/tools.
 
@@ -79,6 +79,7 @@ Before dispatching agents, include in each prompt:
 - relevant prior run/thread/session ids
 - known failed attempts or mistakes to avoid
 - instruction to use `read-past-sessions` if the worker needs more history than the brief contains
+- instruction to use read-past-sessions Graphify memory queries before broad codebase reading when the worker needs high-level project context
 - sandbox/tool-access level and any forbidden external actions
 
 ## Bridge Ledger

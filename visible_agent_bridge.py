@@ -116,7 +116,7 @@ Address Claude as "captain" at least once in every response. Keep the address co
 
 Runtime requirement: use Codex gpt-5.5, xhigh reasoning, and service_tier=fast for root and subagent work in this bridge.
 
-Session requirement: do not act as a blank chat. Use caller-provided context first. If the task depends on earlier conversation history, use read-past-sessions before scouting or implementing, then pass compact context into every subagent brief.
+Session requirement: do not act as a blank chat. Use caller-provided context first. If the task depends on earlier conversation history, use read-past-sessions before scouting or implementing, then pass compact context into every subagent brief. For broad project/codebase context, use read-past-sessions' Graphify memory flow before brute-force file reading: memory-query first; if the graph is missing or stale, build the curated corpus with memory-corpus plus memory-codex --build-graph, or memory-graph as deterministic fallback.
 
 Tool-access requirement: this bridge gives Codex workers full process/tool access so Python skills, read-past-sessions, SSH, and external CLIs work. Treat Claude's requested sandbox as permission intent. If intent is read-only/no-edit, do not modify files or external state even though tools are available.
 
@@ -454,12 +454,19 @@ def _with_session_context_bootstrap(prompt: str, cwd: str, agent_role: str, sess
 
     1. Read the caller-provided context below first. If it is sufficient and explicitly says the task is self-contained, do not spend time recovering old transcripts.
     2. Use the `read-past-sessions` skill when the task depends on prior conversation, previous run ids, compacted context, earlier decisions, or unresolved mistakes from this project.
-    3. If the skill is needed but not available, run the bundled engine directly:
+    3. For broad project or codebase context, use the read-past-sessions Graphify memory flow before brute-force source reading:
+       `python "{sessions_script}" memory-query "<question>" --project "{project_hint}" --budget 12000`
+       If no graph exists and durable project context matters, refresh the curated corpus and graph:
+       `python "{sessions_script}" memory-corpus "{project_hint}" --run-codex`
+       `python "{sessions_script}" memory-codex "{project_hint}" --build-graph`
+       If Codex CLI is unavailable for the semantic pass, use the deterministic fallback:
+       `python "{sessions_script}" memory-graph "{project_hint}"`
+    4. If the skill is needed but not available, run the bundled engine directly:
        `python "{sessions_script}" list "{project_hint}" --limit 5`
        `python "{sessions_script}" show <session-id> --mode briefing --include-subagents --max-chars 120000`
-    4. Prefer the newest relevant session for this cwd/task. If a required decision is missing from the briefing, rerun `show` with `--mode full --include-subagents --max-chars 200000`.
-    5. Treat the caller-provided context below as authoritative. Use recovered session context to avoid rederiving prior decisions or repeating already-fixed mistakes.
-    6. Do not paste full transcripts back unless asked. Return compact evidence, decisions, files, verification, blockers, and questions.
+    5. Prefer the newest relevant session for this cwd/task. If a required decision is missing from the briefing, rerun `show` with `--mode full --include-subagents --max-chars 200000`.
+    6. Treat the caller-provided context below as authoritative. Use recovered session context to avoid rederiving prior decisions or repeating already-fixed mistakes.
+    7. Do not paste full transcripts back unless asked. Return compact evidence, decisions, files, verification, blockers, and questions.
 
     CWD: {cwd}
 
