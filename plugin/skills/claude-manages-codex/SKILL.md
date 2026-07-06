@@ -101,9 +101,32 @@ Default manager loop:
 - The edit is tiny (single file, a few lines) where Codex coordination overhead exceeds the token savings and the user has not asked for strict delegation.
 - The work needs tools or context only Claude can reach (MCP servers Codex lacks, this session's live state).
 - The Codex bridge is unavailable or erroring — fall back to Claude and tell the user.
+- **Codex usage is out** (quota/rate limit exhausted, plan usage cap hit, or Codex repeatedly returns usage/quota errors) — fall back to Sonnet subagents per the section below instead of Codex, and tell the user.
 - The user explicitly asks Claude to do the work directly.
 
 When routing, prefer a **real interactive Codex TUI** run so the user can watch and steer the token-saving work directly: use `start_interactive_first_mate_codex_tui` for fan-out and `start_interactive_codex_tui` for a single worker. Use `start_visible_first_mate_codex_pool` / `start_visible_codex_worker` only when Claude needs automated queued steering, structured JSONL logs, or an unattended run. Use invisible `codex` / `codex-reply` only for quick, low-noise exchanges.
+
+## Codex Usage Exhaustion Fallback (Sonnet Agents)
+
+When Codex usage runs out, keep delegating — just switch the worker fleet from Codex to Claude Sonnet subagents. Do not silently start doing all the implementation as the manager model; the point is still to route heavy/parallel work off the manager.
+
+**Detect Codex-out.** Treat Codex as unavailable when any of these hold:
+
+- `codex` / `codex-reply` or a visible/interactive start tool returns a usage, quota, rate-limit, plan-cap, `429`, "usage limit reached", "insufficient quota", or "out of credits" error.
+- Codex repeatedly fails to start or immediately exits with a usage/billing message.
+- The user says Codex usage is out or asks to stop using Codex for cost/quota reasons.
+
+Verify it is genuinely a usage problem, not a transient network blip or a one-off tool error, before switching. A single retryable error is not exhaustion; a clear quota/limit message or repeated usage failures is.
+
+**Fall back to Sonnet subagents.** Once Codex is confirmed out:
+
+- Spawn Claude subagents with the `Agent` tool using `model: sonnet` for the worker roles Codex would have filled — exploration, first-pass implementation, mechanical refactors, test repair, and broad codebase reading.
+- Map the Codex roles to Sonnet agent types: use the `Explore` agent (or `general-purpose` with a read-only brief) in place of `claude-explorer`, `general-purpose` in place of `claude-implementer`, and a review-focused `general-purpose`/`code-reviewer` brief in place of `claude-reviewer`.
+- Keep the same manager discipline: Claude still owns architecture, decomposition, acceptance criteria, scope, and final review; Sonnet agents only execute the briefs. For file-disjoint parallel work, dispatch multiple Sonnet agents in one message so they run concurrently, one work item each.
+- Reuse the same briefs, permission intent, and acceptance criteria you would have handed Codex. The routing target changes; the captain/worker split does not.
+- Tell the user Codex usage is exhausted and that work is now running on Sonnet agents. Note that visible-terminal steering, `captain_report`, and the Codex-specific visible/first-mate harness do not apply to Sonnet agents; steer them through follow-up `Agent`/`SendMessage` briefs and review their returned results directly.
+
+**Recover.** When Codex usage is restored (new billing window, user tops up, or the user asks to resume Codex), return to routing heavy/parallel work through Codex per the Routing Mandate. Sonnet-agent fallback is a stopgap, not the default fleet.
 
 ## Codex MCP Harness
 
