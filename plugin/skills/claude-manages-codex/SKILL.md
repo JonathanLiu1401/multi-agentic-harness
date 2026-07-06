@@ -110,6 +110,8 @@ When routing, prefer a **real interactive Codex TUI** run so the user can watch 
 
 When Codex usage runs out, keep delegating — just switch the worker fleet from Codex to Claude Sonnet subagents. Do not silently start doing all the implementation as the manager model; the point is still to route heavy/parallel work off the manager.
 
+**Only the top-level Claude manager owns this switch.** The Codex→Sonnet decision is made once, at the captain level. A spawned worker (a Codex first mate, a Codex subagent, or a Sonnet fallback agent) that discovers Codex is capped MUST NOT decide to build its own fallback fleet — it stops and reports the cap upward, and the top-level manager reroutes. This is what prevents the nesting spiral: workers hitting the cap and each spinning up their own Sonnet sub-fleets.
+
 **Detect Codex-out.** Treat Codex as unavailable when any of these hold:
 
 - `codex` / `codex-reply` or a visible/interactive start tool returns a usage, quota, rate-limit, plan-cap, `429`, "usage limit reached", "insufficient quota", or "out of credits" error.
@@ -118,6 +120,8 @@ When Codex usage runs out, keep delegating — just switch the worker fleet from
 
 Verify it is genuinely a usage problem, not a transient network blip or a one-off tool error, before switching. A single retryable error is not exhaustion; a clear quota/limit message or repeated usage failures is.
 
+**Latch the cap once; do not let every worker rediscover it.** As soon as the manager confirms Codex is out, record it in `.claude-codex/BRIDGE.md` (e.g. `Codex: CAPPED until <reset date/time>`) and stop issuing Codex delegation for the rest of the session. Do not keep firing `codex` / visible-start calls per work item and letting each one fail into the cap — that is what produced the flood of failed delegations. If the cap has a known reset (e.g. usage returns July 10), note it and treat Codex as unavailable until then rather than retrying on every task.
+
 **Fall back to Sonnet subagents.** Once Codex is confirmed out:
 
 - Spawn Claude subagents with the `Agent` tool using `model: sonnet` for the worker roles Codex would have filled — exploration, first-pass implementation, mechanical refactors, test repair, and broad codebase reading.
@@ -125,6 +129,13 @@ Verify it is genuinely a usage problem, not a transient network blip or a one-of
 - Keep the same manager discipline: Claude still owns architecture, decomposition, acceptance criteria, scope, and final review; Sonnet agents only execute the briefs. For file-disjoint parallel work, dispatch multiple Sonnet agents in one message so they run concurrently, one work item each.
 - Reuse the same briefs, permission intent, and acceptance criteria you would have handed Codex. The routing target changes; the captain/worker split does not.
 - Tell the user Codex usage is exhausted and that work is now running on Sonnet agents. Note that visible-terminal steering, `captain_report`, and the Codex-specific visible/first-mate harness do not apply to Sonnet agents; steer them through follow-up `Agent`/`SendMessage` briefs and review their returned results directly.
+
+**Flat fallback — no nesting, no parking, no rogue-writer games.** The Sonnet fallback fleet is one flat layer of workers under the top-level manager. Enforce all of the following, and encode them into every fallback brief:
+
+- **No re-delegation.** A Sonnet fallback agent executes its brief and returns a result. It must not itself try to "delegate to Codex," must not spawn further sub-agents, and must not invoke the claude-manages-codex routing. Only the top-level manager delegates. (Codex being capped means the whole "route to Codex" instruction is off for the session — say so in the brief so the worker does not try and fail.)
+- **No parking.** Fallback agents run to completion and terminate with a result or a concrete blocker. They do not idle, wait for Codex to come back, or wait for a captain hand-off. The captain-help mailbox, `request_captain_help`, `submit_captain_report`, and "blocked_waiting_for_captain" are Codex visible-harness concepts and DO NOT apply to Agent-tool Sonnet workers — a blocked Sonnet agent returns its blocker text and stops.
+- **No stand-down protocol between workers.** Fallback agents do not message each other, do not police the working tree for other writers, and do not invent "stand-down" or "rogue writer" handshakes. Coordination is the manager's job: give each parallel agent a file-disjoint scope up front so they never need to negotiate.
+- **The user and the manager are not rogue writers.** Concurrent edits from the human owner or the Claude manager are expected and legitimate. An agent that sees files change under it must NOT label that a "rogue writer," stand down, or abort — it reports the unexpected change as an observation and continues within its own scope, and the manager reconciles. Only the top-level manager arbitrates real file-scope conflicts.
 
 **Recover.** When Codex usage is restored (new billing window, user tops up, or the user asks to resume Codex), return to routing heavy/parallel work through Codex per the Routing Mandate. Sonnet-agent fallback is a stopgap, not the default fleet.
 

@@ -59,7 +59,11 @@ Fallback to built-in Codex agents only when the custom agents are unavailable.
 
 Keep fan-out bounded. Use at most the worker count Claude requested; otherwise use no more than 6 workers. Do not spawn recursive subagent trees.
 
-For parallel write work, assign file-disjoint scopes. If ownership is unclear, stop and ask Claude rather than running parallel writers.
+If Codex usage is capped/quota-exhausted (usage, rate-limit, plan-cap, `429`, or billing errors when spawning agents), stop. Do not retry the cap on every task, do not spin up an alternate (e.g. Sonnet) fallback fleet yourself, and do not nest sub-agents to work around it. Return `Outcome: blocked` with a short note that Codex usage is capped (and the reset time if the error states one). Rerouting to a different worker fleet is Claude's decision, not yours.
+
+For parallel write work, assign file-disjoint scopes. If ownership is unclear, stop and ask Claude rather than running parallel writers. Assign scopes up front so agents never need to negotiate with each other; agents must not message each other or invent stand-down handshakes.
+
+Concurrent edits from the human owner or from Claude are expected and legitimate — never treat them as a "rogue writer," and never stand down or abort because files changed under you. Report the unexpected change to Claude and continue within your granted scope; Claude reconciles conflicts.
 
 For debugging that needs real tools or SSH, dispatch `claude-debugger` with the target, allowed commands, forbidden actions, and verification.
 
