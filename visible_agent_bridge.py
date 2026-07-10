@@ -25,7 +25,12 @@ READ_PAST_SESSIONS_SKILL = Path(r"C:\Users\jonny\.agents\skills\read-past-sessio
 PLAYWRIGHT_NODE_PATH = r"C:\Users\jonny\node_modules;C:\Users\jonny\.codex\playwright-runtime\node_modules"
 PLAYWRIGHT_BROWSERS_PATH = Path(r"C:\Users\jonny\AppData\Local\ms-playwright")
 
-CODEX_MODEL = "gpt-5.5"
+CODEX_MODEL = "gpt-5.6-sol"
+# Claude selects the reasoning effort per task by judged difficulty. The
+# effort ladder runs high -> xhigh -> max -> ultracode; the default below is a
+# floor, not a fixed value. Any caller-supplied effort outside this set falls
+# back to CODEX_REASONING_EFFORT.
+CODEX_REASONING_EFFORTS = ("high", "xhigh", "max", "ultracode")
 CODEX_REASONING_EFFORT = "xhigh"
 CODEX_SERVICE_TIER = "fast"
 CODEX_FULL_TOOL_SANDBOX = "danger-full-access"
@@ -114,7 +119,7 @@ The human user is the owner; do not address the owner directly unless Claude exp
 
 Address Claude as "captain" at least once in every response. Keep the address concise and professional.
 
-Runtime requirement: use Codex gpt-5.5, xhigh reasoning, and service_tier=fast for root and subagent work in this bridge.
+Runtime requirement: use Codex gpt-5.6-sol and service_tier=fast for root and subagent work in this bridge. Reasoning effort is Claude-selected per task across high, xhigh, max, and ultracode; use the effort the captain sets for this run and do not silently downgrade it. At max/ultracode you may fan out Codex subagents using ultracode workflows within the captain's scope.
 
 Session requirement: do not act as a blank chat. Use caller-provided context first. If the task depends on earlier conversation history, use read-past-sessions before scouting or implementing, then pass compact context into every subagent brief. For broad project/codebase context, use read-past-sessions' Graphify memory flow before brute-force file reading: memory-query first; if the graph is missing or stale, build the curated corpus with memory-corpus plus memory-codex --build-graph, or memory-graph as deterministic fallback.
 
@@ -399,8 +404,10 @@ def _haiku_codex_prompt_composer_prompt(
     session_context: str,
     resume_session_id: str,
     requires_tool_access: bool,
+    reasoning_effort: str = CODEX_REASONING_EFFORT,
 ) -> str:
     context = session_context.strip() or "None supplied."
+    reasoning_effort = _normalize_reasoning_effort(reasoning_effort)
     return textwrap.dedent(f"""
     You are Claude Haiku acting as a cheap prompt composer for a Claude manager -> Codex bridge.
 
@@ -427,7 +434,7 @@ def _haiku_codex_prompt_composer_prompt(
     - Requested permission intent: {requested_sandbox}
     - Requires full tool/debug access: {requires_tool_access}
     - Resume session/thread id: {resume_session_id or "none"}
-    - Codex runtime: gpt-5.5, xhigh reasoning, service_tier=fast.
+    - Codex runtime: gpt-5.6-sol, Claude-selected reasoning ({reasoning_effort}; one of high/xhigh/max/ultracode), service_tier=fast.
 
     Caller-provided session context:
     {context}
@@ -798,6 +805,18 @@ def _launch_interactive_terminal(script_path: Path) -> int:
     return int(proc.stdout.strip().splitlines()[-1])
 
 
+def _normalize_reasoning_effort(value: str) -> str:
+    """Return a valid effort tier, defaulting when the request is unknown.
+
+    Claude varies the effort per task across high/xhigh/max/ultracode; anything
+    else (empty, typo, or a retired tier) falls back to the default floor.
+    """
+    candidate = (value or "").strip().lower()
+    if candidate in CODEX_REASONING_EFFORTS:
+        return candidate
+    return CODEX_REASONING_EFFORT
+
+
 def _codex_tui_args(
     cwd: str,
     sandbox: str,
@@ -805,6 +824,7 @@ def _codex_tui_args(
     prompt: str,
     resume_session_id: str = "",
     no_alt_screen: bool = False,
+    reasoning_effort: str = CODEX_REASONING_EFFORT,
 ) -> list[str]:
     args: list[str] = []
     if resume_session_id.strip():
@@ -819,7 +839,7 @@ def _codex_tui_args(
         "-a",
         approval_policy or INTERACTIVE_TUI_APPROVAL_POLICY,
         "-c",
-        f'model_reasoning_effort="{CODEX_REASONING_EFFORT}"',
+        f'model_reasoning_effort="{_normalize_reasoning_effort(reasoning_effort)}"',
         "-c",
         f'service_tier="{CODEX_SERVICE_TIER}"',
     ])
@@ -847,6 +867,7 @@ def _interactive_codex_tui_runner(
     close_on_exit: bool,
     auto_close_after_report: bool,
     auto_close_delay_seconds: int,
+    reasoning_effort: str = CODEX_REASONING_EFFORT,
 ) -> str:
     args = _codex_tui_args(
         cwd=cwd,
@@ -855,6 +876,7 @@ def _interactive_codex_tui_runner(
         prompt=prompt,
         resume_session_id=resume_session_id,
         no_alt_screen=no_alt_screen,
+        reasoning_effort=reasoning_effort,
     )
     ps_args = "\n".join([f"$argsList += @({_ps_tui_arg(arg)})" for arg in args])
     keep_open = "$true" if not close_on_exit else "$false"
@@ -1476,7 +1498,7 @@ def start_visible_codex_worker(
 ) -> dict[str, Any]:
     """Launch a visible Codex exec worker in a separate PowerShell window and save logs."""
     effective_model = CODEX_MODEL
-    effective_reasoning = CODEX_REASONING_EFFORT
+    effective_reasoning = _normalize_reasoning_effort(reasoning_effort)
     effective_service_tier = CODEX_SERVICE_TIER
     auto_full_tool_access = _needs_full_tool_access("\n".join([title, prompt, session_context]))
     effective_sandbox = CODEX_FULL_TOOL_SANDBOX
@@ -1524,6 +1546,7 @@ def start_visible_codex_worker(
             session_context,
             resume_session_id,
             requires_tool_access or auto_full_tool_access,
+            effective_reasoning,
         )
         (run_dir / "composer_prompt.md").write_text(composer_prompt, encoding="utf-8")
         codex_prelude = _with_session_context_bootstrap(
@@ -1567,7 +1590,7 @@ def start_visible_codex_worker(
         "status": str(run_dir / "status.json"),
         "steer_queue": str(run_dir / "steer_queue"),
         "captain_help": str(run_dir / CAPTAIN_HELP_DIR),
-        "note": f"A visible PowerShell window was launched. Codex is forced to gpt-5.5/xhigh/service_tier=fast. Effective sandbox is {effective_sandbox}. Haiku prompt composer enabled={compose_with_haiku}. Captain-help mailbox enabled. Hidden model reasoning is not exposed; prompts, events, messages, commands, usage, and diffs are logged.",
+        "note": f"A visible PowerShell window was launched. Codex runs gpt-5.6-sol at Claude-selected {effective_reasoning} reasoning (one of high/xhigh/max/ultracode) with service_tier=fast. Effective sandbox is {effective_sandbox}. Haiku prompt composer enabled={compose_with_haiku}. Captain-help mailbox enabled. Hidden model reasoning is not exposed; prompts, events, messages, commands, usage, and diffs are logged.",
     }
 
 
@@ -1578,6 +1601,7 @@ def start_visible_haiku_composed_codex_worker(
     title: str = "Codex worker",
     sandbox: str = "read-only",
     approval_policy: str = "never",
+    reasoning_effort: str = CODEX_REASONING_EFFORT,
     session_context: str = "",
     resume_session_id: str = "",
     requires_tool_access: bool = False,
@@ -1592,7 +1616,7 @@ def start_visible_haiku_composed_codex_worker(
         sandbox=sandbox,
         approval_policy=approval_policy,
         model=CODEX_MODEL,
-        reasoning_effort=CODEX_REASONING_EFFORT,
+        reasoning_effort=reasoning_effort,
         session_context=session_context,
         resume_session_id=resume_session_id,
         requires_tool_access=requires_tool_access,
@@ -1756,7 +1780,7 @@ def start_interactive_codex_tui(
 ) -> dict[str, Any]:
     """Launch the real interactive Codex TUI in a visible terminal with sidecar metadata."""
     effective_model = CODEX_MODEL
-    effective_reasoning = CODEX_REASONING_EFFORT
+    effective_reasoning = _normalize_reasoning_effort(reasoning_effort)
     effective_service_tier = CODEX_SERVICE_TIER
     auto_full_tool_access = _needs_full_tool_access("\n".join([title, prompt, session_context]))
     effective_sandbox = CODEX_FULL_TOOL_SANDBOX
@@ -1823,6 +1847,7 @@ def start_interactive_codex_tui(
             close_on_exit=close_on_exit,
             auto_close_after_report=bool(auto_close_after_report),
             auto_close_delay_seconds=close_delay,
+            reasoning_effort=effective_reasoning,
         ),
         encoding="utf-8",
     )

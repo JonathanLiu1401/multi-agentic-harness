@@ -22,7 +22,7 @@ while also persisting logs under `.claude-codex/runs/<run-id>/`. Claude-managed 
 
 ## Current bridge behavior
 
-- Codex workers are forced to `gpt-5.5`, `xhigh` reasoning, and `service_tier=fast`.
+- Codex workers run `gpt-5.6-sol` with `service_tier=fast`. Reasoning effort is selected by Claude per task across `high` / `xhigh` / `max` / `ultracode` (defaulting to the `xhigh` floor), rather than pinned to a single tier. At `max` / `ultracode`, Codex agents may fan out subagents using ultracode workflows within the captain's scope.
 - Claude advisor calls use a central model policy: `fable` / `high` through July 7, 2026, then `opus` / `high`. Override with `CLAUDE_MANAGES_CODEX_ADVISOR_MODEL`.
 - The Claude manager model should not write implementation code by default; it writes architecture, constraints, acceptance criteria, steering notes, and review findings.
 - Long Codex delegation prompts should be written by the Haiku prompt composer, not by the manager model.

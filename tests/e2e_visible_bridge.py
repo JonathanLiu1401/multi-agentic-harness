@@ -219,7 +219,7 @@ def case_interactive_tui_sidecar_dry_run() -> dict[str, Any]:
     assert "Captain Report Handoff" in prompt, prompt
 
     assert "codex.cmd" in script, script
-    assert "'-m'" in script and "'gpt-5.5'" in script, script
+    assert "'-m'" in script and "'gpt-5.6-sol'" in script, script
     assert "'-a'" in script and "'on-request'" in script, script
     assert "model_reasoning_effort=`\"xhigh`\"" in script, script
     assert "service_tier=`\"fast`\"" in script, script
