@@ -135,6 +135,15 @@ Default manager loop:
 
 When routing, prefer a **real interactive Codex TUI** run so the user can watch and steer the token-saving work directly: use `start_interactive_first_mate_codex_tui` for fan-out and `start_interactive_codex_tui` for a single worker. Use `start_visible_first_mate_codex_pool` / `start_visible_codex_worker` only when Claude needs automated queued steering, structured JSONL logs, or an unattended run. Use invisible `codex` / `codex-reply` only for quick, low-noise exchanges.
 
+## Parallel Fan-Out Contract
+
+The bridge runs Codex workers concurrently: start tools return within about a second and simultaneous workers execute truly in parallel (verified live with overlapping turns through the MCP server). Serial spawning is a manager error, not a bridge limit.
+
+- When tasks are independent, spawn every worker or TUI first, before reading any result, status, or captain report from any of them. Issue the start calls together in one batch whenever possible.
+- Never await one worker's completion — or its captain report — before launching an independent sibling. Waiting between spawns silently serializes the fleet and wastes wall-clock time.
+- After the full fleet is launched, supervise all runs together per the "Mandatory 10-Minute Direct Supervision" contract.
+- Use one `start_interactive_first_mate_codex_tui` when the parts share context and need coordination (the first mate fans out Codex-native subagents itself); spawn multiple root workers only for genuinely independent tasks.
+
 ## Codex Usage Exhaustion Fallback (Sonnet Agents)
 
 When Codex usage runs out, keep delegating — just switch the worker fleet from Codex to Claude Sonnet subagents. Do not silently start doing all the implementation as the manager model; the point is still to route heavy/parallel work off the manager.

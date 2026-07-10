@@ -593,6 +593,9 @@ def case_supervision_review_cycle() -> dict[str, Any]:
         "always spawns in real interactive TUI mode by default",
         "requires an explicit, stated justification",
         "when in doubt, spawn the TUI",
+        "## Parallel Fan-Out Contract",
+        "Serial spawning is a manager error, not a bridge limit.",
+        "spawn every worker or TUI first, before reading any result",
     )
     for phrase in required_contract:
         assert phrase in skill_text, phrase
