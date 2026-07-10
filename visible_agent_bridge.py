@@ -916,7 +916,16 @@ def _interactive_codex_tui_runner(
         exit_code = $ExitCode
         mode = "interactive_tui"
       }}
-      $obj | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $StatusPath -Encoding UTF8
+      $json = $obj | ConvertTo-Json -Depth 5
+      foreach ($attempt in 1..5) {{
+        try {{
+          Set-Content -LiteralPath $StatusPath -Value $json -Encoding UTF8 -ErrorAction Stop
+          return
+        }} catch {{
+          if ($attempt -eq 5) {{ Write-Host "Set-Status failed after $attempt attempts: $_" }}
+          else {{ Start-Sleep -Milliseconds 200 }}
+        }}
+      }}
     }}
 
     Set-Location -LiteralPath $Cwd
@@ -1106,7 +1115,16 @@ function Write-Raw {{
 }}
 
 function Set-Status([string]$Status) {{
-  @{{ status=$Status; updated_at=(Get-Date).ToString('o'); run_dir=$RunDir }} | ConvertTo-Json | Set-Content -LiteralPath $StatusPath -Encoding UTF8
+  $json = @{{ status=$Status; updated_at=(Get-Date).ToString('o'); run_dir=$RunDir }} | ConvertTo-Json
+  foreach ($attempt in 1..5) {{
+    try {{
+      Set-Content -LiteralPath $StatusPath -Value $json -Encoding UTF8 -ErrorAction Stop
+      return
+    }} catch {{
+      if ($attempt -eq 5) {{ Write-Host "Set-Status failed after $attempt attempts: $_" }}
+      else {{ Start-Sleep -Milliseconds 200 }}
+    }}
+  }}
 }}
 
 function Log-Line([string]$Text, [string]$Color = 'Gray') {{
@@ -1397,7 +1415,16 @@ function Write-Raw {{
 }}
 
 function Set-Status([string]$Status) {{
-  @{{ status=$Status; updated_at=(Get-Date).ToString('o'); run_dir=$RunDir }} | ConvertTo-Json | Set-Content -LiteralPath $StatusPath -Encoding UTF8
+  $json = @{{ status=$Status; updated_at=(Get-Date).ToString('o'); run_dir=$RunDir }} | ConvertTo-Json
+  foreach ($attempt in 1..5) {{
+    try {{
+      Set-Content -LiteralPath $StatusPath -Value $json -Encoding UTF8 -ErrorAction Stop
+      return
+    }} catch {{
+      if ($attempt -eq 5) {{ Write-Host "Set-Status failed after $attempt attempts: $_" }}
+      else {{ Start-Sleep -Milliseconds 200 }}
+    }}
+  }}
 }}
 function Log-Line([string]$Text, [string]$Color = 'Gray') {{
   $stamp = Get-Date -Format 'HH:mm:ss'
