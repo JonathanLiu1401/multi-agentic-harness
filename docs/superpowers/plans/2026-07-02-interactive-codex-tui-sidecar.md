@@ -12,7 +12,7 @@
 
 - Do not replace or regress `start_visible_codex_worker`, `start_visible_haiku_composed_codex_worker`, `start_visible_first_mate_codex_pool`, or `steer_visible_codex_run`.
 - The new TUI path must use top-level interactive `codex`, not `codex exec --json`.
-- The new TUI path must force `gpt-5.6-sol` and `service_tier=fast`, and honor the per-run `reasoning_effort` (`high` / `xhigh` / `max` / `ultracode`, default `xhigh`).
+- The new TUI path must force `gpt-5.6-sol` and `service_tier=fast`, and honor the per-run `reasoning_effort` (`high` / `xhigh` / `max` / `ultra`, default `xhigh`).
 - The new TUI path defaults to `approval_policy="on-request"` so the user can approve or reject directly in the TUI.
 - Do not promise structured JSON event logs for TUI mode.
 - Do not promise Claude can inject live text into the interactive TUI.

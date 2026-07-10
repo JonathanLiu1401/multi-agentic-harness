@@ -15,7 +15,7 @@ Use Claude's active manager model as captain, executive architect, QA tech lead,
 - Claude must review Codex output and local diffs before claiming completion.
 - Prefer Codex MCP over manual copy/paste.
 - The Claude manager model does not write implementation code by default. It writes plans, contracts, constraints, acceptance tests, review findings, steering notes, and the final user response. Route code edits to Codex unless the edit is tiny, the bridge is unavailable, or the user explicitly asks Claude to code directly.
-- Every Codex run uses `gpt-5.6-sol` and `service_tier=fast`. Claude sets the reasoning effort per task by judged difficulty, choosing one of `high`, `xhigh`, `max`, or `ultracode` (see "Reasoning Effort Policy"). Effort is no longer fixed at `xhigh`; token savings come from routing work to Codex and matching effort to difficulty, not from weakening Codex on hard tasks.
+- Every Codex run uses `gpt-5.6-sol` and `service_tier=fast`. Claude sets the reasoning effort per task by judged difficulty, choosing one of `high`, `xhigh`, `max`, or `ultra` (see "Reasoning Effort Policy"). Effort is no longer fixed at `xhigh`; token savings come from routing work to Codex and matching effort to difficulty, not from weakening Codex on hard tasks.
 - Every new or resumed Codex run receives session context. Pass a compact `session_context` argument when using visible tools, and tell Codex to use `read-past-sessions` before acting when it needs the full transcript.
 - Codex workers run with full process/tool access by default so Python-backed skills, `read-past-sessions`, SSH, and developer CLIs work. Use the requested `sandbox` as permission intent: `read-only` means no edits, not a crippled process sandbox.
 - SSH, serial, live-device, hardware, network, Docker, package-manager, and external-tool debugging must set `requires_tool_access: true` or `sandbox: danger-full-access`.
@@ -30,24 +30,27 @@ Codex runs on `gpt-5.6-sol`. Claude — the manager — chooses the Codex reason
 - `high`: routine, low-ambiguity work — mechanical refactors, formatting, narrow test repair, small well-scoped edits, cheap scouting where the answer is easy to find.
 - `xhigh`: normal multi-file implementation, non-trivial exploration, moderate debugging, and reviews with some ambiguity. This is the default floor when Claude does not specify.
 - `max`: hard problems — subtle concurrency/correctness bugs, cross-cutting refactors, tricky architecture-sensitive changes, or work where a wrong answer is expensive.
-- `ultracode`: the hardest, highest-stakes tasks — deep multi-subsystem reasoning, gnarly root-cause hunts, or large coordinated changes. `ultracode` also unlocks Codex fanning out its own subagents using ultracode workflows (see below).
+- `ultra`: the hardest, highest-stakes tasks — deep multi-subsystem reasoning, gnarly root-cause hunts, or large coordinated changes. `ultra` is `gpt-5.6-sol`'s top effort tier: instead of only spending more chain-of-thought in a single turn, it natively decomposes the problem into cooperative internal subagents (see below). It costs significantly more tokens per turn and is preview-gated, so reserve it for genuinely hard, parallelizable work and pair it with a token budget.
+
+(`minimal`, `low`, and `medium` are also valid `model_reasoning_effort` values the bridge accepts, but Codex worker tasks in this bridge should stay on the `high` → `ultra` range above unless Claude has a specific reason to go lower.)
 
 How Claude selects:
 
 - Assess difficulty yourself before dispatching: scope (files/subsystems touched), ambiguity, blast radius of a mistake, and how much independent reasoning the worker must do. Pick the lowest tier that comfortably covers the task; escalate when the signals are high.
-- Pass the chosen tier as `reasoning_effort` (or `config.model_reasoning_effort`) on the Codex/visible/TUI start tools. The bridge validates it against `high` / `xhigh` / `max` / `ultracode` and falls back to `xhigh` if it is missing or unrecognized.
+- Pass the chosen tier as `reasoning_effort` (or `config.model_reasoning_effort`) on the Codex/visible/TUI start tools. The bridge validates it against `gpt-5.6-sol`'s accepted values (`minimal` / `low` / `medium` / `high` / `xhigh` / `max` / `ultra`) and falls back to the `xhigh` floor if it is missing or unrecognized.
 - Re-judge on steering. If a task turns out harder than expected (repeated failed attempts, confused workers, growing scope), raise the effort on the next run or resume; if it turns out trivial, drop it. Do not leave everything at one fixed tier.
-- Match effort to the worker's job, not just the overall goal: a cheap `claude-explorer` scout can run at `high` while the `claude-implementer` doing the hard change on the same goal runs at `max` or `ultracode`.
+- Match effort to the worker's job, not just the overall goal: a cheap `claude-explorer` scout can run at `high` while the `claude-implementer` doing the hard change on the same goal runs at `max` or `ultra`.
 
-### Subagent fan-out with ultracode workflows
+### Ultra effort and native subagent fan-out
 
-`gpt-5.6-sol` Codex agents may fan out their own Codex subagents using ultracode workflows when Claude has set `max` or `ultracode` effort and the task genuinely benefits from parallel decomposition. This is the model-native equivalent of the first-mate pool: the root Codex agent decomposes the work, spawns bounded `claude-explorer` / `claude-implementer` / `claude-reviewer` subagents (file-disjoint for writes), and reconciles their results.
+At `ultra` effort, `gpt-5.6-sol` decomposes the work into its own cooperative internal subagents and reassembles the result — the model-native equivalent of the first-mate pool. Use it when Claude has judged the task hard and genuinely parallelizable (independent subsystems, a wide search, or a large coordinated change). For a Codex root/first-mate coordinator, `ultra` also backs its explicit `claude-explorer` / `claude-implementer` / `claude-reviewer` fan-out (file-disjoint for writes).
 
 Keep it bounded and captain-governed:
 
-- Claude authorizes the fan-out and the effort tier in the brief; a worker does not unilaterally escalate effort or spawn a deep subagent tree.
-- Respect the existing fan-out cap (at most the worker count Claude requested, otherwise 6) and the no-recursive-trees rule — ultracode workflows widen a single layer, they do not nest layers.
-- Lower tiers (`high` / `xhigh`) run as single workers unless Claude explicitly asks for a small parallel split.
+- Claude authorizes `ultra` and the fan-out in the brief; a worker does not unilaterally escalate its own effort tier or spawn a deep subagent tree.
+- Respect the existing fan-out cap (at most the worker count Claude requested, otherwise 6) and the no-recursive-trees rule — ultra widens a single layer, it does not nest layers.
+- Because `ultra` is token-heavy, set a rollout token budget (e.g. `rollout_token_budget`) for the run and prefer it over spraying many separate high-effort workers.
+- Lower tiers (`high` / `xhigh` / `max`) run as single workers unless Claude explicitly asks for a small parallel split.
 
 ## Official OpenAI Codex Plugin
 
@@ -182,7 +185,7 @@ Important `codex` arguments:
 - `approval-policy`: use `never` unless the user explicitly wants interactive approvals.
 - `developer-instructions`: use this to enforce Claude manager / Codex worker roles.
 - `model`: set `gpt-5.6-sol`.
-- `config`: include `model_reasoning_effort="<tier>"` where `<tier>` is the effort Claude selected for this task (`high`, `xhigh`, `max`, or `ultracode`), and `service_tier="fast"`.
+- `config`: include `model_reasoning_effort="<tier>"` where `<tier>` is the effort Claude selected for this task (`high`, `xhigh`, `max`, or `ultra`), and `service_tier="fast"`.
 
 When a Codex response includes `structuredContent.threadId`, record it and use `codex-reply` for follow-up to that same root worker.
 
@@ -206,7 +209,7 @@ The server exposes:
 - `get_visible_run_status`: reads status and recent log lines from a visible run directory.
 - `list_visible_runs`: lists recent visible runs.
 
-Visible start tools force Codex to `gpt-5.6-sol` / `service_tier=fast` and honor the `reasoning_effort` Claude passes for the run, validated against `high` / `xhigh` / `max` / `ultracode` (an unknown or missing value falls back to the `xhigh` default floor). Pass `reasoning_effort` on the start/pool/TUI tools to set the task's effort. The Haiku composer uses Claude `haiku` / `low` and a small default budget before Codex starts.
+Visible start tools force Codex to `gpt-5.6-sol` / `service_tier=fast` and honor the `reasoning_effort` Claude passes for the run, validated against `gpt-5.6-sol`'s accepted values (`minimal` / `low` / `medium` / `high` / `xhigh` / `max` / `ultra`; an unknown or missing value falls back to the `xhigh` default floor). Pass `reasoning_effort` on the start/pool/TUI tools to set the task's effort. The Haiku composer uses Claude `haiku` / `low` and a small default budget before Codex starts.
 
 Use these optional arguments:
 
@@ -296,7 +299,7 @@ The bridge bundles a Codex-facing Firstmate skill at `codex-skills/firstmate/SKI
 Default first-mate settings:
 
 - model: `gpt-5.6-sol`
-- reasoning effort: Claude-selected per task (`high` / `xhigh` / `max` / `ultracode`); defaults to the `xhigh` floor when unset
+- reasoning effort: Claude-selected per task (`high` / `xhigh` / `max` / `ultra`); defaults to the `xhigh` floor when unset
 - service tier: `fast`
 - process sandbox: full tool access by default so Python skills and external tooling work
 - permission intent: `read-only`/no-edit for codebase mapping, `workspace-write` only after Claude chooses a scoped implementation path, `danger-full-access` or `requires_tool_access: true` for SSH/live-device/tool debugging

@@ -1,7 +1,7 @@
 name = "claude-debugger"
 description = "Full-tool debugging worker for Claude-managed Codex runs. Use for SSH, live-device diagnostics, network checks, serial/tool-heavy debugging, package-manager probes, and command/log work after Claude explicitly allows full tool access."
 model = "gpt-5.6-sol"
-# Default effort floor; Claude raises this per task across high/xhigh/max/ultracode.
+# Default effort floor; Claude raises this per task across high/xhigh/max/ultra.
 model_reasoning_effort = "xhigh"
 service_tier = "fast"
 sandbox_mode = "danger-full-access"

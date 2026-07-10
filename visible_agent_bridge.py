@@ -26,11 +26,13 @@ PLAYWRIGHT_NODE_PATH = r"C:\Users\jonny\node_modules;C:\Users\jonny\.codex\playw
 PLAYWRIGHT_BROWSERS_PATH = Path(r"C:\Users\jonny\AppData\Local\ms-playwright")
 
 CODEX_MODEL = "gpt-5.6-sol"
-# Claude selects the reasoning effort per task by judged difficulty. The
-# effort ladder runs high -> xhigh -> max -> ultracode; the default below is a
-# floor, not a fixed value. Any caller-supplied effort outside this set falls
-# back to CODEX_REASONING_EFFORT.
-CODEX_REASONING_EFFORTS = ("high", "xhigh", "max", "ultracode")
+# gpt-5.6-sol accepts these model_reasoning_effort values. Claude selects the
+# effort per task by judged difficulty; for coding work it scales along
+# high -> xhigh -> max -> ultra. `ultra` is the highest tier and makes the
+# model natively decompose work into cooperative subagents (high token cost,
+# preview-gated). The default below is a floor, not a fixed value; any
+# caller-supplied effort outside this set falls back to CODEX_REASONING_EFFORT.
+CODEX_REASONING_EFFORTS = ("minimal", "low", "medium", "high", "xhigh", "max", "ultra")
 CODEX_REASONING_EFFORT = "xhigh"
 CODEX_SERVICE_TIER = "fast"
 CODEX_FULL_TOOL_SANDBOX = "danger-full-access"
@@ -119,7 +121,7 @@ The human user is the owner; do not address the owner directly unless Claude exp
 
 Address Claude as "captain" at least once in every response. Keep the address concise and professional.
 
-Runtime requirement: use Codex gpt-5.6-sol and service_tier=fast for root and subagent work in this bridge. Reasoning effort is Claude-selected per task across high, xhigh, max, and ultracode; use the effort the captain sets for this run and do not silently downgrade it. At max/ultracode you may fan out Codex subagents using ultracode workflows within the captain's scope.
+Runtime requirement: use Codex gpt-5.6-sol and service_tier=fast for root and subagent work in this bridge. Reasoning effort is Claude-selected per task across high, xhigh, max, and ultra; use the effort the captain sets for this run and do not silently downgrade it. At ultra effort, gpt-5.6-sol natively decomposes work into cooperative subagents; stay within the captain's scope and fan-out cap.
 
 Session requirement: do not act as a blank chat. Use caller-provided context first. If the task depends on earlier conversation history, use read-past-sessions before scouting or implementing, then pass compact context into every subagent brief. For broad project/codebase context, use read-past-sessions' Graphify memory flow before brute-force file reading: memory-query first; if the graph is missing or stale, build the curated corpus with memory-corpus plus memory-codex --build-graph, or memory-graph as deterministic fallback.
 
@@ -434,7 +436,7 @@ def _haiku_codex_prompt_composer_prompt(
     - Requested permission intent: {requested_sandbox}
     - Requires full tool/debug access: {requires_tool_access}
     - Resume session/thread id: {resume_session_id or "none"}
-    - Codex runtime: gpt-5.6-sol, Claude-selected reasoning ({reasoning_effort}; one of high/xhigh/max/ultracode), service_tier=fast.
+    - Codex runtime: gpt-5.6-sol, Claude-selected reasoning ({reasoning_effort}; one of high/xhigh/max/ultra), service_tier=fast.
 
     Caller-provided session context:
     {context}
@@ -808,7 +810,7 @@ def _launch_interactive_terminal(script_path: Path) -> int:
 def _normalize_reasoning_effort(value: str) -> str:
     """Return a valid effort tier, defaulting when the request is unknown.
 
-    Claude varies the effort per task across high/xhigh/max/ultracode; anything
+    Claude varies the effort per task across high/xhigh/max/ultra; anything
     else (empty, typo, or a retired tier) falls back to the default floor.
     """
     candidate = (value or "").strip().lower()
@@ -1590,7 +1592,7 @@ def start_visible_codex_worker(
         "status": str(run_dir / "status.json"),
         "steer_queue": str(run_dir / "steer_queue"),
         "captain_help": str(run_dir / CAPTAIN_HELP_DIR),
-        "note": f"A visible PowerShell window was launched. Codex runs gpt-5.6-sol at Claude-selected {effective_reasoning} reasoning (one of high/xhigh/max/ultracode) with service_tier=fast. Effective sandbox is {effective_sandbox}. Haiku prompt composer enabled={compose_with_haiku}. Captain-help mailbox enabled. Hidden model reasoning is not exposed; prompts, events, messages, commands, usage, and diffs are logged.",
+        "note": f"A visible PowerShell window was launched. Codex runs gpt-5.6-sol at Claude-selected {effective_reasoning} reasoning (one of high/xhigh/max/ultra) with service_tier=fast. Effective sandbox is {effective_sandbox}. Haiku prompt composer enabled={compose_with_haiku}. Captain-help mailbox enabled. Hidden model reasoning is not exposed; prompts, events, messages, commands, usage, and diffs are logged.",
     }
 
 

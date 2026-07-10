@@ -1,7 +1,7 @@
 name = "claude-implementer"
 description = "Bounded implementation worker for Claude-managed Codex runs. Use only when Claude has supplied a specific scope, target files, acceptance criteria, and permission to write."
 model = "gpt-5.6-sol"
-# Default effort floor; Claude raises this per task across high/xhigh/max/ultracode.
+# Default effort floor; Claude raises this per task across high/xhigh/max/ultra.
 model_reasoning_effort = "xhigh"
 service_tier = "fast"
 sandbox_mode = "danger-full-access"

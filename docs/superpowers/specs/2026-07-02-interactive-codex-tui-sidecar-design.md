@@ -43,7 +43,7 @@ Suggested arguments:
 - `resume_session_id`: optional Codex session id to continue with `codex resume <id>`.
 - `approval_policy`: optional interactive approval policy. Default `on-request` for TUI sessions so the user can approve or reject actions directly.
 - `model`: accepted for API symmetry, but the tool should force `gpt-5.6-sol`.
-- `reasoning_effort`: honored per run; validated against `high` / `xhigh` / `max` / `ultracode` and defaulted to `xhigh` when missing or unrecognized (Claude selects the tier by task difficulty).
+- `reasoning_effort`: honored per run; validated against `gpt-5.6-sol`'s accepted values (`minimal` / `low` / `medium` / `high` / `xhigh` / `max` / `ultra`) and defaulted to `xhigh` when missing or unrecognized (Claude selects the tier by task difficulty).
 - `service_tier`: accepted for API symmetry, but the tool should force `fast`.
 - `no_alt_screen`: optional boolean. When true, pass `--no-alt-screen` so terminal scrollback remains easier to inspect.
 - `close_on_exit`: optional boolean. Default false for interactive use, so the terminal remains visible after Codex exits.
