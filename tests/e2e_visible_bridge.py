@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import inspect
 import json
 import os
 import subprocess
@@ -511,6 +512,7 @@ def case_visible_worker_and_queued_steer() -> dict[str, Any]:
         sandbox="read-only",
         session_context=SESSION_CONTEXT,
         launch_if_closed=False,
+        interrupt_current_turn=False,
     )
     assert steer["ok"] and steer["mode"] == "queued", steer
     _wait_completed(run_dir, ["E2E_INITIAL_OK", "E2E_STEERED_OK"], timeout_s=360)
@@ -578,6 +580,73 @@ def case_interrupt_steering() -> dict[str, Any]:
     return {"run_dir": str(followup), "mode": steer["mode"], "thread_id": _thread_id(followup)}
 
 
+def case_supervision_review_cycle() -> dict[str, Any]:
+    skill_text = (
+        ROOT / "plugin" / "skills" / "claude-manages-codex" / "SKILL.md"
+    ).read_text(encoding="utf-8")
+    required_contract = (
+        "## Mandatory 10-Minute Direct Supervision",
+        "not a liveness probe",
+        "on-track / off-track verdict",
+        "A steer issued without first reading the recent work is not supervision",
+        "A liveness or status-only poll never counts.",
+        "always spawns in real interactive TUI mode by default",
+        "requires an explicit, stated justification",
+        "when in doubt, spawn the TUI",
+    )
+    for phrase in required_contract:
+        assert phrase in skill_text, phrase
+
+    result = bridge.start_visible_codex_worker(
+        prompt=(
+            'Self-contained supervision E2E. Do not edit files. Reply with exactly '
+            '"SUPERVISION_PHASE_1 current-assumption: awaiting captain review" and '
+            "nothing else, then stop."
+        ),
+        cwd=str(ROOT),
+        title="E2E supervision review cycle",
+        sandbox="read-only",
+        session_context=SESSION_CONTEXT,
+        steer_idle_seconds=90,
+    )
+    run_dir = _run_dir(result)
+    display = run_dir / "display.log"
+    deadline = time.time() + 240
+    reviewed_line = ""
+    while time.time() < deadline:
+        if display.exists():
+            lines = display.read_text(encoding="utf-8-sig", errors="replace").splitlines()
+            reviewed_line = next((line for line in lines if "SUPERVISION_PHASE_1" in line), "")
+        if reviewed_line:
+            break
+        time.sleep(2)
+    if not reviewed_line:
+        raise AssertionError(f"timed out waiting for SUPERVISION_PHASE_1: {run_dir}\n{_tail(display)}")
+
+    steer = bridge.steer_visible_codex_run(
+        run_dir=str(run_dir),
+        instruction=(
+            f'Captain supervision pass. I reviewed your latest output: "{reviewed_line}". '
+            "Verdict: on-track. Now reply with exactly SUPERVISION_PASS_OK and nothing else."
+        ),
+        interrupt_current_turn=False,
+    )
+    assert steer["ok"], steer
+    steer_sig = inspect.signature(bridge.steer_visible_codex_run)
+    assert (
+        steer_sig.parameters["interrupt_current_turn"].default is True
+    ), "steer_visible_codex_run must deliver directly (interrupt) by default"
+    _wait_completed(run_dir, ["SUPERVISION_PHASE_1", "SUPERVISION_PASS_OK"], timeout_s=360)
+
+    steer_files = sorted((run_dir / "steer_done").glob("*.md"))
+    if not steer_files:
+        steer_files = sorted((run_dir / "steer_queue").glob("*.md"))
+    assert steer_files, steer
+    steer_text = steer_files[-1].read_text(encoding="utf-8")
+    assert "SUPERVISION_PHASE_1" in steer_text, steer_text
+    return {"run_dir": str(run_dir), "reviewed_line": reviewed_line}
+
+
 def case_haiku_composed_worker() -> dict[str, Any]:
     result = bridge.start_visible_haiku_composed_codex_worker(
         prompt_brief=(
@@ -636,46 +705,50 @@ def main() -> None:
     args = parser.parse_args()
 
     results: dict[str, Any] = {}
-    print("[0/10] advisor model policy", flush=True)
+    print("[0/11] advisor model policy", flush=True)
     _assert_model_policy()
 
-    print("[1/10] Codex MCP tool allowlists", flush=True)
+    print("[1/11] Codex MCP tool allowlists", flush=True)
     _assert_codex_mcp_tool_allowlists()
 
-    print("[2/10] captain help mailbox", flush=True)
+    print("[2/11] captain help mailbox", flush=True)
     results["captain_help"] = case_captain_help_mailbox()
     print(json.dumps(results["captain_help"], indent=2), flush=True)
 
-    print("[3/10] interactive TUI sidecar dry-run", flush=True)
+    print("[3/11] interactive TUI sidecar dry-run", flush=True)
     results["interactive_tui"] = case_interactive_tui_sidecar_dry_run()
     print(json.dumps(results["interactive_tui"], indent=2), flush=True)
 
-    print("[4/10] interactive first-mate TUI dry-run", flush=True)
+    print("[4/11] interactive first-mate TUI dry-run", flush=True)
     results["interactive_firstmate_tui"] = case_interactive_first_mate_tui_dry_run()
     print(json.dumps(results["interactive_firstmate_tui"], indent=2), flush=True)
 
-    print("[5/10] visible worker + queued steer", flush=True)
+    print("[5/11] visible worker + queued steer", flush=True)
     results["queued"] = case_visible_worker_and_queued_steer()
     print(json.dumps(results["queued"], indent=2), flush=True)
 
-    print("[6/10] closed run resume + permission override", flush=True)
+    print("[6/11] closed run resume + permission override", flush=True)
     results["resume"] = case_closed_run_resume(results["queued"])
     print(json.dumps(results["resume"], indent=2), flush=True)
 
-    print("[7/10] interrupt current turn + resume steering", flush=True)
+    print("[7/11] interrupt current turn + resume steering", flush=True)
     results["interrupt"] = case_interrupt_steering()
     print(json.dumps(results["interrupt"], indent=2), flush=True)
 
+    print("[8/11] mandatory supervision review cycle", flush=True)
+    results["supervision"] = case_supervision_review_cycle()
+    print(json.dumps(results["supervision"], indent=2), flush=True)
+
     if not args.skip_expensive:
-        print("[8/10] Haiku-composed Codex worker", flush=True)
+        print("[9/11] Haiku-composed Codex worker", flush=True)
         results["haiku"] = case_haiku_composed_worker()
         print(json.dumps(results["haiku"], indent=2), flush=True)
 
-        print("[9/10] first-mate visible pool", flush=True)
+        print("[10/11] first-mate visible pool", flush=True)
         results["firstmate"] = case_first_mate_pool()
         print(json.dumps(results["firstmate"], indent=2), flush=True)
 
-        print("[10/10] Claude advisor visible run", flush=True)
+        print("[11/11] Claude advisor visible run", flush=True)
         results["claude_advisor"] = case_claude_advisor()
         print(json.dumps(results["claude_advisor"], indent=2), flush=True)
 

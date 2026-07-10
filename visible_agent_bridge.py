@@ -1915,10 +1915,17 @@ def steer_visible_codex_run(
     session_context: str = "",
     sandbox: str = "",
     launch_if_closed: bool = True,
-    interrupt_current_turn: bool = False,
+    interrupt_current_turn: bool = True,
     requires_tool_access: bool = False,
 ) -> dict[str, Any]:
-    """Send a Claude steering instruction to a visible Codex run, resuming the same Codex thread if needed."""
+    """Send a Claude steering instruction to a visible Codex run, resuming the same Codex thread if needed.
+
+    Delivery is direct by default: an in-flight turn is interrupted and the same
+    Codex thread resumes immediately with the instruction. Workers idle in their
+    steering window consume the queue within a second, so they are never
+    interrupted. Pass interrupt_current_turn=False to wait for the current turn
+    to finish instead of interrupting it.
+    """
     path = Path(run_dir).expanduser().resolve()
     if not path.exists():
         return {"ok": False, "error": f"run_dir does not exist: {path}"}
@@ -1948,7 +1955,13 @@ def steer_visible_codex_run(
         "note": "Steering was queued. The visible Codex window will consume it after the current turn, or during its steering idle window.",
     }
 
-    if active and not interrupt_current_turn:
+    idle = status_name in ("created", "waiting_for_steer")
+    if active and (not interrupt_current_turn or idle):
+        if status_name == "waiting_for_steer":
+            result["note"] = (
+                "Steering was queued for immediate pickup: the worker is idle in its "
+                "steering window and polls the queue every second."
+            )
         return result
 
     resume_session_id = thread_id
@@ -1997,7 +2010,7 @@ def steer_visible_codex_run(
             result["note"] = "Steering was queued, but the active visible run could not be interrupted cleanly."
             return result
 
-    if not launch_if_closed and not interrupt_current_turn:
+    if not launch_if_closed and "interrupted_pid" not in result:
         result["mode"] = "queued_no_active_runner"
         result["note"] = "Steering was queued, but the visible run is not active and launch_if_closed is false."
         return result

@@ -20,7 +20,7 @@ Use Claude's active manager model as captain, executive architect, QA tech lead,
 - Codex workers run with full process/tool access by default so Python-backed skills, `read-past-sessions`, SSH, and developer CLIs work. Use the requested `sandbox` as permission intent: `read-only` means no edits, not a crippled process sandbox.
 - SSH, serial, live-device, hardware, network, Docker, package-manager, and external-tool debugging must set `requires_tool_access: true` or `sandbox: danger-full-access`.
 - Do not spend manager-model output tokens writing long Codex prompts. Claude should pass a compact captain brief to the Haiku prompt composer; Haiku expands the final Codex worker prompt.
-- Prefer real interactive Codex TUI workers by default when the user wants to observe or steer progress. TUI workers let the user type directly into Codex and approve/reject inside the Codex interface. Use the non-interactive JSON workers only when Claude needs automated steering, structured JSONL logs, or a short unattended run.
+- Codex always spawns in real interactive TUI mode by default: `start_interactive_first_mate_codex_tui` for Claude-managed work and fan-out, `start_interactive_codex_tui` for a single directly steerable worker. This default is unconditional — it does not depend on whether the user is currently watching. TUI workers let the user type directly into Codex and approve/reject inside the Codex interface. Spawning a non-interactive JSON worker instead requires an explicit, stated justification — automated queued steering, structured JSONL logs for machine parsing, or unattended execution — recorded in the bridge ledger; when in doubt, spawn the TUI.
 - Hidden model reasoning is not displayable. Surface useful progress, summaries, commands, and implementation state instead.
 
 ## Reasoning Effort Policy
@@ -107,7 +107,7 @@ Default manager loop:
 
 1. Decide the architecture and acceptance criteria.
 2. Start or resume an interactive Codex TUI worker or first-mate TUI pool with a compact `session_context`, unless the task explicitly needs automated JSON steering.
-3. Every 10 minutes while workers are active, run an active supervision pass: read recent worker actions, check captain-help mailboxes, judge whether the work still matches the architecture and acceptance criteria, and steer with short captain instructions before drift compounds.
+3. Every 10 minutes while workers are active, run the mandatory direct supervision pass (see "Mandatory 10-Minute Direct Supervision"): read the actual recent work, check captain-help mailboxes, render an on-track/off-track verdict against the architecture and acceptance criteria, and steer with short captain instructions before drift compounds. A liveness or status-only poll never counts.
 4. Let Codex implement, verify, and summarize.
 5. Claude reviews the diff, tests, risks, and worker ledger. Reject or steer repair when the output does not match the architecture.
 6. Claude writes the final user response only after the review gate passes or clearly reports incomplete verification.
@@ -242,13 +242,13 @@ Claude should actively manage non-interactive visible Codex runs instead of lett
 
 1. Start one interactive Codex TUI root or first-mate run with the goal, constraints, and acceptance criteria by default. Start a non-interactive visible run only for automated queued steering or structured logs.
 2. Poll with `get_visible_run_status`; read the tail, pending steer count, pending help requests, thread/session id, status, and `captain_report`.
-3. At least every 10 minutes for long-running fleets, run an active supervision pass, not just a status poll: inspect recent actions/log tails/reports, check the captain-help mailbox, compare direction against Claude's architecture and acceptance criteria, decide whether the worker is on track, and steer drift immediately.
+3. At least every 10 minutes for long-running fleets, run an active supervision pass per the "Mandatory 10-Minute Direct Supervision" contract, not just a status poll: inspect recent actions/log tails/reports, check the captain-help mailbox, compare direction against Claude's architecture and acceptance criteria, decide whether the worker is on track, and steer drift immediately.
 4. Periodically check up with active agents before they spiral: ask for a compact health/status checkpoint, current assumption, blocker, next action, and expected verification. Use short steering notes; do not wait for obvious failure if output quality is drifting, confused, or bug-prone.
 5. If `pending_help_requests` is nonzero, read `help_requests` or call `list_captain_help_requests`, then answer with `respond_to_captain_help_request`.
-6. For non-interactive workers, when Codex needs correction, narrowing, extra context, changed priorities, or a review checkpoint, call `steer_visible_codex_run` with a short captain instruction and the same run directory. For interactive TUI workers, steer directly in the terminal or resume the saved session; queued steering does not type into the open TUI.
+6. For non-interactive workers, when Codex needs correction, narrowing, extra context, changed priorities, or a review checkpoint, call `steer_visible_codex_run` with a short captain instruction and the same run directory; delivery is direct by default (see step 9), not queued behind the current turn. For interactive TUI workers, steer directly in the terminal or resume the saved session; bridge steering does not type into the open TUI.
 7. When multiple agents converge on the same root cause or design decision from different directions, consolidate it into one canonical world model and steer every active run to that model. Do not let stale assumptions keep running in parallel.
 8. If the worker is right to escalate, ask the user the specific decision question yourself, then call `respond_to_captain_help_request` with the user's answer. Do not tell Codex to ask the user directly.
-9. Prefer queued steering over a new run. Use `interrupt_current_turn: true` only when Codex is actively doing harmful or clearly wasted work and a `thread_id` has already been recorded.
+9. Steering is direct by default: `steer_visible_codex_run` interrupts an in-flight turn and resumes the same thread immediately with the captain instruction, so corrections land now instead of after the current turn finishes. Workers idle in their steering window consume the queue within a second and are never interrupted. Pass `interrupt_current_turn: false` to wait for the turn boundary only when the guidance is non-urgent and preserving the in-flight turn's partial work matters more than latency. Prefer steering an existing thread over starting a new run either way.
 10. If Claude changes permission intent mid-session, pass `sandbox: workspace-write` or `sandbox: danger-full-access` in the steering call so Codex receives an updated permission contract.
 11. If a non-interactive visible window closed, let `steer_visible_codex_run` or `respond_to_captain_help_request` launch a visible resume run on the same thread. For interactive TUI runs, resume with `start_interactive_codex_tui` / `start_interactive_first_mate_codex_tui` and the saved session id when available. Start fresh only for unrelated work or polluted context.
 12. Treat TUI terminal text as user-visible progress only. The captain-facing outcome is the `submit_captain_report` artifact.
@@ -256,6 +256,20 @@ Claude should actively manage non-interactive visible Codex runs instead of lett
 Keep steering notes short. State the decision, changed scope, files or tests to focus on, and required next response shape. Do not restate the whole task unless the thread lost context.
 
 Use invisible `codex` / `codex-reply` for quick, low-noise, manager-controlled exchanges where live observation is not needed.
+
+## Mandatory 10-Minute Direct Supervision
+
+While any Codex worker, TUI session, or fleet is active, Claude runs a direct supervision pass at least every 10 minutes. This is supervision and review of the work itself, not a liveness probe: confirming the process is still running, or reading only the `status` field, does not count as a pass.
+
+Every pass must do all of the following:
+
+1. Read the worker's actual recent work: the `get_visible_run_status` tail, `captain_report` / `list_captain_reports`, or TUI sidecar artifacts — commands run, files touched, stated reasoning, and output produced since the last pass.
+2. Check the captain-help mailbox and the pending steer queue.
+3. Render an explicit on-track / off-track verdict against Claude's stated architecture, acceptance criteria, and permission contract. Record the verdict in the bridge ledger for long-running fleets.
+4. Act on the verdict immediately. If off-track, drifting, or approaching an expensive or irreversible step: send a short captain correction that quotes or names the specific reviewed output it is correcting (`steer_visible_codex_run` for non-interactive runs; terminal steering or session resume for TUI runs). If on-track: say so in the ledger, and request a compact checkpoint (current assumption, blocker, next action, expected verification) whenever the next milestone is unclear.
+5. Note when the next pass is due (10 minutes or less) before returning to other work.
+
+A steer issued without first reading the recent work is not supervision, and a read without a verdict is not review. If two consecutive passes are missed, treat it as a supervision failure: stop launching new delegation, re-read the full ledger and each active run's recent output, and re-establish verdicts before continuing.
 
 ## Same-Captain Help Callback
 
