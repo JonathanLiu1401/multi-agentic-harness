@@ -58,6 +58,10 @@ CODEX_STEER_IDLE_SECONDS = 20
 INTERACTIVE_TUI_APPROVAL_POLICY = "on-request"
 INTERACTIVE_TUI_MODE = "interactive_tui"
 INTERACTIVE_TUI_AUTO_CLOSE_DELAY_SECONDS = 5
+# codex.cmd is an npm batch shim, so the whole rendered command line must fit
+# cmd.exe's 8191-char limit. Long captain briefs are passed via prompt.md with
+# a short bootstrap arg instead of inline. 6000 leaves headroom for the flags.
+TUI_INLINE_PROMPT_MAX_CHARS = 6000
 
 TOOL_ACCESS_KEYWORDS = (
     "ssh",
@@ -917,15 +921,17 @@ def _interactive_codex_tui_runner(
         mode = "interactive_tui"
       }}
       $json = $obj | ConvertTo-Json -Depth 5
+      $tmp = $StatusPath + '.tmp'
       foreach ($attempt in 1..5) {{
         try {{
-          Set-Content -LiteralPath $StatusPath -Value $json -Encoding UTF8 -ErrorAction Stop
+          Set-Content -LiteralPath $tmp -Value $json -Encoding UTF8 -ErrorAction Stop
+          Move-Item -LiteralPath $tmp -Destination $StatusPath -Force -ErrorAction Stop
           return
         }} catch {{
-          if ($attempt -eq 5) {{ Write-Host "Set-Status failed after $attempt attempts: $_" }}
-          else {{ Start-Sleep -Milliseconds 200 }}
+          Start-Sleep -Milliseconds 200
         }}
       }}
+      Write-Log "Set-Status failed after 5 attempts: $Status"
     }}
 
     Set-Location -LiteralPath $Cwd
@@ -1116,15 +1122,17 @@ function Write-Raw {{
 
 function Set-Status([string]$Status) {{
   $json = @{{ status=$Status; updated_at=(Get-Date).ToString('o'); run_dir=$RunDir }} | ConvertTo-Json
+  $tmp = $StatusPath + '.tmp'
   foreach ($attempt in 1..5) {{
     try {{
-      Set-Content -LiteralPath $StatusPath -Value $json -Encoding UTF8 -ErrorAction Stop
+      Set-Content -LiteralPath $tmp -Value $json -Encoding UTF8 -ErrorAction Stop
+      Move-Item -LiteralPath $tmp -Destination $StatusPath -Force -ErrorAction Stop
       return
     }} catch {{
-      if ($attempt -eq 5) {{ Write-Host "Set-Status failed after $attempt attempts: $_" }}
-      else {{ Start-Sleep -Milliseconds 200 }}
+      Start-Sleep -Milliseconds 200
     }}
   }}
+  Log-Line "Set-Status failed after 5 attempts: $Status"
 }}
 
 function Log-Line([string]$Text, [string]$Color = 'Gray') {{
@@ -1416,15 +1424,17 @@ function Write-Raw {{
 
 function Set-Status([string]$Status) {{
   $json = @{{ status=$Status; updated_at=(Get-Date).ToString('o'); run_dir=$RunDir }} | ConvertTo-Json
+  $tmp = $StatusPath + '.tmp'
   foreach ($attempt in 1..5) {{
     try {{
-      Set-Content -LiteralPath $StatusPath -Value $json -Encoding UTF8 -ErrorAction Stop
+      Set-Content -LiteralPath $tmp -Value $json -Encoding UTF8 -ErrorAction Stop
+      Move-Item -LiteralPath $tmp -Destination $StatusPath -Force -ErrorAction Stop
       return
     }} catch {{
-      if ($attempt -eq 5) {{ Write-Host "Set-Status failed after $attempt attempts: $_" }}
-      else {{ Start-Sleep -Milliseconds 200 }}
+      Start-Sleep -Milliseconds 200
     }}
   }}
+  Log-Line "Set-Status failed after 5 attempts: $Status"
 }}
 function Log-Line([string]$Text, [string]$Color = 'Gray') {{
   $stamp = Get-Date -Format 'HH:mm:ss'
@@ -1863,6 +1873,14 @@ def start_interactive_codex_tui(
         encoding="utf-8",
     )
     (run_dir / "display.log").write_text("", encoding="utf-8")
+    tui_prompt = effective_prompt
+    if len(effective_prompt) > TUI_INLINE_PROMPT_MAX_CHARS:
+        tui_prompt = (
+            "Your full captain brief was too long for the Windows command line, so it was saved to a file.\n"
+            f"Read this file FIRST and follow it exactly as this run's task instructions: {run_dir / 'prompt.md'}\n"
+            "It contains the captain report contract, the captain-help contract, the session context, and the task brief. "
+            "Do not start any other work until you have read that file."
+        )
     script = run_dir / "run.ps1"
     script.write_text(
         _interactive_codex_tui_runner(
@@ -1870,7 +1888,7 @@ def start_interactive_codex_tui(
             cwd=str(Path(cwd).resolve()),
             sandbox=effective_sandbox,
             approval_policy=requested_approval,
-            prompt=effective_prompt,
+            prompt=tui_prompt,
             resume_session_id=resume_session_id,
             no_alt_screen=no_alt_screen,
             close_on_exit=close_on_exit,
@@ -2613,10 +2631,12 @@ def list_visible_runs(cwd: str | None = None, limit: int = 20) -> list[dict[str,
         thread_path = run / "thread_id.txt"
         steer_queue = run / "steer_queue"
         steer_done = run / "steer_done"
-        metadata = json.loads(metadata_path.read_text(encoding="utf-8-sig")) if metadata_path.exists() else {}
+        metadata = _read_json(metadata_path, {})
         session_id = _visible_run_session_id(run, metadata)
         captain_report = _latest_captain_report(run)
-        status = json.loads(status_path.read_text(encoding="utf-8-sig")) if status_path.exists() else {"status": "unknown"}
+        status = _read_json(status_path, {"status": "unknown"})
+        if not status:
+            status = {"status": "unreadable"}
         status = _status_with_captain_report(status, captain_report, run)
         result.append({
             "run_id": run.name,

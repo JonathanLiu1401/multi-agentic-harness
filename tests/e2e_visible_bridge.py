@@ -240,6 +240,35 @@ def case_interactive_tui_sidecar_dry_run() -> dict[str, Any]:
     assert (run_dir / "display.log").exists(), run_dir
     assert (run_dir / "captain_reports").is_dir(), run_dir
 
+    # Long captain briefs must not be passed inline: codex.cmd is a cmd.exe
+    # batch shim capped at 8191 chars of command line, so oversized briefs go
+    # through prompt.md with a short bootstrap argument.
+    long_scripts: list[Path] = []
+
+    def fake_launch_long(script_path: Path) -> int:
+        long_scripts.append(script_path)
+        return 424243
+
+    try:
+        bridge._launch_interactive_terminal = fake_launch_long  # type: ignore[assignment]
+        long_result = bridge.start_interactive_codex_tui(
+            prompt="Self-contained interactive TUI long-brief dry-run. Do not edit files.",
+            cwd=str(ROOT),
+            title="E2E interactive TUI long-brief dry-run",
+            sandbox="read-only",
+            approval_policy="on-request",
+            session_context="LONG-BRIEF-PADDING " * 600,
+            no_alt_screen=True,
+        )
+    finally:
+        bridge._launch_interactive_terminal = original_launch  # type: ignore[assignment]
+    long_run_dir = _run_dir(long_result)
+    long_script = long_scripts[0].read_text(encoding="utf-8-sig")
+    assert "too long for the Windows command line" in long_script, long_script
+    assert "LONG-BRIEF-PADDING" not in long_script, "long brief leaked into the TUI command line"
+    long_prompt = (long_run_dir / "prompt.md").read_text(encoding="utf-8-sig")
+    assert "LONG-BRIEF-PADDING" in long_prompt, long_prompt
+
     original_find_session = bridge._find_recent_codex_session_id
     try:
         bridge._find_recent_codex_session_id = lambda started_at, cwd, limit=50: ""  # type: ignore[assignment]
