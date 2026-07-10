@@ -166,7 +166,7 @@ Do not:
 
 Default first-mate worker settings when Claude asks:
 
-- use `gpt-5.5` with `xhigh` reasoning and `service_tier=fast`
+- use `gpt-5.6-sol` with `service_tier=fast` and the captain-selected reasoning effort (`high` / `xhigh` / `max` / `ultra`, defaulting to `xhigh`)
 - use `claude-explorer` for no-edit context discovery
 - use `claude-implementer` only after Claude gives a scoped plan and write permission
 - use `claude-reviewer` for independent review before finalizing substantial changes

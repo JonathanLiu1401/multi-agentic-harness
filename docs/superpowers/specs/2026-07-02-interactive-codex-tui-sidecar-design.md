@@ -42,8 +42,8 @@ Suggested arguments:
 - `requires_tool_access`: when true, use the full-tool process posture already used by visible workers.
 - `resume_session_id`: optional Codex session id to continue with `codex resume <id>`.
 - `approval_policy`: optional interactive approval policy. Default `on-request` for TUI sessions so the user can approve or reject actions directly.
-- `model`: accepted for API symmetry, but the tool should force `gpt-5.5`.
-- `reasoning_effort`: accepted for API symmetry, but the tool should force `xhigh`.
+- `model`: accepted for API symmetry, but the tool should force `gpt-5.6-sol`.
+- `reasoning_effort`: honored per run; validated against `gpt-5.6-sol`'s accepted values (`minimal` / `low` / `medium` / `high` / `xhigh` / `max` / `ultra`) and defaulted to `xhigh` when missing or unrecognized (Claude selects the tier by task difficulty).
 - `service_tier`: accepted for API symmetry, but the tool should force `fast`.
 - `no_alt_screen`: optional boolean. When true, pass `--no-alt-screen` so terminal scrollback remains easier to inspect.
 - `close_on_exit`: optional boolean. Default false for interactive use, so the terminal remains visible after Codex exits.
@@ -53,13 +53,13 @@ Suggested arguments:
 For a new session, launch top-level interactive Codex:
 
 ```powershell
-codex -m gpt-5.5 -C <cwd> -s <effective-sandbox> -a on-request -c model_reasoning_effort="xhigh" -c service_tier="fast" <prompt>
+codex -m gpt-5.6-sol -C <cwd> -s <effective-sandbox> -a on-request -c model_reasoning_effort="<tier>" -c service_tier="fast" <prompt>
 ```
 
 For resume:
 
 ```powershell
-codex resume <session-id> -m gpt-5.5 -C <cwd> -s <effective-sandbox> -a on-request -c model_reasoning_effort="xhigh" -c service_tier="fast" <optional-prompt>
+codex resume <session-id> -m gpt-5.6-sol -C <cwd> -s <effective-sandbox> -a on-request -c model_reasoning_effort="<tier>" -c service_tier="fast" <optional-prompt>
 ```
 
 Use `codex.cmd` when resolving the executable on Windows, matching the existing bridge behavior.

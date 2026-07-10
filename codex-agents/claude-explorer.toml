@@ -1,6 +1,7 @@
 name = "claude-explorer"
 description = "No-edit explorer for Claude-managed Codex runs. Use for cheap codebase scouting, Python-backed skills, file discovery, dependency tracing, test-log triage, and context distillation before Claude chooses an implementation path."
-model = "gpt-5.5"
+model = "gpt-5.6-sol"
+# Default effort floor; Claude raises this per task across high/xhigh/max/ultra.
 model_reasoning_effort = "xhigh"
 service_tier = "fast"
 sandbox_mode = "danger-full-access"

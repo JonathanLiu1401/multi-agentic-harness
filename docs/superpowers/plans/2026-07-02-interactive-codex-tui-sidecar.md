@@ -12,7 +12,7 @@
 
 - Do not replace or regress `start_visible_codex_worker`, `start_visible_haiku_composed_codex_worker`, `start_visible_first_mate_codex_pool`, or `steer_visible_codex_run`.
 - The new TUI path must use top-level interactive `codex`, not `codex exec --json`.
-- The new TUI path must force `gpt-5.5`, `xhigh`, and `service_tier=fast`.
+- The new TUI path must force `gpt-5.6-sol` and `service_tier=fast`, and honor the per-run `reasoning_effort` (`high` / `xhigh` / `max` / `ultra`, default `xhigh`).
 - The new TUI path defaults to `approval_policy="on-request"` so the user can approve or reject directly in the TUI.
 - Do not promise structured JSON event logs for TUI mode.
 - Do not promise Claude can inject live text into the interactive TUI.
@@ -105,7 +105,7 @@ def case_interactive_tui_sidecar_dry_run() -> dict[str, Any]:
     assert status["status"] == "launched", status
 
     assert "codex.cmd" in script, script
-    assert "'-m'" in script and "'gpt-5.5'" in script, script
+    assert "'-m'" in script and "'gpt-5.6-sol'" in script, script
     assert "'-a'" in script and "'on-request'" in script, script
     assert "model_reasoning_effort=`\"xhigh`\"" in script, script
     assert "service_tier=`\"fast`\"" in script, script

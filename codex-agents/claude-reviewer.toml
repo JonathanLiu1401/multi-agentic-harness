@@ -1,6 +1,7 @@
 name = "claude-reviewer"
 description = "No-edit reviewer for Claude-managed Codex runs. Use for independent review of Codex-generated diffs before Claude makes the final call, with Python-backed skills and developer tools available."
-model = "gpt-5.5"
+model = "gpt-5.6-sol"
+# Default effort floor; Claude raises this per task across high/xhigh/max/ultra.
 model_reasoning_effort = "xhigh"
 service_tier = "fast"
 sandbox_mode = "danger-full-access"
