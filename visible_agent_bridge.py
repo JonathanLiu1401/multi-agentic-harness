@@ -53,7 +53,7 @@ CLAUDE_EFFORT = "high"
 CLAUDE_MAX_BUDGET_USD = "0.50"
 CLAUDE_PROMPT_COMPOSER_MODEL = "haiku"
 CLAUDE_PROMPT_COMPOSER_EFFORT = "low"
-CLAUDE_PROMPT_COMPOSER_MAX_BUDGET_USD = "0.25"
+CLAUDE_PROMPT_COMPOSER_MAX_BUDGET_USD = "1.00"
 CODEX_STEER_IDLE_SECONDS = 20
 INTERACTIVE_TUI_APPROVAL_POLICY = "on-request"
 INTERACTIVE_TUI_MODE = "interactive_tui"
@@ -1325,27 +1325,23 @@ if ($ComposeWithHaiku) {{
   }}
   $composerExitCode = $LASTEXITCODE
   if ($composerExitCode -ne 0) {{
-    Set-Status "failed:haiku-composer:$composerExitCode"
-    Log-Line "Haiku prompt composer exited with code $composerExitCode" 'Red'
-    Stop-RunDescendants -RootPid $PID
-    Log-Line 'Agents for this run have been closed. This window will close in 5 seconds; logs remain in the run directory.' 'Magenta'
-    Start-Sleep -Seconds 5
-    exit
+    Log-Line "Haiku prompt composer exited with code $composerExitCode; falling back to the raw captain brief." 'Yellow'
+    $resultText = ''
   }}
   if ([string]::IsNullOrWhiteSpace($resultText)) {{
     $resultText = (($assistantChunks | ForEach-Object {{ [string]$_ }}) -join "`n")
   }}
-  if ([string]::IsNullOrWhiteSpace($resultText)) {{
-    Set-Status 'failed:haiku-composer-empty'
-    Log-Line 'Haiku prompt composer produced an empty Codex prompt.' 'Red'
-    Stop-RunDescendants -RootPid $PID
-    Log-Line 'Agents for this run have been closed. This window will close in 5 seconds; logs remain in the run directory.' 'Magenta'
-    Start-Sleep -Seconds 5
-    exit
+  if ([string]::IsNullOrWhiteSpace($resultText) -and $composerExitCode -eq 0) {{
+    Log-Line 'Haiku prompt composer produced an empty Codex prompt; falling back to the raw captain brief.' 'Yellow'
   }}
   $prelude = ''
   if (Test-Path -LiteralPath $CodexPreludePath) {{ $prelude = Get-Content -LiteralPath $CodexPreludePath -Raw }}
-  $finalPrompt = ($prelude.TrimEnd() + "`n`n## Haiku-Composed Worker Brief`n`n" + $resultText.Trim())
+  $briefHeading = "`n`n## Haiku-Composed Worker Brief`n`n"
+  if ([string]::IsNullOrWhiteSpace($resultText)) {{
+    $briefHeading = "`n`n## Captain Brief (raw; Haiku composer unavailable)`n`n"
+    $resultText = Get-Content -LiteralPath $PromptPath -Raw
+  }}
+  $finalPrompt = ($prelude.TrimEnd() + $briefHeading + $resultText.Trim())
   $finalPrompt | Set-Content -LiteralPath $ComposedPromptPath -Encoding UTF8
   $CodexPromptPath = $ComposedPromptPath
   Log-Line 'Composed Codex prompt follows:' 'Magenta'
