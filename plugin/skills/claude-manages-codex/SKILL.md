@@ -280,6 +280,15 @@ Every pass must do all of the following:
 
 A steer issued without first reading the recent work is not supervision, and a read without a verdict is not review. If two consecutive passes are missed, treat it as a supervision failure: stop launching new delegation, re-read the full ledger and each active run's recent output, and re-establish verdicts before continuing.
 
+## Completion Watcher Contract
+
+The bridge never wakes Claude when a Codex run finishes: start tools are fire-and-forget, and an idle Claude turn is never re-invoked by the MCP server. Without a watcher, a finished worker sits unnoticed while Claude "waits" forever.
+
+- Immediately after every spawn or resume — worker, pool, TUI, or steer follow-up — arm the `watch_command` returned by the start tool as a background Bash task (`run_in_background: true`). The command exits the moment the run reaches a terminal state (completed/failed/closed or a captain report), which wakes Claude with a completion notification.
+- Never end a turn waiting for Codex without a watcher armed on every active run.
+- Watchers detect completion; they do not replace the 10-minute direct supervision passes, which review direction while the run is still working.
+- On wake, read the run's `captain_report` / status and continue: review the result, steer, or report to the user. Do not re-arm a watcher on a run that already reached a terminal state.
+
 ## Same-Captain Help Callback
 
 Visible Codex prompts include a run-specific captain-help callback. When a spawned worker is blocked, confused, sees conflicting evidence, lacks confidence for `workspace-write`, or needs user-level approval, it should call `request_captain_help` with the visible `run_dir`, then stop its current turn with `Outcome: blocked_waiting_for_captain`.

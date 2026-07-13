@@ -195,6 +195,7 @@ def case_interactive_tui_sidecar_dry_run() -> dict[str, Any]:
     assert result["ok"], result
     assert result["pid"] == 424242, result
     assert launched_scripts, result
+    assert "watch_command" in result and "captain_reports/final.json" in result["watch_command"], result
 
     run_dir = _run_dir(result)
     script = launched_scripts[0].read_text(encoding="utf-8-sig")
@@ -544,7 +545,16 @@ def case_visible_worker_and_queued_steer() -> dict[str, Any]:
         interrupt_current_turn=False,
     )
     assert steer["ok"] and steer["mode"] == "queued", steer
+    assert "watch_command" in result and "CODEX-RUN-TERMINAL" in result["watch_command"], result
     _wait_completed(run_dir, ["E2E_INITIAL_OK", "E2E_STEERED_OK"], timeout_s=360)
+    git_bash = r"C:\Program Files\Git\bin\bash.exe"
+    watch = subprocess.run(
+        [git_bash if os.path.exists(git_bash) else "bash", "-c", result["watch_command"]],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert watch.returncode == 0 and "CODEX-RUN-TERMINAL" in watch.stdout, watch.stdout
     status = bridge.get_visible_run_status(str(run_dir), tail_lines=30)
     assert status["thread_id"], status
     assert status["pending_steers"] == 0, status
@@ -625,6 +635,8 @@ def case_supervision_review_cycle() -> dict[str, Any]:
         "## Parallel Fan-Out Contract",
         "Serial spawning is a manager error, not a bridge limit.",
         "spawn every worker or TUI first, before reading any result",
+        "## Completion Watcher Contract",
+        "Never end a turn waiting for Codex without a watcher armed",
     )
     for phrase in required_contract:
         assert phrase in skill_text, phrase

@@ -774,6 +774,24 @@ def _write_steer_file(
     return steer_path
 
 
+def _watch_command(run_dir: Path) -> str:
+    """Bash one-liner for the calling Claude to arm as a background task.
+
+    It exits the moment this run reaches a terminal state (or after a 2h
+    cap), which wakes the idle Claude session with a completion
+    notification. Without it, nothing ever notifies Claude that a Codex
+    run finished.
+    """
+    d = str(run_dir).replace("\\", "/")
+    return (
+        f"D='{d}'; end=$((SECONDS+7200)); "
+        "until grep -qE '\"status\":[[:space:]]*\"(completed|failed|closed)' \"$D/status.json\" 2>/dev/null "
+        "|| [ -f \"$D/captain_reports/final.json\" ] || [ $SECONDS -ge $end ]; do sleep 10; done; "
+        "echo \"CODEX-RUN-TERMINAL $(basename \"$D\")\"; "
+        "grep -o '\"status\":[^,}]*' \"$D/status.json\" 2>/dev/null | head -1"
+    )
+
+
 def _launch(script_path: Path) -> int:
     flags = 0x00000010 if os.name == "nt" else 0
     proc = subprocess.Popen(
@@ -1629,6 +1647,7 @@ def start_visible_codex_worker(
         "status": str(run_dir / "status.json"),
         "steer_queue": str(run_dir / "steer_queue"),
         "captain_help": str(run_dir / CAPTAIN_HELP_DIR),
+        "watch_command": _watch_command(run_dir),
         "note": f"A visible PowerShell window was launched. Codex runs gpt-5.6-sol at Claude-selected {effective_reasoning} reasoning (one of high/xhigh/max/ultra) with service_tier=fast. Effective sandbox is {effective_sandbox}. Haiku prompt composer enabled={compose_with_haiku}. Captain-help mailbox enabled. Hidden model reasoning is not exposed; prompts, events, messages, commands, usage, and diffs are logged.",
     }
 
@@ -1921,6 +1940,7 @@ def start_interactive_codex_tui(
         "session_id_file": str(run_dir / "session_id.txt"),
         "metadata": str(run_dir / "metadata.json"),
         "captain_reports": str(run_dir / CAPTAIN_REPORTS_DIR),
+        "watch_command": _watch_command(run_dir),
         "note": "A real interactive Codex TUI was launched. You can steer it directly in the terminal. Codex must call submit_captain_report or write captain_reports/final.* for Claude handoff; the TUI auto-closes after that report by default.",
     }
 
@@ -2575,6 +2595,7 @@ Advisor request:
         "display_log": str(run_dir / "display.log"),
         "raw_events": str(run_dir / "events.jsonl"),
         "status": str(run_dir / "status.json"),
+        "watch_command": _watch_command(run_dir),
         "note": f"A visible PowerShell window was launched for Claude advisor output. Claude is forced to {effective_model}/high by the central advisor model policy. Hidden model reasoning is not exposed.",
     }
 
