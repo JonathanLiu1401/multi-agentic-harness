@@ -289,6 +289,15 @@ The bridge never wakes Claude when a Codex run finishes: start tools are fire-an
 - Watchers detect completion; they do not replace the 10-minute direct supervision passes, which review direction while the run is still working.
 - On wake, read the run's `captain_report` / status and continue: review the result, steer, or report to the user. Do not re-arm a watcher on a run that already reached a terminal state.
 
+## Codex Run Ownership and Subagent Handoff
+
+Every Codex run has exactly one owner: the main Claude manager loop. Ephemeral Claude subagents die with their task, and any watcher or supervision duty they held dies with them — a Codex run started inside a subagent and left running when the subagent returns is an orphan nobody will ever check on.
+
+- Do not spawn Codex runs from ephemeral Claude subagents. The Routing Mandate already routes fan-out through Codex itself: when Codex work is needed, the manager spawns it directly and arms the watcher in its own loop.
+- A subagent that must start a Codex run anyway has exactly two valid exits: (1) stay alive until the run reaches a terminal state and fold the outcome into its final report, or (2) hand the run off — its final message must list every run it started under a "Codex runs handed off" heading with `run_dir`, `thread_id`, current status, and `watch_command` so the main loop can adopt them.
+- The manager adopts handed-off runs immediately, before any other work: arm each `watch_command` as a background task, record the run in the bridge ledger, and fold it into the 10-minute supervision rotation.
+- Safety sweep: after any Claude subagent returns — and at the start of any session that may have inherited work — call `list_visible_runs` on the working repo and adopt every run still in a non-terminal status. An active run with no owner is a supervision failure to fix on the spot.
+
 ## Same-Captain Help Callback
 
 Visible Codex prompts include a run-specific captain-help callback. When a spawned worker is blocked, confused, sees conflicting evidence, lacks confidence for `workspace-write`, or needs user-level approval, it should call `request_captain_help` with the visible `run_dir`, then stop its current turn with `Outcome: blocked_waiting_for_captain`.

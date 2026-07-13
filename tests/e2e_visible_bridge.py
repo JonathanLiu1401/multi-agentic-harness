@@ -637,6 +637,9 @@ def case_supervision_review_cycle() -> dict[str, Any]:
         "spawn every worker or TUI first, before reading any result",
         "## Completion Watcher Contract",
         "Never end a turn waiting for Codex without a watcher armed",
+        "## Codex Run Ownership and Subagent Handoff",
+        "exactly one owner: the main Claude manager loop",
+        "Codex runs handed off",
     )
     for phrase in required_contract:
         assert phrase in skill_text, phrase
