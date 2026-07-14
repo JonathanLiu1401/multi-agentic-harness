@@ -1786,7 +1786,11 @@ def start_interactive_first_mate_codex_tui(
     auto_close_after_report: bool = True,
     auto_close_delay_seconds: int = INTERACTIVE_TUI_AUTO_CLOSE_DELAY_SECONDS,
 ) -> dict[str, Any]:
-    """Launch the first-mate Codex coordinator in the real interactive Codex TUI."""
+    """Deprecated: use start_visible_first_mate_codex_pool by default.
+
+    Launch the first-mate coordinator in the real interactive Codex TUI only for
+    an explicit user request for a hands-on terminal.
+    """
     prompt, auto_full_tool_access = _first_mate_prompt(
         goal=goal,
         scout_areas=scout_areas,
@@ -1832,7 +1836,12 @@ def start_interactive_codex_tui(
     reasoning_effort: str = CODEX_REASONING_EFFORT,
     service_tier: str = CODEX_SERVICE_TIER,
 ) -> dict[str, Any]:
-    """Launch the real interactive Codex TUI in a visible terminal with sidecar metadata."""
+    """Deprecated: use start_visible_haiku_composed_codex_worker for a compact brief
+    or start_visible_codex_worker for a final prompt by default.
+
+    Launch the real interactive Codex TUI only for an explicit user request for a
+    hands-on terminal; sidecar metadata remains available for compatibility.
+    """
     effective_model = CODEX_MODEL
     effective_reasoning = _normalize_reasoning_effort(reasoning_effort)
     effective_service_tier = CODEX_SERVICE_TIER

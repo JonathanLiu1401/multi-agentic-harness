@@ -170,6 +170,7 @@ def case_captain_help_mailbox() -> dict[str, Any]:
     return {"run_dir": str(run_dir), "request_id": request["request_id"]}
 
 
+# Deprecated-path regression: the single-worker TUI launcher must remain functional.
 def case_interactive_tui_sidecar_dry_run() -> dict[str, Any]:
     original_launch = bridge._launch_interactive_terminal
     launched_scripts: list[Path] = []
@@ -410,6 +411,7 @@ def case_interactive_tui_sidecar_dry_run() -> dict[str, Any]:
     return {"run_dir": str(run_dir), "script": str(launched_scripts[0])}
 
 
+# Deprecated-path regression: the first-mate TUI launcher must remain functional.
 def case_interactive_first_mate_tui_dry_run() -> dict[str, Any]:
     original_launch = bridge._launch_interactive_terminal
     launched_scripts: list[Path] = []
@@ -629,12 +631,14 @@ def case_supervision_review_cycle() -> dict[str, Any]:
         "on-track / off-track verdict",
         "A steer issued without first reading the recent work is not supervision",
         "A liveness or status-only poll never counts.",
-        "always spawns in real interactive TUI mode by default",
-        "requires an explicit, stated justification",
-        "when in doubt, spawn the TUI",
+        "always spawns as a non-interactive visible CLI worker by default",
+        "The interactive TUI tools are deprecated because they can flash-close",
+        "cannot receive programmatic steering in an open TUI",
+        "Use a TUI only when the user explicitly asks for a hands-on interactive Codex terminal",
+        "when in doubt, spawn the non-interactive worker",
         "## Parallel Fan-Out Contract",
         "Serial spawning is a manager error, not a bridge limit.",
-        "spawn every worker or TUI first, before reading any result",
+        "spawn every non-interactive worker first, before reading any result",
         "## Completion Watcher Contract",
         "Never end a turn waiting for Codex without a watcher armed",
         "## Codex Run Ownership and Subagent Handoff",
@@ -762,11 +766,11 @@ def main() -> None:
     results["captain_help"] = case_captain_help_mailbox()
     print(json.dumps(results["captain_help"], indent=2), flush=True)
 
-    print("[3/11] interactive TUI sidecar dry-run", flush=True)
+    print("[3/11] deprecated interactive TUI sidecar dry-run", flush=True)
     results["interactive_tui"] = case_interactive_tui_sidecar_dry_run()
     print(json.dumps(results["interactive_tui"], indent=2), flush=True)
 
-    print("[4/11] interactive first-mate TUI dry-run", flush=True)
+    print("[4/11] deprecated interactive first-mate TUI dry-run", flush=True)
     results["interactive_firstmate_tui"] = case_interactive_first_mate_tui_dry_run()
     print(json.dumps(results["interactive_firstmate_tui"], indent=2), flush=True)
 

@@ -11,7 +11,7 @@ Use Claude's active manager model as captain, executive architect, QA tech lead,
 
 - Claude owns architecture, task decomposition, acceptance criteria, risk calls, worker assignment, active steering, and final review. In the first-mate flow, Claude is the captain.
 - Codex owns cheap exploration, first-pass implementation, test repair, mechanical refactors, and noisy command/log work. In the first-mate flow, Codex is the first mate that manages the Codex agent ensemble.
-- Codex subagents are controlled through the Codex root session. Claude starts or resumes the root session with `codex` / `codex-reply`, then explicitly tells Codex when and how to spawn subagents.
+- Codex subagents are controlled through the Codex root session. Claude starts or resumes that root through `start_visible_first_mate_codex_pool` by default, then explicitly tells Codex when and how to spawn subagents. Use invisible `codex` / `codex-reply` only for quick, low-noise exchanges.
 - Claude must review Codex output and local diffs before claiming completion.
 - Prefer Codex MCP over manual copy/paste.
 - The Claude manager model does not write implementation code by default. It writes plans, contracts, constraints, acceptance tests, review findings, steering notes, and the final user response. Route code edits to Codex unless the edit is tiny, the bridge is unavailable, or the user explicitly asks Claude to code directly.
@@ -20,7 +20,7 @@ Use Claude's active manager model as captain, executive architect, QA tech lead,
 - Codex workers run with full process/tool access by default so Python-backed skills, `read-past-sessions`, SSH, and developer CLIs work. Use the requested `sandbox` as permission intent: `read-only` means no edits, not a crippled process sandbox.
 - SSH, serial, live-device, hardware, network, Docker, package-manager, and external-tool debugging must set `requires_tool_access: true` or `sandbox: danger-full-access`.
 - Do not spend manager-model output tokens writing long Codex prompts. Claude should pass a compact captain brief to the Haiku prompt composer; Haiku expands the final Codex worker prompt.
-- Codex always spawns in real interactive TUI mode by default: `start_interactive_first_mate_codex_tui` for Claude-managed work and fan-out, `start_interactive_codex_tui` for a single directly steerable worker. This default is unconditional — it does not depend on whether the user is currently watching. TUI workers let the user type directly into Codex and approve/reject inside the Codex interface. Spawning a non-interactive JSON worker instead requires an explicit, stated justification — automated queued steering, structured JSONL logs for machine parsing, or unattended execution — recorded in the bridge ledger; when in doubt, spawn the TUI.
+- Codex always spawns as a non-interactive visible CLI worker by default: use `start_visible_haiku_composed_codex_worker` for a compact captain brief, `start_visible_codex_worker` when the final prompt already exists, and `start_visible_first_mate_codex_pool` for fan-out. These workers run `codex exec --json` in visible PowerShell windows with structured JSONL logs, direct interrupt steering through `steer_visible_codex_run`, completion watchers, and captain-help mailboxes. The interactive TUI tools are deprecated because they can flash-close, cannot receive programmatic steering in an open TUI, and depend on `submit_captain_report` for handoff. Use a TUI only when the user explicitly asks for a hands-on interactive Codex terminal, and say so when doing it; when in doubt, spawn the non-interactive worker.
 - Hidden model reasoning is not displayable. Surface useful progress, summaries, commands, and implementation state instead.
 
 ## Reasoning Effort Policy
@@ -106,7 +106,7 @@ The manager model should not spend output tokens on:
 Default manager loop:
 
 1. Decide the architecture and acceptance criteria.
-2. Start or resume an interactive Codex TUI worker or first-mate TUI pool with a compact `session_context`, unless the task explicitly needs automated JSON steering.
+2. Start or resume a non-interactive visible CLI worker with a compact `session_context`: use the Haiku-composed tool for a compact single-worker brief, the direct worker tool for a final prompt, or the first-mate pool for fan-out.
 3. Every 10 minutes while workers are active, run the mandatory direct supervision pass (see "Mandatory 10-Minute Direct Supervision"): read the actual recent work, check captain-help mailboxes, render an on-track/off-track verdict against the architecture and acceptance criteria, and steer with short captain instructions before drift compounds. A liveness or status-only poll never counts.
 4. Let Codex implement, verify, and summarize.
 5. Claude reviews the diff, tests, risks, and worker ledger. Reject or steer repair when the output does not match the architecture.
@@ -133,16 +133,16 @@ Default manager loop:
 - **Codex usage is out** (quota/rate limit exhausted, plan usage cap hit, or Codex repeatedly returns usage/quota errors) — fall back to Sonnet subagents per the section below instead of Codex, and tell the user.
 - The user explicitly asks Claude to do the work directly.
 
-When routing, prefer a **real interactive Codex TUI** run so the user can watch and steer the token-saving work directly: use `start_interactive_first_mate_codex_tui` for fan-out and `start_interactive_codex_tui` for a single worker. Use `start_visible_first_mate_codex_pool` / `start_visible_codex_worker` only when Claude needs automated queued steering, structured JSONL logs, or an unattended run. Use invisible `codex` / `codex-reply` only for quick, low-noise exchanges.
+When routing, prefer a **non-interactive visible Codex CLI worker**: use `start_visible_first_mate_codex_pool` for fan-out, `start_visible_haiku_composed_codex_worker` for a compact single-worker brief, and `start_visible_codex_worker` when the final prompt already exists. These are the supported paths for direct captain steering, structured JSONL logs, completion watchers, and captain-help. Use invisible `codex` / `codex-reply` only for quick, low-noise exchanges. Use a deprecated TUI tool only for an explicit user request for a hands-on interactive Codex terminal.
 
 ## Parallel Fan-Out Contract
 
 The bridge runs Codex workers concurrently: start tools return within about a second and simultaneous workers execute truly in parallel (verified live with overlapping turns through the MCP server). Serial spawning is a manager error, not a bridge limit.
 
-- When tasks are independent, spawn every worker or TUI first, before reading any result, status, or captain report from any of them. Issue the start calls together in one batch whenever possible.
+- When tasks are independent, spawn every non-interactive worker first, before reading any result, status, or captain report from any of them. Issue the start calls together in one batch whenever possible.
 - Never await one worker's completion — or its captain report — before launching an independent sibling. Waiting between spawns silently serializes the fleet and wastes wall-clock time.
 - After the full fleet is launched, supervise all runs together per the "Mandatory 10-Minute Direct Supervision" contract.
-- Use one `start_interactive_first_mate_codex_tui` when the parts share context and need coordination (the first mate fans out Codex-native subagents itself); spawn multiple root workers only for genuinely independent tasks.
+- Use one `start_visible_first_mate_codex_pool` when the parts share context and need coordination (the first mate fans out Codex-native subagents itself); spawn multiple root workers only for genuinely independent tasks.
 
 ## Codex Usage Exhaustion Fallback (Sonnet Agents)
 
@@ -207,9 +207,9 @@ The server exposes:
 - `start_visible_codex_worker`: launches `codex exec --json` in a separate visible PowerShell window, saves the prompt and event logs, and returns a run directory.
 - `start_visible_haiku_composed_codex_worker`: launches a visible run where Claude passes a compact `prompt_brief`, Haiku/low composes the full Codex prompt, then Codex executes it.
 - `start_visible_first_mate_codex_pool`: launches a visible Codex root coordinator instructed to spawn and manage Codex subagents.
-- `start_interactive_codex_tui`: launches the real interactive Codex TUI in a visible terminal for direct user steering, with bridge sidecar metadata but no structured JSONL event stream.
-- `start_interactive_first_mate_codex_tui`: launches the first-mate Codex coordinator in the real interactive Codex TUI for direct user steering plus Codex subagent orchestration.
-- `steer_visible_codex_run`: sends a captain steering instruction to an existing visible Codex run. If the visible window is active, the instruction is queued and consumed on the same Codex thread. If the window already closed and a `thread_id` exists, it launches a visible resume run on that thread.
+- `start_interactive_codex_tui` (**deprecated**): launches the real interactive Codex TUI in a visible terminal for an explicit hands-on user request, with bridge sidecar metadata but no structured JSONL event stream.
+- `start_interactive_first_mate_codex_tui` (**deprecated**): launches the first-mate Codex coordinator in the real interactive Codex TUI only for an explicit hands-on user request.
+- `steer_visible_codex_run`: sends a captain steering instruction to an existing visible Codex run. By default it interrupts an in-flight turn and resumes the same thread immediately; an idle worker consumes the queue without interruption. If the window already closed and a `thread_id` exists, it launches a visible resume run on that thread.
 - `request_captain_help`: worker-side callback for a stuck visible Codex run to ask the same Claude captain for feedback.
 - `list_captain_help_requests`: captain-side view of pending stuck-worker requests.
 - `respond_to_captain_help_request`: captain-side response that records the answer and queues steering back to the same Codex run/thread.
@@ -241,26 +241,30 @@ Use visible tools for:
 - SSH, live-device, serial, hardware, network, Docker, package-manager, or external-tool debugging where Codex must run the same tools a developer would run
 - any user request to see live work
 
-Default to `start_interactive_first_mate_codex_tui` for non-trivial Claude-managed Codex work so the spawned Codex first mate is directly steerable in the real TUI and can coordinate Codex subagents. Use `start_interactive_codex_tui` for a single directly steerable worker. Treat both modes as user-steered: Claude provides the initial architecture brief and later review, but should not expect `steer_visible_codex_run` to inject live text into an already-open TUI. Require Codex to call `submit_captain_report` at terminal outcome; Claude reads that report with `get_visible_run_status` or `list_captain_reports`.
+Default to `start_visible_first_mate_codex_pool` for Claude-managed fan-out. For a single worker, default to `start_visible_haiku_composed_codex_worker` when Claude has a compact brief or `start_visible_codex_worker` when a final prompt already exists. These non-interactive visible CLI workers are the fully supported path for structured logs, direct steering, completion watchers, and captain-help.
 
-Use `start_visible_haiku_composed_codex_worker` for non-trivial single-worker delegation only when the run should be automated/non-interactive and Claude needs structured JSONL logs. Use direct `start_visible_codex_worker` only for tiny automated prompts or when a final prompt already exists outside Claude output.
+Use direct `start_visible_codex_worker` for tiny prompts or whenever a final prompt already exists outside Claude output.
+
+## Deprecated: Interactive TUI mode
+
+`start_interactive_codex_tui` and `start_interactive_first_mate_codex_tui` remain available only when the user explicitly asks for a hands-on interactive Codex terminal; tell the user when choosing this deprecated path. TUI mode can flash-close, cannot accept programmatic bridge steering in an already-open terminal, and relies on the worker remembering `submit_captain_report` for captain handoff. It is not the fallback when routing is uncertain.
 
 ## Active Steering Loop
 
-Claude should actively manage non-interactive visible Codex runs instead of letting them drift. For interactive TUI runs, the user can steer directly in the Codex terminal, and Claude should inspect sidecar metadata/session artifacts plus `captain_report` afterward.
+Claude actively manages the default non-interactive visible Codex CLI runs instead of letting them drift. An explicitly requested deprecated TUI run is user-steered in the terminal and must be reviewed through its sidecar metadata/session artifacts plus `captain_report` afterward.
 
-1. Start one interactive Codex TUI root or first-mate run with the goal, constraints, and acceptance criteria by default. Start a non-interactive visible run only for automated queued steering or structured logs.
+1. Start one non-interactive visible CLI root worker or first-mate pool with the goal, constraints, and acceptance criteria by default.
 2. Poll with `get_visible_run_status`; read the tail, pending steer count, pending help requests, thread/session id, status, and `captain_report`.
 3. At least every 10 minutes for long-running fleets, run an active supervision pass per the "Mandatory 10-Minute Direct Supervision" contract, not just a status poll: inspect recent actions/log tails/reports, check the captain-help mailbox, compare direction against Claude's architecture and acceptance criteria, decide whether the worker is on track, and steer drift immediately.
 4. Periodically check up with active agents before they spiral: ask for a compact health/status checkpoint, current assumption, blocker, next action, and expected verification. Use short steering notes; do not wait for obvious failure if output quality is drifting, confused, or bug-prone.
 5. If `pending_help_requests` is nonzero, read `help_requests` or call `list_captain_help_requests`, then answer with `respond_to_captain_help_request`.
-6. For non-interactive workers, when Codex needs correction, narrowing, extra context, changed priorities, or a review checkpoint, call `steer_visible_codex_run` with a short captain instruction and the same run directory; delivery is direct by default (see step 9), not queued behind the current turn. For interactive TUI workers, steer directly in the terminal or resume the saved session; bridge steering does not type into the open TUI.
+6. When Codex needs correction, narrowing, extra context, changed priorities, or a review checkpoint, call `steer_visible_codex_run` with a short captain instruction and the same run directory; delivery is direct by default (see step 9), not queued behind the current turn. For a deprecated TUI run, steer directly in the terminal or resume the saved session; bridge steering does not type into the open TUI.
 7. When multiple agents converge on the same root cause or design decision from different directions, consolidate it into one canonical world model and steer every active run to that model. Do not let stale assumptions keep running in parallel.
 8. If the worker is right to escalate, ask the user the specific decision question yourself, then call `respond_to_captain_help_request` with the user's answer. Do not tell Codex to ask the user directly.
 9. Steering is direct by default: `steer_visible_codex_run` interrupts an in-flight turn and resumes the same thread immediately with the captain instruction, so corrections land now instead of after the current turn finishes. Workers idle in their steering window consume the queue within a second and are never interrupted. Pass `interrupt_current_turn: false` to wait for the turn boundary only when the guidance is non-urgent and preserving the in-flight turn's partial work matters more than latency. Prefer steering an existing thread over starting a new run either way.
 10. If Claude changes permission intent mid-session, pass `sandbox: workspace-write` or `sandbox: danger-full-access` in the steering call so Codex receives an updated permission contract.
-11. If a non-interactive visible window closed, let `steer_visible_codex_run` or `respond_to_captain_help_request` launch a visible resume run on the same thread. For interactive TUI runs, resume with `start_interactive_codex_tui` / `start_interactive_first_mate_codex_tui` and the saved session id when available. Start fresh only for unrelated work or polluted context.
-12. Treat TUI terminal text as user-visible progress only. The captain-facing outcome is the `submit_captain_report` artifact.
+11. If the default non-interactive visible window closed, let `steer_visible_codex_run` or `respond_to_captain_help_request` launch a visible resume run on the same thread. Start fresh only for unrelated work or polluted context. Resume an explicitly requested deprecated TUI with its TUI start tool and saved session id when available.
+12. For a deprecated TUI run, treat terminal text as user-visible progress only; the captain-facing outcome is the `submit_captain_report` artifact. Non-interactive workers report through their structured run artifacts.
 
 Keep steering notes short. State the decision, changed scope, files or tests to focus on, and required next response shape. Do not restate the whole task unless the thread lost context.
 
@@ -268,14 +272,14 @@ Use invisible `codex` / `codex-reply` for quick, low-noise, manager-controlled e
 
 ## Mandatory 10-Minute Direct Supervision
 
-While any Codex worker, TUI session, or fleet is active, Claude runs a direct supervision pass at least every 10 minutes. This is supervision and review of the work itself, not a liveness probe: confirming the process is still running, or reading only the `status` field, does not count as a pass.
+While any default non-interactive Codex worker or fleet is active, Claude runs a direct supervision pass at least every 10 minutes. The same cadence applies to an explicitly requested deprecated TUI session. This is supervision and review of the work itself, not a liveness probe: confirming the process is still running, or reading only the `status` field, does not count as a pass.
 
 Every pass must do all of the following:
 
-1. Read the worker's actual recent work: the `get_visible_run_status` tail, `captain_report` / `list_captain_reports`, or TUI sidecar artifacts — commands run, files touched, stated reasoning, and output produced since the last pass.
+1. Read the worker's actual recent work from the `get_visible_run_status` tail and structured run artifacts — commands run, files touched, stated reasoning, and output produced since the last pass. For a deprecated TUI run, read `captain_report` / `list_captain_reports` and its sidecar artifacts.
 2. Check the captain-help mailbox and the pending steer queue.
 3. Render an explicit on-track / off-track verdict against Claude's stated architecture, acceptance criteria, and permission contract. Record the verdict in the bridge ledger for long-running fleets.
-4. Act on the verdict immediately. If off-track, drifting, or approaching an expensive or irreversible step: send a short captain correction that quotes or names the specific reviewed output it is correcting (`steer_visible_codex_run` for non-interactive runs; terminal steering or session resume for TUI runs). If on-track: say so in the ledger, and request a compact checkpoint (current assumption, blocker, next action, expected verification) whenever the next milestone is unclear.
+4. Act on the verdict immediately. If off-track, drifting, or approaching an expensive or irreversible step: send a short captain correction through `steer_visible_codex_run` that quotes or names the specific reviewed output it is correcting. For a deprecated TUI run, use terminal steering or session resume. If on-track: say so in the ledger, and request a compact checkpoint (current assumption, blocker, next action, expected verification) whenever the next milestone is unclear.
 5. Note when the next pass is due (10 minutes or less) before returning to other work.
 
 A steer issued without first reading the recent work is not supervision, and a read without a verdict is not review. If two consecutive passes are missed, treat it as a supervision failure: stop launching new delegation, re-read the full ledger and each active run's recent output, and re-establish verdicts before continuing.
@@ -284,7 +288,7 @@ A steer issued without first reading the recent work is not supervision, and a r
 
 The bridge never wakes Claude when a Codex run finishes: start tools are fire-and-forget, and an idle Claude turn is never re-invoked by the MCP server. Without a watcher, a finished worker sits unnoticed while Claude "waits" forever.
 
-- Immediately after every spawn or resume — worker, pool, TUI, or steer follow-up — arm the `watch_command` returned by the start tool as a background Bash task (`run_in_background: true`). The command exits the moment the run reaches a terminal state (completed/failed/closed or a captain report), which wakes Claude with a completion notification.
+- Immediately after every default non-interactive spawn or resume — single worker, pool, or steer follow-up — arm the `watch_command` returned by the start tool as a background Bash task (`run_in_background: true`). The command exits the moment the run reaches a terminal state, which wakes Claude with a completion notification. An explicitly requested deprecated TUI also returns a watcher that terminates on closure or a captain report.
 - Never end a turn waiting for Codex without a watcher armed on every active run.
 - Watchers detect completion; they do not replace the 10-minute direct supervision passes, which review direction while the run is still working.
 - On wake, read the run's `captain_report` / status and continue: review the result, steer, or report to the user. Do not re-arm a watcher on a run that already reached a terminal state.
@@ -308,7 +312,7 @@ Claude owns the response:
 - answer with `respond_to_captain_help_request` when Claude can decide
 - ask the user a focused question when the request needs owner judgment, credentials, destructive permission, product direction, or risk acceptance
 - after the user answers, send the decision back with `respond_to_captain_help_request`
-- for interactive TUI runs, expect the answer to be a recorded mailbox artifact; direct terminal steering or a resumed TUI may still be needed because queued steering cannot type into an already-open TUI
+- for a deprecated interactive TUI run, expect the answer to be a recorded mailbox artifact; direct terminal steering or a resumed TUI may still be needed because queued steering cannot type into an already-open TUI
 
 Do not route same-captain help through `start_visible_claude_advisor` unless Claude explicitly wants a separate one-shot advisor. The point of the callback is to keep the spawned worker connected to the captain that launched it.
 
@@ -369,7 +373,7 @@ Before starting or resuming Codex:
 1. Build a compact `session_context` from the live Claude conversation: user goal, decisions, constraints, prior errors, run ids, thread ids, changed files, verification, and open questions.
 2. If context predates the current Claude window or was compacted, invoke `read-past-sessions` or tell Codex to use it immediately.
 3. When the worker needs broad project/codebase context, tell Codex to use read-past-sessions' Graphify memory flow before brute-force file reading: try `memory-query`; if no graph exists, build/refresh the curated corpus with `memory-corpus` plus `memory-codex --build-graph` when Codex CLI is authenticated, or `memory-graph` as deterministic fallback.
-4. Pass `session_context` into `start_interactive_codex_tui` / `start_interactive_first_mate_codex_tui` by default, or into the non-interactive visible tools when using automation mode.
+4. Pass `session_context` into the non-interactive visible CLI start or pool tool by default. Pass it into a TUI start tool only for an explicitly requested deprecated interactive run.
 5. If continuing previous work, pass `resume_session_id` instead of starting a new root run. For Codex this is the `thread_id` shown by `get_visible_run_status` or `list_visible_runs`.
 6. For an already-running visible worker, call `steer_visible_codex_run` instead of starting another root session.
 7. Record resumable ids in `.claude-codex/BRIDGE.md`.
@@ -399,7 +403,7 @@ Subagents inherit the parent Codex process access unless a custom agent override
 
 Use when Claude needs context before deciding.
 
-Start Codex with no-edit permission intent, preferably through `start_interactive_first_mate_codex_tui`, and tell it:
+Start Codex with no-edit permission intent through `start_visible_first_mate_codex_pool`, and tell it:
 
 ```text
 Spawn claude-explorer subagents for the independent areas below. Wait for all agents, then return a consolidated summary only.
@@ -415,7 +419,7 @@ For each result include: relevant files, current behavior, risks, and unanswered
 
 Use when Claude is confident enough to permit writes.
 
-Start or resume Codex with `sandbox: workspace-write`, preferably through `start_interactive_first_mate_codex_tui` for visible work or `start_interactive_codex_tui` for a single worker, and tell it:
+Start or resume Codex with `sandbox: workspace-write` through `start_visible_first_mate_codex_pool` for fan-out, `start_visible_haiku_composed_codex_worker` for a compact single-worker brief, or `start_visible_codex_worker` for a final prompt, and tell it:
 
 ```text
 Claude has chosen the implementation path. Use one claude-implementer subagent unless the listed work items are file-disjoint.
@@ -472,15 +476,15 @@ Spawn one claude-reviewer subagent. Review the current diff against Claude's sta
 
 ## Token Efficiency
 
-- For non-trivial Codex delegation where the user can supervise, Claude writes a compact captain brief and calls `start_interactive_first_mate_codex_tui` so Codex opens in the real TUI by default.
-- For automated/non-interactive delegation, Claude writes a compact captain brief and calls `start_visible_haiku_composed_codex_worker`. Haiku/low writes the long worker prompt.
+- For non-trivial single-worker Codex delegation, Claude writes a compact captain brief and calls `start_visible_haiku_composed_codex_worker`; Haiku/low writes the long worker prompt.
+- For fan-out, Claude calls `start_visible_first_mate_codex_pool`; when a final single-worker prompt already exists, Claude calls `start_visible_codex_worker` directly.
 - Keep the Claude-authored `prompt_brief` to decisions and constraints: goal, scope, permission intent, files/areas, non-goals, verification, and open questions.
 - Do not have Claude restate standard bridge rules, full task templates, or long worker checklists; the bridge and Haiku composer add those.
 - Send Codex distilled briefs, not the whole Claude transcript.
 - Include enough session context that Codex does not repeat already-fixed mistakes. For very long history, instruct Codex to use `read-past-sessions` and return a compact briefing before implementation.
 - For broad project context, ask Codex to query the read-past-sessions Graphify memory graph before reading many source files; build the curated memory graph only when the existing graph is missing or stale.
 - Ask Codex to read and summarize the codebase before Claude reads files directly.
-- Use interactive first-mate TUI pools for broad understanding instead of loading file after file into Claude.
+- Use non-interactive visible first-mate pools for broad understanding instead of loading file after file into Claude.
 - Put noisy exploration, logs, and test repair inside Codex subagents.
 - Ask Codex to return summaries, changed files, verification results, blockers, and questions.
 - Avoid making Claude read raw logs unless Codex cannot summarize them reliably.
@@ -494,11 +498,11 @@ Spawn one claude-reviewer subagent. Review the current diff against Claude's sta
 
 When launching visible work:
 
-1. Tell the user a real Codex TUI terminal is opening by default, or that an automated JSON worker is opening when using the non-interactive fallback.
+1. Tell the user a non-interactive visible Codex CLI worker or pool is opening. If the user explicitly requested the deprecated hands-on TUI path, say that instead.
 2. Include the run directory in the bridge ledger.
 3. Use `get_visible_run_status` for concise progress checks instead of reading raw JSONL.
-4. Use `steer_visible_codex_run` only for non-interactive workers when Claude needs to redirect the active worker; an already-open real TUI must be steered by the user in the terminal or resumed later.
-5. For interactive TUI runs, read `captain_report` from `get_visible_run_status` or call `list_captain_reports`; terminal-only final text is not the captain handoff.
+4. Use `steer_visible_codex_run` to redirect the default non-interactive worker directly. An explicitly requested deprecated TUI must be steered by the user in the terminal or resumed later.
+5. For a deprecated TUI run, read `captain_report` from `get_visible_run_status` or call `list_captain_reports`; terminal-only final text is not the captain handoff. For non-interactive workers, read the structured run status and logs.
 6. Expect the visible terminal to show prompts, messages, commands, token usage, and diff summaries.
 7. Do not promise hidden thoughts. Say "progress, reasoning summaries, commands, and implementation state" instead.
 
