@@ -30,7 +30,7 @@ Codex runs on `gpt-5.6-sol`. Claude — the manager — chooses the Codex reason
 - `high`: routine, low-ambiguity work — mechanical refactors, formatting, narrow test repair, small well-scoped edits, cheap scouting where the answer is easy to find.
 - `xhigh`: normal multi-file implementation, non-trivial exploration, moderate debugging, and reviews with some ambiguity. This is the default floor when Claude does not specify.
 - `max`: hard problems — subtle concurrency/correctness bugs, cross-cutting refactors, tricky architecture-sensitive changes, or work where a wrong answer is expensive.
-- `ultra`: the hardest, highest-stakes tasks — deep multi-subsystem reasoning, gnarly root-cause hunts, or large coordinated changes. `ultra` is `gpt-5.6-sol`'s top effort tier: instead of only spending more chain-of-thought in a single turn, it natively decomposes the problem into cooperative internal subagents (see below). It costs significantly more tokens per turn and is preview-gated, so reserve it for genuinely hard, parallelizable work and pair it with a token budget.
+- `ultra`: the hardest, highest-stakes tasks — deep multi-subsystem reasoning, gnarly root-cause hunts, or large coordinated changes. `ultra` is `gpt-5.6-sol`'s top effort tier: instead of only spending more chain-of-thought in a single turn, it natively decomposes the problem into cooperative internal subagents (see below). It costs significantly more tokens per turn and is preview-gated, so reserve it for genuinely hard, parallelizable work. Ultra runs are intentionally unbudgeted — do not cap them with a token or dollar budget (owner decision 2026-07-14).
 
 (`minimal`, `low`, and `medium` are also valid `model_reasoning_effort` values the bridge accepts, but Codex worker tasks in this bridge should stay on the `high` → `ultra` range above unless Claude has a specific reason to go lower.)
 
@@ -49,7 +49,7 @@ Keep it bounded and captain-governed:
 
 - Claude authorizes `ultra` and the fan-out in the brief; a worker does not unilaterally escalate its own effort tier or spawn a deep subagent tree.
 - Respect the existing fan-out cap (at most the worker count Claude requested, otherwise 6) and the no-recursive-trees rule — ultra widens a single layer, it does not nest layers.
-- Because `ultra` is token-heavy, set a rollout token budget (e.g. `rollout_token_budget`) for the run and prefer it over spraying many separate high-effort workers.
+- Prefer one `ultra` run over spraying many separate high-effort workers for genuinely parallelizable work. Do not attach a rollout token budget or any other spend cap to an `ultra` run — the owner removed the ultra budget limit (2026-07-14); the bounds on `ultra` are scope and the fan-out cap, not tokens.
 - Lower tiers (`high` / `xhigh` / `max`) run as single workers unless Claude explicitly asks for a small parallel split.
 
 ## Official OpenAI Codex Plugin
