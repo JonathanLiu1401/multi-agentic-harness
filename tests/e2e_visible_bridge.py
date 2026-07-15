@@ -806,6 +806,36 @@ def case_grok_effort_unit() -> dict[str, Any]:
     return {"ok": True}
 
 
+def case_grok_borrowed_flags() -> dict[str, Any]:
+    """Flags borrowed from the surveyed grok/Claude plugins (2026-07-15):
+    strict read-only enforcement (--disallowed-tools Write,Edit), --best-of-n,
+    and --check self-verification. Unit-checks the helpers plus the rendered
+    run.ps1 for each config; deterministic, no live Grok."""
+    # Helpers
+    assert bridge._grok_read_only_args("read-only") == ["--disallowed-tools", "Write,Edit"], bridge._grok_read_only_args("read-only")
+    assert bridge._grok_read_only_args("workspace-write") == [], bridge._grok_read_only_args("workspace-write")
+    assert bridge._grok_read_only_args("") == [], bridge._grok_read_only_args("")
+    assert bridge._grok_initial_extra_args(1, False) == [], bridge._grok_initial_extra_args(1, False)
+    assert bridge._grok_initial_extra_args(3, False) == ["--best-of-n", "3"], bridge._grok_initial_extra_args(3, False)
+    assert bridge._grok_initial_extra_args(99, False) == ["--best-of-n", "6"], "best_of_n must cap at 6"
+    assert bridge._grok_initial_extra_args(1, True) == ["--check"], bridge._grok_initial_extra_args(1, True)
+    assert bridge._grok_initial_extra_args(2, True) == ["--best-of-n", "2", "--check"], bridge._grok_initial_extra_args(2, True)
+
+    # Rendered run.ps1
+    rd = ROOT
+    ro = bridge._grok_runner(rd, str(rd), "", sandbox="read-only")
+    assert "--disallowed-tools" in ro and "Write,Edit" in ro, "read-only must strip Write,Edit"
+    bo = bridge._grok_runner(rd, str(rd), "", sandbox="workspace-write", best_of_n=3)
+    assert "--best-of-n" in bo and "'3'" in bo, "best_of_n=3 must render --best-of-n 3"
+    sc = bridge._grok_runner(rd, str(rd), "", sandbox="workspace-write", self_check=True)
+    assert "--check" in sc, "self_check must render --check"
+    plain = bridge._grok_runner(rd, str(rd), "", sandbox="workspace-write")
+    assert "--disallowed-tools" not in plain and "--best-of-n" not in plain and "--check" not in plain, "default worker must carry none of the borrowed flags"
+    # best-of-n/check are gated to the fresh initial turn only (not resume/steer)
+    assert "$TurnLabel -eq 'initial'" in bo, "best-of-n must be gated to the initial turn"
+    return {"ok": True}
+
+
 def case_grok_dry_run_args() -> dict[str, Any]:
     original_launch = bridge._launch
     launched_scripts: list[Path] = []
@@ -1051,6 +1081,9 @@ def run_grok_suite(skip_expensive: bool) -> dict[str, Any]:
 
     print("[grok 1/8] effort flag unit", flush=True)
     results["effort_unit"] = case_grok_effort_unit()
+
+    print("[grok 1b/8] borrowed flags (read-only enforce / best-of-n / self-check)", flush=True)
+    results["borrowed_flags"] = case_grok_borrowed_flags()
 
     print("[grok 2/8] dry-run arg assertions", flush=True)
     results["dry_run"] = case_grok_dry_run_args()

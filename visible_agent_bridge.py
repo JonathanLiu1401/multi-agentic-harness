@@ -2768,6 +2768,35 @@ function Stop-GrokRunDescendants {
 """
 
 
+def _grok_read_only_args(sandbox: str) -> list[str]:
+    """Strict read-only enforcement (from faeton/claude-grok-plugin): when the
+    caller's permission intent is read-only, strip Grok's file-mutation tools
+    (Write, Edit) via --disallowed-tools so the worker truly cannot edit files,
+    not merely be asked not to. Bash is intentionally KEPT so read-only
+    inspection (Python-backed skills, read-past-sessions, safe read commands)
+    still works — the bridge's read-only means 'no edits', not 'no commands'."""
+    if (sandbox or "").strip().lower() == "read-only":
+        return ["--disallowed-tools", "Write,Edit"]
+    return []
+
+
+def _grok_initial_extra_args(best_of_n: int, self_check: bool) -> list[str]:
+    """Headless-only Grok flags applied to the initial task turn only:
+    --best-of-n N (run the task N ways in parallel and keep the best; leverages
+    SuperGrok Heavy, costs ~Nx tokens; capped 1..6) and --check (append Grok's
+    self-verification loop). Not applied to resume/steer turns."""
+    args: list[str] = []
+    try:
+        n = max(1, min(int(best_of_n or 1), 6))
+    except (TypeError, ValueError):
+        n = 1
+    if n > 1:
+        args += ["--best-of-n", str(n)]
+    if self_check:
+        args.append("--check")
+    return args
+
+
 def _grok_runner(
     run_dir: Path,
     cwd: str,
@@ -2778,9 +2807,16 @@ def _grok_runner(
     composer_effort: str = CLAUDE_PROMPT_COMPOSER_EFFORT,
     composer_max_budget_usd: str = CLAUDE_PROMPT_COMPOSER_MAX_BUDGET_USD,
     steer_idle_seconds: int = GROK_STEER_IDLE_SECONDS,
+    sandbox: str = "",
+    best_of_n: int = 1,
+    self_check: bool = False,
 ) -> str:
     effort_flag = _grok_effort_flag(requested_effort)
     effort_flag_ps = ",".join(_ps(part) for part in effort_flag) if effort_flag else ""
+    read_only_args = _grok_read_only_args(sandbox)
+    read_only_ps = ",".join(_ps(part) for part in read_only_args) if read_only_args else ""
+    initial_extra = _grok_initial_extra_args(best_of_n, self_check)
+    initial_extra_ps = ",".join(_ps(part) for part in initial_extra) if initial_extra else ""
     return f"""
 $ErrorActionPreference = 'Continue'
 $RunDir = {_ps(run_dir)}
@@ -2807,6 +2843,8 @@ $ComposerEffort = {_ps(composer_effort)}
 $ComposerMaxBudgetUsd = {_ps(composer_max_budget_usd)}
 $SteerIdleSeconds = {max(0, min(int(steer_idle_seconds), 300))}
 $EffortArgs = @({effort_flag_ps})
+$ReadOnlyArgs = @({read_only_ps})
+$InitialExtraArgs = @({initial_extra_ps})
 # Force UTF-8 so Grok's UTF-8 stdout/stdin is decoded correctly (mirrors the Codex runner).
 $OutputEncoding = New-Object System.Text.UTF8Encoding $false
 [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false
@@ -2916,6 +2954,8 @@ function Invoke-GrokPrompt {{
   # with --prompt-file). --prompt-file alone triggers headless single-turn mode.
   $argsList = @('--prompt-file',$GrokPromptPath,'--output-format','streaming-json','--cwd',$Cwd,'--permission-mode','bypassPermissions','-m',$Model)
   foreach ($e in $EffortArgs) {{ $argsList += $e }}
+  foreach ($e in $ReadOnlyArgs) {{ $argsList += $e }}
+  if ($TurnLabel -eq 'initial' -and (-not ($SessionId -and $SessionId -ne ''))) {{ foreach ($e in $InitialExtraArgs) {{ $argsList += $e }} }}
   if ($SessionId -and $SessionId -ne '') {{ $argsList += @('-r',$SessionId) }}
 
   $script:turnText = New-Object System.Collections.ArrayList
@@ -3147,8 +3187,15 @@ def start_visible_grok_worker(
     composer_effort: str = CLAUDE_PROMPT_COMPOSER_EFFORT,
     composer_max_budget_usd: str = CLAUDE_PROMPT_COMPOSER_MAX_BUDGET_USD,
     steer_idle_seconds: int = GROK_STEER_IDLE_SECONDS,
+    best_of_n: int = 1,
+    self_check: bool = False,
 ) -> dict[str, Any]:
-    """Launch a visible Grok (grok-4.5) exec worker in a separate PowerShell window and save logs."""
+    """Launch a visible Grok (grok-4.5) exec worker in a separate PowerShell window and save logs.
+
+    sandbox="read-only" strictly enforces no-edit by stripping Grok's Write/Edit
+    tools (Bash kept for inspection). best_of_n>1 runs the initial task N ways in
+    parallel and keeps the best (SuperGrok Heavy lever; ~Nx tokens; capped 6).
+    self_check=True appends Grok's self-verification loop to the initial turn."""
     effort_flag = _grok_effort_flag(reasoning_effort)
     effective_reasoning = effort_flag[1] if effort_flag else "inherited-config-default-xhigh"
     auto_full_tool_access = _needs_full_tool_access("\n".join([title, prompt, session_context]))
@@ -3182,6 +3229,9 @@ def start_visible_grok_worker(
         "steer_idle_seconds": max(0, min(int(steer_idle_seconds), 300)),
         "captain_help_enabled": True,
         "captain_report_auto_write": True,
+        "read_only_enforced": bool(_grok_read_only_args(sandbox)),
+        "best_of_n": max(1, min(int(best_of_n or 1), 6)),
+        "self_check": bool(self_check),
     })
     if not compose_with_haiku:
         effective_prompt = "\n\n".join([
@@ -3225,6 +3275,9 @@ def start_visible_grok_worker(
             composer_effort,
             composer_max_budget_usd,
             steer_idle_seconds,
+            sandbox=sandbox,
+            best_of_n=best_of_n,
+            self_check=self_check,
         ),
         encoding="utf-8",
     )
@@ -3268,6 +3321,8 @@ def start_visible_haiku_composed_grok_worker(
     requires_tool_access: bool = False,
     composer_max_budget_usd: str = CLAUDE_PROMPT_COMPOSER_MAX_BUDGET_USD,
     steer_idle_seconds: int = GROK_STEER_IDLE_SECONDS,
+    best_of_n: int = 1,
+    self_check: bool = False,
 ) -> dict[str, Any]:
     """Launch a visible Grok worker from a compact Claude brief expanded by Claude Haiku."""
     return start_visible_grok_worker(
@@ -3284,6 +3339,8 @@ def start_visible_haiku_composed_grok_worker(
         composer_effort=CLAUDE_PROMPT_COMPOSER_EFFORT,
         composer_max_budget_usd=composer_max_budget_usd,
         steer_idle_seconds=steer_idle_seconds,
+        best_of_n=best_of_n,
+        self_check=self_check,
     )
 
 

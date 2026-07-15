@@ -49,7 +49,15 @@ There is no separate `heavy` CLI flag or model id — SuperGrok Heavy (owner is 
 
 - **Native subagents are ENABLED by default** on every grok worker (the bridge never passes `--no-subagents`), so a single `start_visible_grok_worker` can already spawn parallel child agents ("uses agents efficiently") when the task warrants it.
 - **`start_visible_first_mate_grok_pool`** is the explicit fan-out path — a grok root that coordinates native subagents, the grok analog of the first-mate pool.
-- Grok's `--best-of-n <N>` (run a task N ways in parallel and pick the best, headless only) and `[subagents]` config in `~/.grok/config.toml` (per-agent model pins, roles, personas) are further Heavy-tier levers; ask the owner before wiring `best-of-n` into a worker since it multiplies token spend.
+- **`best_of_n` param** (wired 2026-07-15) on `start_visible_grok_worker` / `start_visible_haiku_composed_grok_worker`: pass `best_of_n=N` (capped 1–6) to run the initial task N ways in parallel and keep the best (`--best-of-n`, initial turn only). The concrete Heavy-tier quality lever — but it costs ~N× tokens, so reserve it for hard, high-value tasks.
+- **`self_check` param** (wired 2026-07-15): pass `self_check=True` to append grok's own self-verification loop (`--check`) to the initial turn — a cheap quality boost on top of Claude's review.
+- **`[subagents]` config** in `~/.grok/config.toml` (per-agent model pins, roles, personas) is a further lever tuned outside the bridge.
+
+### Strict read-only enforcement (grok)
+
+For a grok worker launched with `sandbox="read-only"`, the bridge now **enforces** no-edit by passing `--disallowed-tools Write,Edit` so Grok's file-mutation tools are removed — it truly cannot edit, not merely asked not to (borrowed from faeton/claude-grok-plugin). Bash is intentionally kept so read-only inspection (Python-backed skills, read-past-sessions, safe read commands) still works — the bridge's read-only means "no edits", not "no commands". Use `read-only` for scouting / second-opinion / review workers; use `workspace-write` or full access when the worker must edit.
+
+*(These three — read-only enforcement, `best_of_n`, `self_check` — were adopted 2026-07-15 after surveying existing grok↔Claude Code plugins; the multimodal / xAI-API-key / older-model-tier features from those plugins were intentionally not adopted, since this harness runs the newer grok-4.5 via the SuperGrok Heavy OAuth CLI.)*
 
 ### `check_worker_backends`
 
