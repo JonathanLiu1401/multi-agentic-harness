@@ -2966,10 +2966,19 @@ function Invoke-GrokPrompt {{
   $script:thoughtNoted = $false
 
   Push-Location $Cwd
+  $rawStream = $null
+  $rawWriter = $null
   try {{
+    # Open events.jsonl ONCE per turn with FileShare.ReadWrite + AutoFlush. Grok streams
+    # many small JSON lines; a per-line Add-Content reopens the file each time, and those
+    # rapid open/close cycles collide with concurrent readers / AV scans on Windows
+    # ("The process cannot access the file ... because it is being used by another process").
+    # A single shared, auto-flushing writer removes the race while still letting readers tail it.
+    try {{ $rawStream = [System.IO.File]::Open($RawLog, [System.IO.FileMode]::Append, [System.IO.FileAccess]::Write, [System.IO.FileShare]::ReadWrite); $rawWriter = New-Object System.IO.StreamWriter($rawStream, (New-Object System.Text.UTF8Encoding $false)); $rawWriter.AutoFlush = $true }} catch {{ $rawWriter = $null }}
     & $Grok @argsList 2>&1 | ForEach-Object {{
       $line = [string]$_
-      Add-Content -LiteralPath $RawLog -Encoding UTF8 -Value $line
+      if ($null -ne $rawWriter) {{ try {{ $rawWriter.WriteLine($line) }} catch {{}} }}
+      else {{ try {{ Add-Content -LiteralPath $RawLog -Encoding UTF8 -Value $line -ErrorAction Stop }} catch {{}} }}
       $obj = $null
       try {{ $obj = $line | ConvertFrom-Json -ErrorAction Stop }} catch {{ $obj = $null }}
       if ($null -eq $obj) {{
@@ -3009,6 +3018,8 @@ function Invoke-GrokPrompt {{
       }}
     }}
   }} finally {{
+    if ($null -ne $rawWriter) {{ try {{ $rawWriter.Flush(); $rawWriter.Dispose() }} catch {{}} }}
+    if ($null -ne $rawStream) {{ try {{ $rawStream.Dispose() }} catch {{}} }}
     Pop-Location
   }}
 
