@@ -2793,6 +2793,38 @@ def _grok_rigor_contract() -> str:
     """).strip()
 
 
+def _grok_competition_contract(max_agents: int) -> str:
+    """Parallel-competition capability injected into grok worker prompts. grok-4.5 has native
+    parallel subagents; for hard problems the root worker runs a competition INSIDE its single
+    turn (one terminal): spawn up to max_agents diverse subagents attempting the full task, then
+    act as judge and compile the best solution. This is a grok-4.5 analog of the grok-4.20
+    multi-agent harness. Usage is abundant, so competition is encouraged for genuinely hard work.
+    Only injected when max_agents >= 2."""
+    n = max(2, min(int(max_agents), 16))
+    return textwrap.dedent(f"""
+    # Parallel Competition Mode (native grok subagents, up to {n} — usage is abundant, resets often)
+
+    You have a native parallel-subagent capability. For any HARD or open-ended problem — a tricky
+    bug, a design/architecture decision, an optimization, or any task with a wide solution space or
+    real uncertainty about the best approach — run a COMPETITION inside THIS single worker turn
+    (no new terminals, everything stays in this one window):
+
+    1. Spawn up to {n} parallel subagents AT ONCE, each independently attempting the FULL task with a
+       DIFFERENT strategy or hypothesis. Make them genuinely diverse — not {n} copies of the same
+       idea. Let them run concurrently.
+    2. Then act as the JUDGE. Critically compare their solutions against the acceptance criteria and
+       the edge cases from the Rigor Contract above. Each competitor must have actually run/verified
+       its own result; discard any that only claim success without evidence.
+    3. COMPILE THE BEST: either select the single strongest solution, or synthesize a superior one
+       that combines the best parts of several. Then verify the compiled result end to end yourself.
+    4. Report which approaches you ran, why the winner won, and what you rejected.
+
+    Use competition when the task is hard enough to benefit; for simple or mechanical tasks, just
+    solve it directly without competitors. Grok usage is abundant and resets often — do not hold
+    back on parallelism for genuinely hard problems; many diverse competitors beat one rushed attempt.
+    """).strip()
+
+
 # PowerShell descendant-reaper scoped to Grok's own process tree, mirroring
 # _PS_CLEANUP_FN's shape but targeting grok's process name instead of
 # codex/node/claude. Kept as a separate constant so _PS_CLEANUP_FN (used by
@@ -3282,13 +3314,17 @@ def start_visible_grok_worker(
     steer_idle_seconds: int = GROK_STEER_IDLE_SECONDS,
     best_of_n: int = 1,
     self_check: bool = False,
+    competition_agents: int = 16,
 ) -> dict[str, Any]:
     """Launch a visible Grok (grok-4.5) exec worker in a separate PowerShell window and save logs.
 
     sandbox="read-only" strictly enforces no-edit by stripping Grok's Write/Edit
     tools (Bash kept for inspection). best_of_n>1 runs the initial task N ways in
     parallel and keeps the best (SuperGrok Heavy lever; ~Nx tokens; capped 6).
-    self_check=True appends Grok's self-verification loop to the initial turn."""
+    self_check=True appends Grok's self-verification loop to the initial turn.
+    competition_agents (2-16, default 16) enables Parallel Competition Mode: the
+    prompt lets the worker spawn up to that many diverse subagents competing on hard
+    problems inside its single turn (one terminal), then compile the best; set 1 to disable."""
     effort_flag = _grok_effort_flag(reasoning_effort)
     effective_reasoning = effort_flag[1] if effort_flag else "inherited-config-default-xhigh"
     auto_full_tool_access = _needs_full_tool_access("\n".join([title, prompt, session_context]))
@@ -3325,14 +3361,15 @@ def start_visible_grok_worker(
         "read_only_enforced": bool(_grok_read_only_args(sandbox)),
         "best_of_n": max(1, min(int(best_of_n or 1), 6)),
         "self_check": bool(self_check),
+        "competition_agents": max(1, min(int(competition_agents or 1), 16)),
     })
+    competition_note = _grok_competition_contract(competition_agents) if int(competition_agents or 1) >= 2 else ""
     if not compose_with_haiku:
-        effective_prompt = "\n\n".join([
-            _grok_rigor_contract(),
-            _grok_captain_report_note(run_dir),
-            _captain_help_contract(run_dir),
-            effective_prompt,
-        ])
+        _parts = [_grok_rigor_contract()]
+        if competition_note:
+            _parts.append(competition_note)
+        _parts += [_grok_captain_report_note(run_dir), _captain_help_contract(run_dir), effective_prompt]
+        effective_prompt = "\n\n".join(_parts)
         (run_dir / "prompt.md").write_text(effective_prompt, encoding="utf-8")
     if compose_with_haiku:
         composer_prompt = _haiku_codex_prompt_composer_prompt(
@@ -3346,13 +3383,16 @@ def start_visible_grok_worker(
             effective_reasoning if effective_reasoning in CODEX_REASONING_EFFORTS else CODEX_REASONING_EFFORT,
         )
         (run_dir / "composer_prompt.md").write_text(composer_prompt, encoding="utf-8")
+        _prelude_parts = [_grok_rigor_contract()]
+        if competition_note:
+            _prelude_parts.append(competition_note)
+        _prelude_parts += [
+            _grok_captain_report_note(run_dir),
+            _captain_help_contract(run_dir),
+            _codex_permission_contract(sandbox, effective_sandbox),
+        ]
         grok_prelude = _with_session_context_bootstrap(
-            "\n\n".join([
-                _grok_rigor_contract(),
-                _grok_captain_report_note(run_dir),
-                _captain_help_contract(run_dir),
-                _codex_permission_contract(sandbox, effective_sandbox),
-            ]),
+            "\n\n".join(_prelude_parts),
             cwd,
             "Grok worker",
             session_context,
@@ -3418,6 +3458,7 @@ def start_visible_haiku_composed_grok_worker(
     steer_idle_seconds: int = GROK_STEER_IDLE_SECONDS,
     best_of_n: int = 1,
     self_check: bool = False,
+    competition_agents: int = 16,
 ) -> dict[str, Any]:
     """Launch a visible Grok worker from a compact Claude brief expanded by Claude Haiku."""
     return start_visible_grok_worker(
@@ -3436,6 +3477,7 @@ def start_visible_haiku_composed_grok_worker(
         steer_idle_seconds=steer_idle_seconds,
         best_of_n=best_of_n,
         self_check=self_check,
+        competition_agents=competition_agents,
     )
 
 

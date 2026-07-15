@@ -892,6 +892,10 @@ def case_grok_dry_run_args() -> dict[str, Any]:
     assert "Worker Rigor Contract" in prompt, prompt
     assert "ACTUALLY RUN IT" in prompt and "UNVERIFIED" in prompt, "rigor contract must mandate e2e execution with proof"
     assert "ANTAGONISTICALLY" in prompt, "rigor contract must warn of adversarial captain review"
+    # Parallel Competition Mode (default competition_agents=16) must be present + single-terminal.
+    assert "Parallel Competition Mode" in prompt, prompt
+    assert "up to 16" in prompt and "no new terminals" in prompt, "competition mode must offer up to 16 in-turn competitors"
+    assert metadata["competition_agents"] == 16, metadata
 
     return {"run_dir": str(run_dir), "script": str(launched_scripts[0])}
 
@@ -1007,6 +1011,7 @@ def case_grok_live_roundtrip_and_mcp_callback() -> dict[str, Any]:
         sandbox="read-only",
         session_context=GROK_SESSION_CONTEXT,
         steer_idle_seconds=10,
+        competition_agents=1,  # trivial token-reply task: keep it single-agent + deterministic
     )
     run_dir = _run_dir(result)
     text = _wait_grok_completed(run_dir, ["GROK_E2E_OK"], timeout_s=240)

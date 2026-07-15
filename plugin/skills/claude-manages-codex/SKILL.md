@@ -74,6 +74,15 @@ For a grok worker launched with `sandbox="read-only"`, the bridge now **enforces
 
 For non-trivial or correctness-sensitive grok work, prefer `best_of_n` (multiple scenarios) and `self_check=True` (its own verify pass) on top of your adversarial review — but they supplement, never replace, the captain's independent e2e verification.
 
+### Parallel Competition Mode (grok-4.5, up to 16 in-turn competitors)
+
+grok usage is abundant and resets often, so lean on parallelism to compensate for grok-4.5's weak single-shot reasoning. Every grok worker prompt carries a **Parallel Competition Mode** contract (`_grok_competition_contract`, controlled by the `competition_agents` param, default 16, cap 16): for a HARD or open-ended problem the root worker spawns up to N diverse subagents **inside its single turn** (native grok subagents — one terminal, no extra windows, so the owner is not spammed), each independently attempting the full task with a different strategy; the root then acts as judge, discards competitors that lack executed evidence, and **compiles the best result** (picks the strongest or synthesizes a superior combination), then verifies the compiled result end to end. This is the grok-4.5 analog of the grok-4.20 multi-agent harness.
+
+- It is judgment-gated: the contract tells grok to compete only when the task is hard enough to benefit and to solve simple/mechanical tasks directly, so it does not fan out 16 agents to reply with a token.
+- Set `competition_agents=1` to disable competition for a run (e.g. trivial or strictly-sequential tasks); set 2-16 to cap the competitor count.
+- It composes with the rest: competitors still obey the Rigor Contract (run + prove), and the Opus captain STILL independently e2e-verifies the compiled result — a grok-run competition that picks a winner is not a substitute for the captain's own verification.
+- `competition_agents` is a prompt capability, not a CLI flag; it stacks with `best_of_n` (a CLI-level N-way retry) but the two overlap, so prefer one lever at a time unless a task is genuinely huge.
+
 ### `check_worker_backends`
 
 `check_worker_backends(cwd=None, deep=False) -> {"claude_sonnet": {...}, "grok": {...}, "codex": {...}, "agy": {...}}`, one `{available, reason, detail}` record per backend.
