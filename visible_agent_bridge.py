@@ -1129,12 +1129,22 @@ $Host.UI.RawUI.WindowTitle = "Codex visible worker - $(Split-Path $RunDir -Leaf)
 
 # UTF-8 tee helper. Tee-Object in Windows PowerShell 5.1 has no -Encoding param and writes
 # UTF-16LE, which corrupts display.log with NUL bytes; this appends UTF-8 instead.
+function Write-AppendShared([string]$Path, [string]$Text) {{
+  for ($i = 0; $i -lt 25; $i++) {{
+    try {{
+      $fs = [System.IO.File]::Open($Path, [System.IO.FileMode]::Append, [System.IO.FileAccess]::Write, [System.IO.FileShare]::ReadWrite)
+      try {{ $sw = New-Object System.IO.StreamWriter($fs, (New-Object System.Text.UTF8Encoding $false)); $sw.WriteLine($Text); $sw.Flush(); $sw.Dispose() }} finally {{ $fs.Dispose() }}
+      return
+    }} catch {{ Start-Sleep -Milliseconds 15 }}
+  }}
+}}
+
 function Write-Raw {{
   param([Parameter(ValueFromPipeline=$true)] $InputObject)
   process {{
     $text = [string]$InputObject
     Write-Host $text
-    Add-Content -LiteralPath $DisplayLog -Encoding UTF8 -Value $text
+    Write-AppendShared $DisplayLog $text
   }}
 }}
 
@@ -1156,7 +1166,7 @@ function Set-Status([string]$Status) {{
 function Log-Line([string]$Text, [string]$Color = 'Gray') {{
   $stamp = Get-Date -Format 'HH:mm:ss'
   $line = "[$stamp] $Text"
-  Add-Content -LiteralPath $DisplayLog -Encoding UTF8 -Value $line
+  Write-AppendShared $DisplayLog $line
   Write-Host $line -ForegroundColor $Color
 }}
 
@@ -1310,7 +1320,7 @@ if ($ComposeWithHaiku) {{
   $composerPrompt = Get-Content -LiteralPath $ComposerPromptPath -Raw
   $composerPrompt | & $Claude @composerArgs 2>&1 | ForEach-Object {{
     $line = [string]$_
-    Add-Content -LiteralPath $ComposerRawLog -Encoding UTF8 -Value $line
+    Write-AppendShared $ComposerRawLog $line
     try {{
       $obj = $line | ConvertFrom-Json -ErrorAction Stop
       if ($obj.type -eq 'assistant' -and $obj.message) {{
@@ -1437,12 +1447,22 @@ $OutputEncoding = New-Object System.Text.UTF8Encoding $false
 $Host.UI.RawUI.WindowTitle = "Claude visible advisor - $(Split-Path $RunDir -Leaf)"
 
 # UTF-8 tee helper (Tee-Object writes UTF-16LE in PowerShell 5.1, corrupting display.log).
+function Write-AppendShared([string]$Path, [string]$Text) {{
+  for ($i = 0; $i -lt 25; $i++) {{
+    try {{
+      $fs = [System.IO.File]::Open($Path, [System.IO.FileMode]::Append, [System.IO.FileAccess]::Write, [System.IO.FileShare]::ReadWrite)
+      try {{ $sw = New-Object System.IO.StreamWriter($fs, (New-Object System.Text.UTF8Encoding $false)); $sw.WriteLine($Text); $sw.Flush(); $sw.Dispose() }} finally {{ $fs.Dispose() }}
+      return
+    }} catch {{ Start-Sleep -Milliseconds 15 }}
+  }}
+}}
+
 function Write-Raw {{
   param([Parameter(ValueFromPipeline=$true)] $InputObject)
   process {{
     $text = [string]$InputObject
     Write-Host $text
-    Add-Content -LiteralPath $DisplayLog -Encoding UTF8 -Value $text
+    Write-AppendShared $DisplayLog $text
   }}
 }}
 
@@ -1463,7 +1483,7 @@ function Set-Status([string]$Status) {{
 function Log-Line([string]$Text, [string]$Color = 'Gray') {{
   $stamp = Get-Date -Format 'HH:mm:ss'
   $line = "[$stamp] $Text"
-  Add-Content -LiteralPath $DisplayLog -Encoding UTF8 -Value $line
+  Write-AppendShared $DisplayLog $line
   Write-Host $line -ForegroundColor $Color
 }}
 function Show-ClaudeEvent($obj) {{
@@ -1517,7 +1537,7 @@ if ($Effort -and $Effort -ne '') {{ $argsList += @('--effort',$Effort) }}
 $prompt = Get-Content -LiteralPath $PromptPath -Raw
 $prompt | & $Claude @argsList 2>&1 | ForEach-Object {{
   $line = [string]$_
-  Add-Content -LiteralPath $RawLog -Encoding UTF8 -Value $line
+  Write-AppendShared $RawLog $line
   try {{
     $obj = $line | ConvertFrom-Json -ErrorAction Stop
     Show-ClaudeEvent $obj
@@ -2861,13 +2881,30 @@ $OutputEncoding = New-Object System.Text.UTF8Encoding $false
 [Console]::InputEncoding = New-Object System.Text.UTF8Encoding $false
 $Host.UI.RawUI.WindowTitle = "Grok visible worker - $(Split-Path $RunDir -Leaf)"
 
+# Append a line to a log file with a share-friendly open + short retry. A plain
+# Add-Content reopens the file on every call; on Windows those rapid reopens collide
+# with concurrent readers / AV + Search scans (worst on Desktop-indexed paths) and throw
+# "The process cannot access the file ... because it is being used by another process".
+# FileShare.ReadWrite plus a brief retry loop rides through the scan window; if it still
+# cannot open, it silently skips (these logs are diagnostic and never worth crashing or
+# spamming the run over).
+function Write-AppendShared([string]$Path, [string]$Text) {{
+  for ($i = 0; $i -lt 25; $i++) {{
+    try {{
+      $fs = [System.IO.File]::Open($Path, [System.IO.FileMode]::Append, [System.IO.FileAccess]::Write, [System.IO.FileShare]::ReadWrite)
+      try {{ $sw = New-Object System.IO.StreamWriter($fs, (New-Object System.Text.UTF8Encoding $false)); $sw.WriteLine($Text); $sw.Flush(); $sw.Dispose() }} finally {{ $fs.Dispose() }}
+      return
+    }} catch {{ Start-Sleep -Milliseconds 15 }}
+  }}
+}}
+
 # UTF-8 tee helper (Tee-Object writes UTF-16LE in PowerShell 5.1, corrupting display.log).
 function Write-Raw {{
   param([Parameter(ValueFromPipeline=$true)] $InputObject)
   process {{
     $text = [string]$InputObject
     Write-Host $text
-    Add-Content -LiteralPath $DisplayLog -Encoding UTF8 -Value $text
+    Write-AppendShared $DisplayLog $text
   }}
 }}
 
@@ -2889,7 +2926,7 @@ function Set-Status([string]$Status) {{
 function Log-Line([string]$Text, [string]$Color = 'Gray') {{
   $stamp = Get-Date -Format 'HH:mm:ss'
   $line = "[$stamp] $Text"
-  Add-Content -LiteralPath $DisplayLog -Encoding UTF8 -Value $line
+  Write-AppendShared $DisplayLog $line
   Write-Host $line -ForegroundColor $Color
 }}
 
@@ -3037,7 +3074,7 @@ function Invoke-GrokPrompt {{
   $answer = ($script:turnText -join '').Trim()
   if ($answer.Length -gt 0) {{
     Write-Host ''
-    Add-Content -LiteralPath $DisplayLog -Encoding UTF8 -Value ("`n===== Grok answer ($TurnLabel) =====`n" + $answer + "`n===== end Grok answer =====`n")
+    Write-AppendShared $DisplayLog ("`n===== Grok answer ($TurnLabel) =====`n" + $answer + "`n===== end Grok answer =====`n")
   }}
   if ($code -eq 0 -and $script:turnErrorSeen) {{ $code = 1 }}
   Log-Line "Grok turn '$TurnLabel' exited with code $code" $(if ($code -eq 0) {{ 'Green' }} else {{ 'Red' }})
@@ -3070,7 +3107,7 @@ if ($ComposeWithHaiku) {{
   $composerPrompt = Get-Content -LiteralPath $ComposerPromptPath -Raw
   $composerPrompt | & $Claude @composerArgs 2>&1 | ForEach-Object {{
     $line = [string]$_
-    Add-Content -LiteralPath $ComposerRawLog -Encoding UTF8 -Value $line
+    Write-AppendShared $ComposerRawLog $line
     try {{
       $obj = $line | ConvertFrom-Json -ErrorAction Stop
       if ($obj.type -eq 'assistant' -and $obj.message) {{
@@ -3694,12 +3731,22 @@ $OutputEncoding = New-Object System.Text.UTF8Encoding $false
 $Host.UI.RawUI.WindowTitle = "Antigravity (agy) visible worker - $(Split-Path $RunDir -Leaf)"
 
 # UTF-8 tee helper (Tee-Object writes UTF-16LE in PowerShell 5.1, corrupting display.log).
+function Write-AppendShared([string]$Path, [string]$Text) {{
+  for ($i = 0; $i -lt 25; $i++) {{
+    try {{
+      $fs = [System.IO.File]::Open($Path, [System.IO.FileMode]::Append, [System.IO.FileAccess]::Write, [System.IO.FileShare]::ReadWrite)
+      try {{ $sw = New-Object System.IO.StreamWriter($fs, (New-Object System.Text.UTF8Encoding $false)); $sw.WriteLine($Text); $sw.Flush(); $sw.Dispose() }} finally {{ $fs.Dispose() }}
+      return
+    }} catch {{ Start-Sleep -Milliseconds 15 }}
+  }}
+}}
+
 function Write-Raw {{
   param([Parameter(ValueFromPipeline=$true)] $InputObject)
   process {{
     $text = [string]$InputObject
     Write-Host $text
-    Add-Content -LiteralPath $DisplayLog -Encoding UTF8 -Value $text
+    Write-AppendShared $DisplayLog $text
   }}
 }}
 
@@ -3721,7 +3768,7 @@ function Set-Status([string]$Status) {{
 function Log-Line([string]$Text, [string]$Color = 'Gray') {{
   $stamp = Get-Date -Format 'HH:mm:ss'
   $line = "[$stamp] $Text"
-  Add-Content -LiteralPath $DisplayLog -Encoding UTF8 -Value $line
+  Write-AppendShared $DisplayLog $line
   Write-Host $line -ForegroundColor $Color
 }}
 
@@ -3795,7 +3842,7 @@ function Invoke-AgyPrompt {{
     if ($out) {{ $script:turnText = $out }}
   }}
   if ($script:turnText) {{
-    Add-Content -LiteralPath $OutputPath -Encoding UTF8 -Value $script:turnText
+    Write-AppendShared $OutputPath $script:turnText
     $script:turnText | Write-Raw
   }}
 
@@ -3842,7 +3889,7 @@ if ($ComposeWithHaiku) {{
   $composerPrompt = Get-Content -LiteralPath $ComposerPromptPath -Raw
   $composerPrompt | & $Claude @composerArgs 2>&1 | ForEach-Object {{
     $line = [string]$_
-    Add-Content -LiteralPath $ComposerRawLog -Encoding UTF8 -Value $line
+    Write-AppendShared $ComposerRawLog $line
     try {{
       $obj = $line | ConvertFrom-Json -ErrorAction Stop
       if ($obj.type -eq 'assistant' -and $obj.message) {{
