@@ -1253,10 +1253,18 @@ function Invoke-CodexPrompt {{
 
   $prompt = Get-Content -LiteralPath $CodexPromptPath -Raw
   Push-Location $Cwd
+  $rawStream = $null
+  $rawWriter = $null
   try {{
+    # Open events.jsonl ONCE per turn with FileShare.ReadWrite + AutoFlush (mirrors the Grok
+    # runner fix). A per-line Add-Content reopens the file each line, and those rapid
+    # open/close cycles race with concurrent readers / AV scans on Windows ("The process
+    # cannot access the file ... because it is being used by another process").
+    try {{ $rawStream = [System.IO.File]::Open($RawLog, [System.IO.FileMode]::Append, [System.IO.FileAccess]::Write, [System.IO.FileShare]::ReadWrite); $rawWriter = New-Object System.IO.StreamWriter($rawStream, (New-Object System.Text.UTF8Encoding $false)); $rawWriter.AutoFlush = $true }} catch {{ $rawWriter = $null }}
     $prompt | & $Codex @argsList 2>&1 | ForEach-Object {{
       $line = [string]$_
-      Add-Content -LiteralPath $RawLog -Encoding UTF8 -Value $line
+      if ($null -ne $rawWriter) {{ try {{ $rawWriter.WriteLine($line) }} catch {{}} }}
+      else {{ try {{ Add-Content -LiteralPath $RawLog -Encoding UTF8 -Value $line -ErrorAction Stop }} catch {{}} }}
       try {{
         $obj = $line | ConvertFrom-Json -ErrorAction Stop
         Show-JsonEvent $obj
@@ -1265,6 +1273,8 @@ function Invoke-CodexPrompt {{
       }}
     }}
   }} finally {{
+    if ($null -ne $rawWriter) {{ try {{ $rawWriter.Flush(); $rawWriter.Dispose() }} catch {{}} }}
+    if ($null -ne $rawStream) {{ try {{ $rawStream.Dispose() }} catch {{}} }}
     Pop-Location
   }}
 
