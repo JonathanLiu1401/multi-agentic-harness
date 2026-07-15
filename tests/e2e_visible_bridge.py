@@ -888,6 +888,10 @@ def case_grok_dry_run_args() -> dict[str, Any]:
     assert "submit_captain_report" in prompt, prompt
     assert "request_captain_help" in prompt, prompt
     assert str(run_dir) in prompt, prompt
+    # grok-4.5 rigor contract (2026-07-15) must be injected into every grok prompt.
+    assert "Worker Rigor Contract" in prompt, prompt
+    assert "ACTUALLY RUN IT" in prompt and "UNVERIFIED" in prompt, "rigor contract must mandate e2e execution with proof"
+    assert "ANTAGONISTICALLY" in prompt, "rigor contract must warn of adversarial captain review"
 
     return {"run_dir": str(run_dir), "script": str(launched_scripts[0])}
 

@@ -59,6 +59,21 @@ For a grok worker launched with `sandbox="read-only"`, the bridge now **enforces
 
 *(These three — read-only enforcement, `best_of_n`, `self_check` — were adopted 2026-07-15 after surveying existing grok↔Claude Code plugins; the multimodal / xAI-API-key / older-model-tier features from those plugins were intentionally not adopted, since this harness runs the newer grok-4.5 via the SuperGrok Heavy OAuth CLI.)*
 
+### grok-4.5 rigor and mandatory adversarial review (owner assessment 2026-07-15)
+
+**grok-4.5 is a fast coder but a weak engineer** — roughly gpt-5.3-codex-spark class. Its observed failure modes: it fixates on a single hypothesis, does not consider multiple scenarios, skips edge cases and error paths, and declares work "done" without ever executing it end to end. Treat every grok result as **unverified and probably buggy until you prove otherwise.** Two mechanisms enforce this:
+
+1. **Worker Rigor Contract (automatic).** Every grok worker prompt is prepended with a mandatory contract (`_grok_rigor_contract`) that forces the worker to: enumerate 2-3 hypotheses/approaches and the edge/error/boundary cases before coding; adversarially pressure-test its own change; **actually run it end to end and paste the observed output as proof** (a confident "done" without executed evidence is defined as a failure); and report what it did NOT test plus the top 2 ways it could still be wrong. You do not need to add this to your brief — it is always injected — but your `prompt_brief` should still name the concrete acceptance test and the specific scenarios/edge cases you want covered.
+
+2. **Mandatory Opus-captain adversarial review (you).** Do NOT trust grok's "done." Review its diff and claims **antagonistically, assuming they are wrong**, and specifically:
+   - Independently VERIFY end to end yourself — run the tests / CLI / endpoint / repro, read the real output. Grok's own "I tested it" is not sufficient evidence; grok's self-check (`--check`) is weak self-marking, not proof.
+   - Hunt the cases grok most likely skipped: the edge/empty/null/boundary inputs, the error branch, concurrency, the opposite of the happy path, and the scenario it fixated away from.
+   - Check for tunnel vision: did it fix the reported symptom while missing the root cause or breaking an adjacent case?
+   - If it drifted, fixated, or reported success without executed proof, reject and re-steer with the specific missing case — or escalate: raise `reasoning_effort`, set `self_check=True`, or use `best_of_n=2-3` so grok generates and self-selects among multiple attempts on hard tasks.
+   - Only report a grok result to the user as done after YOU have executed the acceptance test and seen it pass. This is not optional for grok — it is the primary defense against its weaknesses.
+
+For non-trivial or correctness-sensitive grok work, prefer `best_of_n` (multiple scenarios) and `self_check=True` (its own verify pass) on top of your adversarial review — but they supplement, never replace, the captain's independent e2e verification.
+
 ### `check_worker_backends`
 
 `check_worker_backends(cwd=None, deep=False) -> {"claude_sonnet": {...}, "grok": {...}, "codex": {...}, "agy": {...}}`, one `{available, reason, detail}` record per backend.

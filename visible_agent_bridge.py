@@ -2758,6 +2758,41 @@ def _grok_captain_report_note(run_dir: Path) -> str:
     """).strip()
 
 
+def _grok_rigor_contract() -> str:
+    """Mandatory anti-fixation / self-verification contract injected into every
+    grok-4.5 worker prompt. grok-4.5 is a fast coder but weak at reasoning and at
+    pressure-testing its own work: it tunnel-visions on the first idea, skips edge
+    cases and error paths, and declares 'done' without executing anything. This
+    contract forces the opposite, and warns it that the captain reviews adversarially."""
+    return textwrap.dedent("""
+    # Worker Rigor Contract (mandatory — you WILL be graded on this)
+
+    Known failure modes you must actively counter on THIS task (they are why work gets rejected):
+    you fixate on the first idea, skip edge/error cases, and claim success from reading code
+    without ever running it. Do the opposite, in order:
+
+    1. ENUMERATE before you change anything. Write down at least 2-3 distinct root-cause
+       hypotheses or candidate approaches, and the edge cases, error paths, boundary values,
+       empty/null/concurrent inputs, and failure scenarios the change must survive. Do NOT tunnel
+       on the first thing that seems to work.
+    2. PRESSURE-TEST your own change adversarially before reporting. Assume it is wrong and try to
+       break it: wrong inputs, the opposite of the happy path, resource contention, partial
+       failure, the scenario you were tempted to ignore. Fix what you find. State what you tried
+       to break and what survived.
+    3. ACTUALLY RUN IT, END TO END. Never declare success from static reading. Execute the real
+       path — run the tests, invoke the CLI/endpoint/script, reproduce the original symptom and
+       show it is gone — and paste the OBSERVED output as proof. If you genuinely cannot execute
+       it, say so explicitly and label the result UNVERIFIED. A confident "done" without executed
+       evidence is a FAILURE of this contract, not a completion.
+    4. REPORT HONESTLY: what changed, the exact commands you ran and their real output, what you
+       did NOT test, and the top 2 ways this could still be wrong.
+
+    The captain (Claude Opus) will review your output ANTAGONISTICALLY — assuming it is buggy until
+    your executed evidence proves otherwise, and specifically hunting the edge cases and scenarios
+    you skipped. Save a rejection round-trip by proving it yourself first.
+    """).strip()
+
+
 # PowerShell descendant-reaper scoped to Grok's own process tree, mirroring
 # _PS_CLEANUP_FN's shape but targeting grok's process name instead of
 # codex/node/claude. Kept as a separate constant so _PS_CLEANUP_FN (used by
@@ -3293,6 +3328,7 @@ def start_visible_grok_worker(
     })
     if not compose_with_haiku:
         effective_prompt = "\n\n".join([
+            _grok_rigor_contract(),
             _grok_captain_report_note(run_dir),
             _captain_help_contract(run_dir),
             effective_prompt,
@@ -3312,6 +3348,7 @@ def start_visible_grok_worker(
         (run_dir / "composer_prompt.md").write_text(composer_prompt, encoding="utf-8")
         grok_prelude = _with_session_context_bootstrap(
             "\n\n".join([
+                _grok_rigor_contract(),
                 _grok_captain_report_note(run_dir),
                 _captain_help_contract(run_dir),
                 _codex_permission_contract(sandbox, effective_sandbox),
