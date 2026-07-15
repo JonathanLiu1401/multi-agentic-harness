@@ -2286,8 +2286,8 @@ def submit_captain_report(
     if not path.exists():
         return {"ok": False, "error": f"run_dir does not exist: {path}"}
     metadata = _read_json(path / "metadata.json", {})
-    if metadata.get("agent") not in (None, "codex"):
-        return {"ok": False, "error": f"run_dir is not a Codex run: {path}", "metadata": metadata}
+    if metadata.get("agent") not in (None, "codex", "grok", "agy"):
+        return {"ok": False, "error": f"run_dir is not a captain-reporting worker run: {path}", "metadata": metadata}
     normalized_outcome = (outcome or "").strip().lower()
     if normalized_outcome not in {"completed", "partial", "blocked", "failed"}:
         return {"ok": False, "error": "outcome must be one of: completed, partial, blocked, failed"}
@@ -2384,8 +2384,8 @@ def request_captain_help(
     if not path.exists():
         return {"ok": False, "error": f"run_dir does not exist: {path}"}
     metadata = _read_json(path / "metadata.json", {})
-    if metadata.get("agent") not in (None, "codex"):
-        return {"ok": False, "error": f"run_dir is not a Codex visible run: {path}", "metadata": metadata}
+    if metadata.get("agent") not in (None, "codex", "grok", "agy"):
+        return {"ok": False, "error": f"run_dir is not a captain-help-capable worker run: {path}", "metadata": metadata}
     if not question.strip():
         return {"ok": False, "error": "question is required"}
     dirs = _ensure_captain_help_dirs(path)
@@ -2677,6 +2677,1680 @@ def list_visible_runs(cwd: str | None = None, limit: int = 20) -> list[dict[str,
             "captain_reports_count": _captain_reports_count(run),
         })
     return result
+
+
+# --- Grok worker backend (added 2026-07-14) ---
+# Adds a Grok (grok-4.5) visible worker backend alongside the existing Codex
+# backend. Codex is left completely untouched above this line; every symbol
+# below is new. See plugin/skills/claude-manages-codex/SKILL.md, section
+# "Grok Worker Backend (added 2026-07-14)", for the routing doctrine.
+
+GROK = Path(r"C:\Users\jonny\.grok\bin\grok.exe")
+GROK_MODEL = "grok-4.5"
+# grok-4.5's --reasoning-effort flag only accepts these three values; xhigh
+# and max are rejected outright by the CLI ("unknown effort level"). Grok's
+# own config sets default_reasoning_effort = "xhigh", which is applied only
+# when the flag is omitted, so the owner's desired default (grok-4.5 at
+# xhigh) is reached by NOT passing --reasoning-effort at all.
+GROK_CLI_REASONING_EFFORTS = ("low", "medium", "high")
+GROK_STEER_IDLE_SECONDS = CODEX_STEER_IDLE_SECONDS
+
+
+def _grok_effort_flag(requested: str) -> list[str]:
+    """Return the --reasoning-effort flag for grok-4.5, or [] to inherit xhigh.
+
+    Returns ["--reasoning-effort", e] iff e.lower() is one of low/medium/high.
+    Any other value (including "xhigh", "max", or empty) returns [], which
+    omits the flag so the grok-4.5 CLI falls back to its config default
+    (default_reasoning_effort = "xhigh" in ~/.grok/config.toml).
+    """
+    candidate = (requested or "").strip().lower()
+    if candidate in GROK_CLI_REASONING_EFFORTS:
+        return ["--reasoning-effort", candidate]
+    return []
+
+
+def _grok_captain_report_note(run_dir: Path) -> str:
+    return textwrap.dedent(f"""
+    # Captain Report (Grok)
+
+    Run directory: {run_dir}
+
+    This run's launcher automatically writes a captain report to
+    `{run_dir / CAPTAIN_REPORTS_DIR / CAPTAIN_REPORT_FINAL_JSON}` and
+    `{run_dir / CAPTAIN_REPORTS_DIR / CAPTAIN_REPORT_FINAL_MD}` from your final
+    answer text once this turn ends, so Claude can read your result with
+    `get_visible_run_status` or `list_captain_reports` even if you never call a
+    tool. If the `agent-visibility` MCP server is reachable in this session,
+    also call `submit_captain_report` with a structured outcome/summary before
+    stopping, and use `request_captain_help` if you are blocked. Do not rely on
+    a plain terminal answer alone if a richer structured report is possible.
+    """).strip()
+
+
+# PowerShell descendant-reaper scoped to Grok's own process tree, mirroring
+# _PS_CLEANUP_FN's shape but targeting grok's process name instead of
+# codex/node/claude. Kept as a separate constant so _PS_CLEANUP_FN (used by
+# the Codex and Claude runners) stays byte-identical.
+_PS_GROK_CLEANUP_FN = r"""
+function Stop-GrokRunDescendants {
+  param([int]$RootPid)
+  $targets = @('grok','node')
+  try { $all = Get-CimInstance Win32_Process -ErrorAction Stop } catch { return }
+  $byParent = @{}
+  foreach ($p in $all) {
+    $k = [int]$p.ParentProcessId
+    if (-not $byParent.ContainsKey($k)) { $byParent[$k] = New-Object System.Collections.ArrayList }
+    [void]$byParent[$k].Add($p)
+  }
+  $descendants = New-Object System.Collections.ArrayList
+  $queue = New-Object System.Collections.Queue
+  $queue.Enqueue([int]$RootPid)
+  while ($queue.Count -gt 0) {
+    $cur = [int]$queue.Dequeue()
+    if ($byParent.ContainsKey($cur)) {
+      foreach ($child in $byParent[$cur]) {
+        [void]$descendants.Add($child)
+        $queue.Enqueue([int]$child.ProcessId)
+      }
+    }
+  }
+  $killed = 0
+  foreach ($proc in ($descendants | Sort-Object ProcessId -Descending)) {
+    if ([int]$proc.ProcessId -eq [int]$RootPid) { continue }
+    $base = ($proc.Name -replace '\.exe$','').ToLower()
+    if ($targets -contains $base) {
+      try { Stop-Process -Id $proc.ProcessId -Force -ErrorAction Stop; $killed++ } catch {}
+    }
+  }
+  Log-Line "Reaped $killed leftover Grok process(es) for this run." 'DarkGray'
+}
+"""
+
+
+def _grok_runner(
+    run_dir: Path,
+    cwd: str,
+    requested_effort: str,
+    resume_session_id: str = "",
+    compose_with_haiku: bool = False,
+    composer_model: str = CLAUDE_PROMPT_COMPOSER_MODEL,
+    composer_effort: str = CLAUDE_PROMPT_COMPOSER_EFFORT,
+    composer_max_budget_usd: str = CLAUDE_PROMPT_COMPOSER_MAX_BUDGET_USD,
+    steer_idle_seconds: int = GROK_STEER_IDLE_SECONDS,
+) -> str:
+    effort_flag = _grok_effort_flag(requested_effort)
+    effort_flag_ps = ",".join(_ps(part) for part in effort_flag) if effort_flag else ""
+    return f"""
+$ErrorActionPreference = 'Continue'
+$RunDir = {_ps(run_dir)}
+$PromptPath = Join-Path $RunDir 'prompt.md'
+$ComposerPromptPath = Join-Path $RunDir 'composer_prompt.md'
+$ComposerRawLog = Join-Path $RunDir 'composer_events.jsonl'
+$ComposedPromptPath = Join-Path $RunDir 'composed_prompt.md'
+$GrokPreludePath = Join-Path $RunDir 'grok_prelude.md'
+$RawLog = Join-Path $RunDir 'events.jsonl'
+$DisplayLog = Join-Path $RunDir 'display.log'
+$StatusPath = Join-Path $RunDir 'status.json'
+$SessionPath = Join-Path $RunDir 'session_id.txt'
+$SteerQueue = Join-Path $RunDir 'steer_queue'
+$SteerDone = Join-Path $RunDir 'steer_done'
+$ReportsDir = Join-Path $RunDir '{CAPTAIN_REPORTS_DIR}'
+$Grok = {_ps(GROK)}
+$Claude = {_ps(CLAUDE)}
+$Cwd = {_ps(cwd)}
+$Model = {_ps(GROK_MODEL)}
+$ResumeSessionId = {_ps(resume_session_id)}
+$ComposeWithHaiku = {"$true" if compose_with_haiku else "$false"}
+$ComposerModel = {_ps(composer_model)}
+$ComposerEffort = {_ps(composer_effort)}
+$ComposerMaxBudgetUsd = {_ps(composer_max_budget_usd)}
+$SteerIdleSeconds = {max(0, min(int(steer_idle_seconds), 300))}
+$EffortArgs = @({effort_flag_ps})
+# Force UTF-8 so Grok's UTF-8 stdout/stdin is decoded correctly (mirrors the Codex runner).
+$OutputEncoding = New-Object System.Text.UTF8Encoding $false
+[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false
+[Console]::InputEncoding = New-Object System.Text.UTF8Encoding $false
+$Host.UI.RawUI.WindowTitle = "Grok visible worker - $(Split-Path $RunDir -Leaf)"
+
+# UTF-8 tee helper (Tee-Object writes UTF-16LE in PowerShell 5.1, corrupting display.log).
+function Write-Raw {{
+  param([Parameter(ValueFromPipeline=$true)] $InputObject)
+  process {{
+    $text = [string]$InputObject
+    Write-Host $text
+    Add-Content -LiteralPath $DisplayLog -Encoding UTF8 -Value $text
+  }}
+}}
+
+function Set-Status([string]$Status) {{
+  $json = @{{ status=$Status; updated_at=(Get-Date).ToString('o'); run_dir=$RunDir }} | ConvertTo-Json
+  $tmp = $StatusPath + '.tmp'
+  foreach ($attempt in 1..5) {{
+    try {{
+      Set-Content -LiteralPath $tmp -Value $json -Encoding UTF8 -ErrorAction Stop
+      Move-Item -LiteralPath $tmp -Destination $StatusPath -Force -ErrorAction Stop
+      return
+    }} catch {{
+      Start-Sleep -Milliseconds 200
+    }}
+  }}
+  Log-Line "Set-Status failed after 5 attempts: $Status"
+}}
+
+function Log-Line([string]$Text, [string]$Color = 'Gray') {{
+  $stamp = Get-Date -Format 'HH:mm:ss'
+  $line = "[$stamp] $Text"
+  Add-Content -LiteralPath $DisplayLog -Encoding UTF8 -Value $line
+  Write-Host $line -ForegroundColor $Color
+}}
+
+function Get-NextSteerFile {{
+  if (-not (Test-Path -LiteralPath $SteerQueue)) {{ return $null }}
+  $next = Get-ChildItem -LiteralPath $SteerQueue -Filter '*.md' -File -ErrorAction SilentlyContinue | Sort-Object Name | Select-Object -First 1
+  return $next
+}}
+
+function Write-AutoCaptainReport([string]$Outcome, [string]$SummaryText, [string]$SessionId) {{
+  $reportId = "$(Split-Path $RunDir -Leaf)-auto"
+  $now = (Get-Date).ToString('o')
+  $sessionValue = $null
+  if ($SessionId -and $SessionId -ne '') {{ $sessionValue = $SessionId }}
+  $record = [ordered]@{{
+    report_id = $reportId
+    status = 'submitted'
+    outcome = $Outcome
+    created_at = $now
+    updated_at = $now
+    run_dir = $RunDir
+    thread_id = $null
+    session_id = $sessionValue
+    summary = $SummaryText
+    changed_files = @()
+    verification = @()
+    risks = @()
+    questions = @()
+    close_tui = $true
+    auto_generated = $true
+    agent = 'grok'
+  }}
+  New-Item -ItemType Directory -Force -Path $ReportsDir | Out-Null
+  $json = $record | ConvertTo-Json -Depth 6
+  Set-Content -LiteralPath (Join-Path $ReportsDir '{CAPTAIN_REPORT_FINAL_JSON}') -Value $json -Encoding UTF8
+  $md = "# Captain Report`n`nReport ID: $reportId`nOutcome: $Outcome`nCreated: $now`nRun directory: $RunDir`nClose TUI: True`n`n## Summary`n`n$SummaryText`n`n## Changed Files`n`n- none`n`n## Verification`n`n- none`n`n## Risks`n`n- none`n`n## Questions`n`n- none"
+  Set-Content -LiteralPath (Join-Path $ReportsDir '{CAPTAIN_REPORT_FINAL_MD}') -Value $md -Encoding UTF8
+}}
+
+function Get-ReportBaseline {{
+  $fp = Join-Path $ReportsDir '{CAPTAIN_REPORT_FINAL_JSON}'
+  if (Test-Path -LiteralPath $fp) {{ return (Get-Item -LiteralPath $fp).LastWriteTimeUtc }}
+  return [datetime]::MinValue
+}}
+
+function Test-WorkerReportSince([datetime]$baseline) {{
+  # True when the worker wrote its own captain report (via submit_captain_report)
+  # during the turn. In that case the runner must NOT overwrite it with the
+  # auto-report; the worker's explicit report is authoritative.
+  $fp = Join-Path $ReportsDir '{CAPTAIN_REPORT_FINAL_JSON}'
+  if (-not (Test-Path -LiteralPath $fp)) {{ return $false }}
+  return ((Get-Item -LiteralPath $fp).LastWriteTimeUtc -gt $baseline)
+}}
+
+function Invoke-GrokPrompt {{
+  param(
+    [string]$GrokPromptPath,
+    [string]$SessionId,
+    [string]$TurnLabel
+  )
+  Set-Status "running:$TurnLabel"
+  if ($SessionId -and $SessionId -ne '') {{
+    Log-Line "Starting Grok resume turn: $TurnLabel | session: $SessionId" 'Magenta'
+  }} else {{
+    Log-Line "Starting Grok new turn: $TurnLabel" 'Magenta'
+  }}
+  Log-Line 'Raw streaming-json is saved to events.jsonl.' 'Magenta'
+
+  # NOTE: -p/--single and --prompt-file are alternative ways to supply the single-turn
+  # prompt (confirmed live against grok --help: "-p, --single <PROMPT>" requires an
+  # inline value and errors ("a value is required for '--single <PROMPT>'") if combined
+  # with --prompt-file). --prompt-file alone triggers headless single-turn mode.
+  $argsList = @('--prompt-file',$GrokPromptPath,'--output-format','streaming-json','--cwd',$Cwd,'--permission-mode','bypassPermissions','-m',$Model)
+  foreach ($e in $EffortArgs) {{ $argsList += $e }}
+  if ($SessionId -and $SessionId -ne '') {{ $argsList += @('-r',$SessionId) }}
+
+  $script:turnText = New-Object System.Collections.ArrayList
+  $script:turnEndSeen = $false
+  $script:turnErrorSeen = $false
+  $script:turnErrorMessage = ''
+  $script:turnSessionId = $SessionId
+
+  Push-Location $Cwd
+  try {{
+    & $Grok @argsList 2>&1 | ForEach-Object {{
+      $line = [string]$_
+      Add-Content -LiteralPath $RawLog -Encoding UTF8 -Value $line
+      $obj = $null
+      try {{ $obj = $line | ConvertFrom-Json -ErrorAction Stop }} catch {{ $obj = $null }}
+      if ($null -eq $obj) {{
+        Log-Line $line 'Gray'
+        return
+      }}
+      switch ($obj.type) {{
+        'thought' {{
+          Log-Line 'Reasoning/progress event received. Hidden model reasoning is not displayed.' 'DarkGray'
+        }}
+        'text' {{
+          if ($obj.data) {{
+            [void]$script:turnText.Add([string]$obj.data)
+            [string]$obj.data | Write-Raw
+          }}
+        }}
+        'end' {{
+          $script:turnEndSeen = $true
+          if ($obj.sessionId) {{
+            $script:turnSessionId = [string]$obj.sessionId
+            $obj.sessionId | Set-Content -LiteralPath $SessionPath -Encoding UTF8
+          }}
+          Log-Line "Turn ended: stopReason=$($obj.stopReason) sessionId=$($obj.sessionId)" 'Green'
+        }}
+        'error' {{
+          $script:turnErrorSeen = $true
+          $script:turnErrorMessage = [string]$obj.message
+          Set-Status "failed:$($obj.message)"
+          Log-Line "Error: $($obj.message)" 'Red'
+        }}
+        default {{
+          Log-Line "Event: $($obj.type)" 'DarkYellow'
+        }}
+      }}
+    }}
+  }} finally {{
+    Pop-Location
+  }}
+
+  $code = $LASTEXITCODE
+  if ($code -eq 0 -and $script:turnErrorSeen) {{ $code = 1 }}
+  Log-Line "Grok turn '$TurnLabel' exited with code $code" $(if ($code -eq 0) {{ 'Green' }} else {{ 'Red' }})
+  Stop-GrokRunDescendants -RootPid $PID
+  return $code
+}}
+
+{_PS_GROK_CLEANUP_FN}
+Clear-Host
+New-Item -ItemType Directory -Force -Path $SteerQueue | Out-Null
+New-Item -ItemType Directory -Force -Path $SteerDone | Out-Null
+Set-Status 'running'
+Log-Line "Run directory: $RunDir" 'Cyan'
+Log-Line "CWD: $Cwd" 'Cyan'
+Log-Line "Model: $Model | Effort args: $($EffortArgs -join ' ') (empty means omitted -> inherits Grok config default xhigh)" 'Cyan'
+if ($ResumeSessionId -and $ResumeSessionId -ne '') {{ Log-Line "Resuming Grok session: $ResumeSessionId" 'Cyan' }}
+$GrokPromptPath = $PromptPath
+if ($ComposeWithHaiku) {{
+  Log-Line "Haiku prompt composer enabled. Model: $ComposerModel | Effort: $ComposerEffort | Max budget USD: $ComposerMaxBudgetUsd" 'Magenta'
+  Log-Line 'Compact captain brief follows:' 'Magenta'
+  Get-Content -LiteralPath $PromptPath -Raw | Write-Raw
+  Log-Line 'Starting Haiku prompt composer. Raw stream JSON is saved to composer_events.jsonl.' 'Magenta'
+
+  $composerArgs = @('-p','--safe-mode','--no-session-persistence','--prompt-suggestions','false','--verbose','--output-format','stream-json','--permission-mode','plan','--max-budget-usd',$ComposerMaxBudgetUsd)
+  if ($ComposerModel -and $ComposerModel -ne '') {{ $composerArgs += @('--model',$ComposerModel) }}
+  if ($ComposerEffort -and $ComposerEffort -ne '') {{ $composerArgs += @('--effort',$ComposerEffort) }}
+
+  $assistantChunks = New-Object System.Collections.ArrayList
+  $resultText = ''
+  $composerPrompt = Get-Content -LiteralPath $ComposerPromptPath -Raw
+  $composerPrompt | & $Claude @composerArgs 2>&1 | ForEach-Object {{
+    $line = [string]$_
+    Add-Content -LiteralPath $ComposerRawLog -Encoding UTF8 -Value $line
+    try {{
+      $obj = $line | ConvertFrom-Json -ErrorAction Stop
+      if ($obj.type -eq 'assistant' -and $obj.message) {{
+        foreach ($c in $obj.message.content) {{
+          if ($c.type -eq 'text' -and $c.text) {{ [void]$assistantChunks.Add([string]$c.text) }}
+        }}
+        return
+      }}
+      if ($obj.type -eq 'result') {{
+        Log-Line "Haiku composer result: subtype=$($obj.subtype) cost=$($obj.total_cost_usd) duration_ms=$($obj.duration_ms)" 'Green'
+        if ($obj.result) {{ $resultText = [string]$obj.result }}
+        return
+      }}
+      if ($obj.type -eq 'system') {{
+        if ($obj.session_id) {{ Log-Line "Haiku composer session: $($obj.session_id)" 'Cyan' }}
+        Log-Line "Haiku composer system: $($obj.subtype)" 'DarkCyan'
+        return
+      }}
+    }} catch {{
+      Log-Line $line 'Gray'
+    }}
+  }}
+  $composerExitCode = $LASTEXITCODE
+  if ($composerExitCode -ne 0) {{
+    Log-Line "Haiku prompt composer exited with code $composerExitCode; falling back to the raw captain brief." 'Yellow'
+    $resultText = ''
+  }}
+  if ([string]::IsNullOrWhiteSpace($resultText)) {{
+    $resultText = (($assistantChunks | ForEach-Object {{ [string]$_ }}) -join "`n")
+  }}
+  if ([string]::IsNullOrWhiteSpace($resultText) -and $composerExitCode -eq 0) {{
+    Log-Line 'Haiku prompt composer produced an empty Grok prompt; falling back to the raw captain brief.' 'Yellow'
+  }}
+  $prelude = ''
+  if (Test-Path -LiteralPath $GrokPreludePath) {{ $prelude = Get-Content -LiteralPath $GrokPreludePath -Raw }}
+  $briefHeading = "`n`n## Haiku-Composed Worker Brief`n`n"
+  if ([string]::IsNullOrWhiteSpace($resultText)) {{
+    $briefHeading = "`n`n## Captain Brief (raw; Haiku composer unavailable)`n`n"
+    $resultText = Get-Content -LiteralPath $PromptPath -Raw
+  }}
+  $finalPrompt = ($prelude.TrimEnd() + $briefHeading + $resultText.Trim())
+  $finalPrompt | Set-Content -LiteralPath $ComposedPromptPath -Encoding UTF8
+  $GrokPromptPath = $ComposedPromptPath
+  Log-Line 'Composed Grok prompt follows:' 'Magenta'
+  Get-Content -LiteralPath $GrokPromptPath -Raw | Write-Raw
+}} else {{
+  Log-Line 'Prompt follows:' 'Magenta'
+  Get-Content -LiteralPath $PromptPath -Raw | Write-Raw
+}}
+
+$reportBaseline = Get-ReportBaseline
+$exitCode = Invoke-GrokPrompt -GrokPromptPath $GrokPromptPath -SessionId $ResumeSessionId -TurnLabel 'initial'
+$finalText = ($script:turnText -join '')
+$finalSessionId = $script:turnSessionId
+
+if ($exitCode -eq 0) {{
+  if ([string]::IsNullOrWhiteSpace($finalText)) {{
+    $finalText = '(grok worker completed the turn with no text answer; see events.jsonl for detail)'
+  }}
+  if (-not (Test-WorkerReportSince $reportBaseline)) {{ Write-AutoCaptainReport -Outcome 'completed' -SummaryText $finalText -SessionId $finalSessionId }}
+}} else {{
+  $errText = if ($script:turnErrorMessage) {{ $script:turnErrorMessage }} elseif ($finalText) {{ $finalText }} else {{ '(grok turn failed before producing a text answer; see events.jsonl for detail)' }}
+  if (-not (Test-WorkerReportSince $reportBaseline)) {{ Write-AutoCaptainReport -Outcome 'failed' -SummaryText $errText -SessionId $finalSessionId }}
+}}
+
+while ($exitCode -eq 0) {{
+  $waited = 0
+  $steerFile = Get-NextSteerFile
+  while ($null -eq $steerFile -and $waited -lt $SteerIdleSeconds) {{
+    Set-Status 'waiting_for_steer'
+    if ($waited -eq 0) {{
+      Log-Line "Waiting up to $SteerIdleSeconds second(s) for queued Claude steering before closing." 'DarkCyan'
+    }}
+    Start-Sleep -Seconds 1
+    $waited++
+    $steerFile = Get-NextSteerFile
+  }}
+  if ($null -eq $steerFile) {{ break }}
+
+  if (-not $finalSessionId -or $finalSessionId -eq '') {{
+    Set-Status 'failed:steer-no-session'
+    Log-Line "Cannot apply steering because no Grok session id has been recorded yet: $($steerFile.FullName)" 'Red'
+    $exitCode = 1
+    break
+  }}
+
+  Log-Line "Applying queued Claude steering: $($steerFile.Name)" 'Magenta'
+  Get-Content -LiteralPath $steerFile.FullName -Raw | Write-Raw
+  $reportBaseline = Get-ReportBaseline
+  $exitCode = Invoke-GrokPrompt -GrokPromptPath $steerFile.FullName -SessionId $finalSessionId -TurnLabel "steer:$($steerFile.BaseName)"
+  $finalText = ($script:turnText -join '')
+  $finalSessionId = $script:turnSessionId
+  if ($exitCode -eq 0) {{
+    if ([string]::IsNullOrWhiteSpace($finalText)) {{
+      $finalText = '(grok worker completed the turn with no text answer; see events.jsonl for detail)'
+    }}
+    if (-not (Test-WorkerReportSince $reportBaseline)) {{ Write-AutoCaptainReport -Outcome 'completed' -SummaryText $finalText -SessionId $finalSessionId }}
+  }} else {{
+    $errText = if ($script:turnErrorMessage) {{ $script:turnErrorMessage }} elseif ($finalText) {{ $finalText }} else {{ '(grok turn failed before producing a text answer; see events.jsonl for detail)' }}
+    if (-not (Test-WorkerReportSince $reportBaseline)) {{ Write-AutoCaptainReport -Outcome 'failed' -SummaryText $errText -SessionId $finalSessionId }}
+  }}
+  $donePath = Join-Path $SteerDone $steerFile.Name
+  try {{ Move-Item -LiteralPath $steerFile.FullName -Destination $donePath -Force }} catch {{}}
+}}
+
+if ($exitCode -eq 0) {{ Set-Status 'completed' }} else {{ Set-Status "failed:$exitCode" }}
+
+try {{
+  Log-Line 'Git status:' 'Cyan'
+  & git -C $Cwd status --short | Write-Raw
+  Log-Line 'Git diff stat:' 'Cyan'
+  & git -C $Cwd diff --stat | Write-Raw
+}} catch {{
+  Log-Line "Git summary unavailable: $($_.Exception.Message)" 'DarkGray'
+}}
+Stop-GrokRunDescendants -RootPid $PID
+Log-Line 'Grok agent for this run has been closed. This window will close in 5 seconds; logs remain in the run directory.' 'Magenta'
+Start-Sleep -Seconds 5
+exit
+"""
+
+
+@mcp.tool()
+def start_visible_grok_worker(
+    prompt: str,
+    cwd: str,
+    title: str = "Grok worker",
+    sandbox: str = "read-only",
+    reasoning_effort: str = "",
+    session_context: str = "",
+    resume_session_id: str = "",
+    requires_tool_access: bool = False,
+    compose_with_haiku: bool = False,
+    composer_model: str = CLAUDE_PROMPT_COMPOSER_MODEL,
+    composer_effort: str = CLAUDE_PROMPT_COMPOSER_EFFORT,
+    composer_max_budget_usd: str = CLAUDE_PROMPT_COMPOSER_MAX_BUDGET_USD,
+    steer_idle_seconds: int = GROK_STEER_IDLE_SECONDS,
+) -> dict[str, Any]:
+    """Launch a visible Grok (grok-4.5) exec worker in a separate PowerShell window and save logs."""
+    effort_flag = _grok_effort_flag(reasoning_effort)
+    effective_reasoning = effort_flag[1] if effort_flag else "inherited-config-default-xhigh"
+    auto_full_tool_access = _needs_full_tool_access("\n".join([title, prompt, session_context]))
+    effective_sandbox = CODEX_FULL_TOOL_SANDBOX
+    prompt_with_permissions = "\n\n".join([
+        _codex_permission_contract(sandbox, effective_sandbox),
+        prompt,
+    ])
+    if compose_with_haiku:
+        effective_prompt = prompt.strip()
+    else:
+        effective_prompt = _with_session_context_bootstrap(prompt_with_permissions, cwd, "Grok worker", session_context)
+    run_dir = _make_run(cwd, "grok-resume" if resume_session_id else "grok", title, effective_prompt, {
+        "agent": "grok",
+        "cwd": str(Path(cwd).resolve()),
+        "sandbox": effective_sandbox,
+        "requested_sandbox": sandbox,
+        "model": GROK_MODEL,
+        "requested_reasoning_effort": reasoning_effort,
+        "effective_reasoning_effort": effective_reasoning,
+        "resume_session_id": resume_session_id or None,
+        "session_context_supplied": bool(session_context.strip()),
+        "requires_tool_access": requires_tool_access,
+        "auto_full_tool_access": auto_full_tool_access,
+        "sandbox_bypass_enabled": True,
+        "tool_access_default": "full-process-access",
+        "compose_with_haiku": compose_with_haiku,
+        "prompt_composer_model": composer_model if compose_with_haiku else None,
+        "prompt_composer_effort": composer_effort if compose_with_haiku else None,
+        "prompt_composer_max_budget_usd": composer_max_budget_usd if compose_with_haiku else None,
+        "steer_idle_seconds": max(0, min(int(steer_idle_seconds), 300)),
+        "captain_help_enabled": True,
+        "captain_report_auto_write": True,
+    })
+    if not compose_with_haiku:
+        effective_prompt = "\n\n".join([
+            _grok_captain_report_note(run_dir),
+            _captain_help_contract(run_dir),
+            effective_prompt,
+        ])
+        (run_dir / "prompt.md").write_text(effective_prompt, encoding="utf-8")
+    if compose_with_haiku:
+        composer_prompt = _haiku_codex_prompt_composer_prompt(
+            prompt,
+            cwd,
+            title,
+            sandbox,
+            session_context,
+            resume_session_id,
+            requires_tool_access or auto_full_tool_access,
+            effective_reasoning if effective_reasoning in CODEX_REASONING_EFFORTS else CODEX_REASONING_EFFORT,
+        )
+        (run_dir / "composer_prompt.md").write_text(composer_prompt, encoding="utf-8")
+        grok_prelude = _with_session_context_bootstrap(
+            "\n\n".join([
+                _grok_captain_report_note(run_dir),
+                _captain_help_contract(run_dir),
+                _codex_permission_contract(sandbox, effective_sandbox),
+            ]),
+            cwd,
+            "Grok worker",
+            session_context,
+        )
+        (run_dir / "grok_prelude.md").write_text(grok_prelude, encoding="utf-8")
+    script = run_dir / "run.ps1"
+    script.write_text(
+        _grok_runner(
+            run_dir,
+            str(Path(cwd).resolve()),
+            reasoning_effort,
+            resume_session_id,
+            compose_with_haiku,
+            composer_model,
+            composer_effort,
+            composer_max_budget_usd,
+            steer_idle_seconds,
+        ),
+        encoding="utf-8",
+    )
+    pid = _launch(script)
+    (run_dir / "launcher_pid.txt").write_text(str(pid), encoding="utf-8")
+    return {
+        "run_id": run_dir.name,
+        "pid": pid,
+        "run_dir": str(run_dir),
+        "prompt": str(run_dir / "prompt.md"),
+        "display_log": str(run_dir / "display.log"),
+        "raw_events": str(run_dir / "events.jsonl"),
+        "status": str(run_dir / "status.json"),
+        "steer_queue": str(run_dir / "steer_queue"),
+        "captain_help": str(run_dir / CAPTAIN_HELP_DIR),
+        "captain_reports": str(run_dir / CAPTAIN_REPORTS_DIR),
+        "session_id_file": str(run_dir / "session_id.txt"),
+        "watch_command": _watch_command(run_dir),
+        "note": (
+            f"A visible PowerShell window was launched. Grok runs {GROK_MODEL} at requested "
+            f"reasoning '{reasoning_effort or 'unset'}' (effective: {effective_reasoning}; the CLI "
+            "flag only accepts low/medium/high, so it is omitted for xhigh/max/empty and Grok's "
+            "config default (xhigh) applies). Effective sandbox is "
+            f"{effective_sandbox} (permission intent conveyed via the prompt contract, matching the "
+            f"Codex path). Haiku prompt composer enabled={compose_with_haiku}. The runner "
+            "auto-writes captain_reports/final.json+final.md from Grok's answer text after every "
+            "turn, independent of whether the live agent-visibility MCP callback is reachable."
+        ),
+    }
+
+
+@mcp.tool()
+def start_visible_haiku_composed_grok_worker(
+    prompt_brief: str,
+    cwd: str,
+    title: str = "Grok worker",
+    sandbox: str = "read-only",
+    reasoning_effort: str = "",
+    session_context: str = "",
+    resume_session_id: str = "",
+    requires_tool_access: bool = False,
+    composer_max_budget_usd: str = CLAUDE_PROMPT_COMPOSER_MAX_BUDGET_USD,
+    steer_idle_seconds: int = GROK_STEER_IDLE_SECONDS,
+) -> dict[str, Any]:
+    """Launch a visible Grok worker from a compact Claude brief expanded by Claude Haiku."""
+    return start_visible_grok_worker(
+        prompt=prompt_brief,
+        cwd=cwd,
+        title=title,
+        sandbox=sandbox,
+        reasoning_effort=reasoning_effort,
+        session_context=session_context,
+        resume_session_id=resume_session_id,
+        requires_tool_access=requires_tool_access,
+        compose_with_haiku=True,
+        composer_model=CLAUDE_PROMPT_COMPOSER_MODEL,
+        composer_effort=CLAUDE_PROMPT_COMPOSER_EFFORT,
+        composer_max_budget_usd=composer_max_budget_usd,
+        steer_idle_seconds=steer_idle_seconds,
+    )
+
+
+@mcp.tool()
+def start_visible_first_mate_grok_pool(
+    goal: str,
+    cwd: str,
+    scout_areas: list[str] | None = None,
+    implementation_items: list[str] | None = None,
+    sandbox: str = "read-only",
+    max_workers: int = 6,
+    session_context: str = "",
+    requires_tool_access: bool = False,
+    reasoning_effort: str = "",
+) -> dict[str, Any]:
+    """Launch a visible Grok root session with native subagents enabled to act as first mate.
+
+    Unlike the Codex first-mate pool (which fans out to separate Codex CLI
+    subagent processes), this launches a single grok-4.5 process with its
+    native subagent capability left enabled (no --no-subagents flag), so Grok
+    itself manages any internal fan-out.
+    """
+    prompt, auto_full_tool_access = _first_mate_prompt(
+        goal=goal,
+        scout_areas=scout_areas,
+        implementation_items=implementation_items,
+        sandbox=sandbox,
+        max_workers=max_workers,
+        session_context=session_context,
+        requires_tool_access=requires_tool_access,
+    )
+    return start_visible_grok_worker(
+        prompt=prompt,
+        cwd=cwd,
+        title="Grok first mate pool",
+        sandbox=sandbox,
+        reasoning_effort=reasoning_effort,
+        session_context=session_context,
+        requires_tool_access=requires_tool_access or auto_full_tool_access,
+    )
+
+
+@mcp.tool()
+def steer_visible_grok_run(
+    run_dir: str,
+    instruction: str,
+    title: str = "Claude steering",
+    session_context: str = "",
+    sandbox: str = "",
+    launch_if_closed: bool = True,
+    interrupt_current_turn: bool = True,
+    requires_tool_access: bool = False,
+) -> dict[str, Any]:
+    """Send a Claude steering instruction to a visible Grok run, resuming the same Grok session if needed.
+
+    Mirrors steer_visible_codex_run. An idle worker (in its steering window)
+    consumes the queued instruction within a second. An active worker is
+    interrupted best-effort via the same Ctrl+C/taskkill path used for Codex
+    when a launcher pid is known, then a Grok resume run (`grok -r
+    <sessionId>`) is launched with the instruction. Grok has no on-disk
+    equivalent of Codex's session-readiness probe, so after an interrupt this
+    always launches the resume run directly on the last recorded session id
+    rather than polling for session-file readiness first; queued-at-idle
+    delivery is the primary, most reliable path for v1.
+    """
+    path = Path(run_dir).expanduser().resolve()
+    if not path.exists():
+        return {"ok": False, "error": f"run_dir does not exist: {path}"}
+    metadata = _read_json(path / "metadata.json", {})
+    status = _read_json(path / "status.json", {"status": "unknown"})
+    status_name = _status_name(status)
+    if metadata.get("agent") not in (None, "grok"):
+        return {"ok": False, "error": f"run_dir is not a Grok visible run: {path}", "metadata": metadata}
+
+    requested_sandbox = sandbox.strip()
+    permission_contract = (
+        _codex_permission_contract(requested_sandbox, CODEX_FULL_TOOL_SANDBOX)
+        if requested_sandbox
+        else ""
+    )
+    steer_path = _write_steer_file(path, instruction, session_context, title, permission_contract)
+    session_id = _visible_run_session_id(path, metadata) or ""
+    active = status_name == "created" or status_name == "waiting_for_steer" or status_name.startswith("running")
+    result: dict[str, Any] = {
+        "ok": True,
+        "mode": "queued",
+        "run_dir": str(path),
+        "status": status,
+        "session_id": session_id or None,
+        "steer_file": str(steer_path),
+        "note": "Steering was queued. The visible Grok window will consume it after the current turn, or during its steering idle window.",
+    }
+
+    idle = status_name in ("created", "waiting_for_steer")
+    if active and (not interrupt_current_turn or idle):
+        if status_name == "waiting_for_steer":
+            result["note"] = (
+                "Steering was queued for immediate pickup: the worker is idle in its "
+                "steering window and polls the queue every second."
+            )
+        return result
+
+    resume_session_id = session_id
+    resume_mode = "launched_resume"
+    resume_note = "The previous visible Grok run was not available for in-window steering, so a visible Grok resume run was launched on the same session id."
+
+    if interrupt_current_turn and active:
+        if not session_id:
+            result["mode"] = "queued_no_interrupt_no_thread"
+            result["note"] = "Steering was queued, but the current turn was not interrupted because no Grok session id is available yet."
+            return result
+        pid_path = path / "launcher_pid.txt"
+        if not pid_path.exists():
+            result["mode"] = "queued_no_interrupt_no_pid"
+            result["note"] = "Steering was queued, but the current turn was not interrupted because the launcher pid is unavailable."
+            return result
+        try:
+            pid = pid_path.read_text(encoding="utf-8-sig").strip()
+            interrupted, interrupt_warning = _interrupt_visible_run(pid)
+            if not interrupted:
+                result["mode"] = "queued_interrupt_failed"
+                if interrupt_warning:
+                    result["interrupt_warning"] = interrupt_warning
+                result["note"] = "Steering was queued, but the active visible Grok run could not be interrupted cleanly."
+                return result
+            result["interrupted_pid"] = pid
+            if interrupt_warning:
+                result["interrupt_warning"] = interrupt_warning
+        except Exception as exc:
+            result["mode"] = "queued_interrupt_failed"
+            result["interrupt_warning"] = str(exc)
+            result["note"] = "Steering was queued, but the active visible Grok run could not be interrupted cleanly."
+            return result
+
+    if not launch_if_closed and "interrupted_pid" not in result:
+        result["mode"] = "queued_no_active_runner"
+        result["note"] = "Steering was queued, but the visible Grok run is not active and launch_if_closed is false."
+        return result
+
+    if not session_id:
+        result["mode"] = "queued_no_resume_thread"
+        result["note"] = "Steering was queued, but no Grok session id is available to launch a resume run."
+        return result
+
+    cwd = _infer_cwd_from_run_dir(path, metadata)
+    steer_prompt = steer_path.read_text(encoding="utf-8")
+    resume_context = "\n\n".join(
+        part for part in [
+            f"Previous visible run: {path}",
+            f"Previous status: {status_name}",
+            f"Previous Grok session id: {session_id}",
+            session_context.strip(),
+        ] if part
+    )
+    followup = start_visible_grok_worker(
+        prompt=steer_prompt,
+        cwd=cwd,
+        title=title,
+        sandbox=requested_sandbox or metadata.get("requested_sandbox") or "read-only",
+        reasoning_effort=metadata.get("requested_reasoning_effort") or "",
+        session_context=resume_context,
+        resume_session_id=resume_session_id,
+        requires_tool_access=bool(requires_tool_access or metadata.get("requires_tool_access") or metadata.get("auto_full_tool_access")),
+        compose_with_haiku=False,
+        steer_idle_seconds=int(metadata.get("steer_idle_seconds") or GROK_STEER_IDLE_SECONDS),
+    )
+    try:
+        done_dir = path / "steer_done"
+        done_dir.mkdir(parents=True, exist_ok=True)
+        steer_path.replace(done_dir / steer_path.name)
+    except Exception:
+        pass
+    result["mode"] = resume_mode
+    result["followup_run"] = followup
+    result["note"] = resume_note
+    return result
+
+
+# --- Antigravity (agy / Gemini) worker backend (added 2026-07-14) ---
+# Adds an Antigravity (agy) visible worker backend alongside the existing
+# Codex and Grok backends. Codex and Grok are left completely untouched
+# above this line; every symbol below is new. See
+# plugin/skills/claude-manages-codex/SKILL.md, section "Antigravity / Gemini
+# (agy) Worker Backend (added 2026-07-14)", for the routing doctrine.
+#
+# agy (Google's Antigravity CLI, Gemini backend) differs from grok/codex in
+# ways that shape this whole section:
+#   1. PLAIN TEXT stdout. There is no --output-format json/streaming flag, so
+#      the runner cannot parse structured "text"/"end"/"error" events the way
+#      the grok and codex runners do. It captures raw stdout/stderr as-is.
+#   2. Effort is baked into the --model name, not a separate flag (no
+#      --reasoning-effort). AGY_MODELS_BY_EFFORT below is the mapping.
+#   3. agy never prints a session id, but `agy --help` does expose
+#      `--conversation <id>` (resume a specific conversation) alongside
+#      `--continue`/`-c` (resume the MOST RECENT conversation for the
+#      current working directory). Because no id is ever surfaced in stdout
+#      to capture, this backend only uses the cwd-scoped `--continue` form;
+#      `--conversation <id>` is unusable without a way to learn `<id>`.
+#      steer_visible_agy_run therefore never tracks a session id at all -- it
+#      only needs to invoke agy again in the same cwd with `--continue`,
+#      which is a best-effort "most recent conversation" resume, not a
+#      thread-specific one.
+#   4. No live MCP callback is wired for agy (checked live on this machine):
+#      `agy --help` exposes no `mcp` subcommand, and the only MCP-shaped file
+#      found, ~/.gemini/config/mcp_config.json, is 0 bytes with no schema
+#      documented anywhere reachable -- editing it blindly would risk the
+#      owner's real authenticated agy config for an unverified guess. Layer 1
+#      (the runner's own auto-report to captain_reports/final.json+final.md)
+#      is therefore the ONLY result-callback path for agy; see SKILL.md.
+
+AGY_MODELS_BY_EFFORT = {
+    "high": "Gemini 3.5 Flash (High)",
+    "medium": "Gemini 3.5 Flash (Medium)",
+    "low": "Gemini 3.5 Flash (Low)",
+}
+AGY_DEFAULT_MODEL = "Gemini 3.5 Flash (High)"
+AGY_STEER_IDLE_SECONDS = CODEX_STEER_IDLE_SECONDS
+
+
+def _agy_model_for_effort(effort: str) -> str:
+    """Return the agy --model name for a requested reasoning effort.
+
+    agy has no --reasoning-effort flag; effort is encoded in the model name
+    itself (see AGY_MODELS_BY_EFFORT). Any value that is not exactly
+    low/medium/high (case-insensitive) falls back to AGY_DEFAULT_MODEL (the
+    "high" model), matching the owner's stated default.
+    """
+    candidate = (effort or "").strip().lower()
+    return AGY_MODELS_BY_EFFORT.get(candidate, AGY_DEFAULT_MODEL)
+
+
+def _agy_captain_report_note(run_dir: Path) -> str:
+    return textwrap.dedent(f"""
+    # Captain Report (Antigravity / agy)
+
+    Run directory: {run_dir}
+
+    This run's launcher automatically writes a captain report to
+    `{run_dir / CAPTAIN_REPORTS_DIR / CAPTAIN_REPORT_FINAL_JSON}` and
+    `{run_dir / CAPTAIN_REPORTS_DIR / CAPTAIN_REPORT_FINAL_MD}` from your raw
+    stdout once this turn ends, so Claude can read your result with
+    `get_visible_run_status` or `list_captain_reports` even if you never call
+    a tool. agy has no live agent-visibility MCP callback wired yet (see
+    SKILL.md), so this automatic report is the ONLY way your result reaches
+    Claude. Print your real answer to stdout; do not assume any tool call
+    will be seen.
+    """).strip()
+
+
+# PowerShell descendant-reaper scoped to agy's own process tree, mirroring
+# _PS_GROK_CLEANUP_FN's shape but targeting agy's process name. agy.exe is a
+# standalone executable (not an npm/node CLI shim like codex/grok's), but
+# 'node' is kept in the target list defensively in case internal tooling it
+# shells out to spawns one.
+_PS_AGY_CLEANUP_FN = r"""
+function Stop-AgyRunDescendants {
+  param([int]$RootPid)
+  $targets = @('agy','node')
+  try { $all = Get-CimInstance Win32_Process -ErrorAction Stop } catch { return }
+  $byParent = @{}
+  foreach ($p in $all) {
+    $k = [int]$p.ParentProcessId
+    if (-not $byParent.ContainsKey($k)) { $byParent[$k] = New-Object System.Collections.ArrayList }
+    [void]$byParent[$k].Add($p)
+  }
+  $descendants = New-Object System.Collections.ArrayList
+  $queue = New-Object System.Collections.Queue
+  $queue.Enqueue([int]$RootPid)
+  while ($queue.Count -gt 0) {
+    $cur = [int]$queue.Dequeue()
+    if ($byParent.ContainsKey($cur)) {
+      foreach ($child in $byParent[$cur]) {
+        [void]$descendants.Add($child)
+        $queue.Enqueue([int]$child.ProcessId)
+      }
+    }
+  }
+  $killed = 0
+  foreach ($proc in ($descendants | Sort-Object ProcessId -Descending)) {
+    if ([int]$proc.ProcessId -eq [int]$RootPid) { continue }
+    $base = ($proc.Name -replace '\.exe$','').ToLower()
+    if ($targets -contains $base) {
+      try { Stop-Process -Id $proc.ProcessId -Force -ErrorAction Stop; $killed++ } catch {}
+    }
+  }
+  Log-Line "Reaped $killed leftover Antigravity (agy) process(es) for this run." 'DarkGray'
+}
+"""
+
+
+def _agy_runner(
+    run_dir: Path,
+    cwd: str,
+    model: str,
+    initial_continue: bool = False,
+    compose_with_haiku: bool = False,
+    composer_model: str = CLAUDE_PROMPT_COMPOSER_MODEL,
+    composer_effort: str = CLAUDE_PROMPT_COMPOSER_EFFORT,
+    composer_max_budget_usd: str = CLAUDE_PROMPT_COMPOSER_MAX_BUDGET_USD,
+    steer_idle_seconds: int = AGY_STEER_IDLE_SECONDS,
+) -> str:
+    return f"""
+$ErrorActionPreference = 'Continue'
+$RunDir = {_ps(run_dir)}
+$PromptPath = Join-Path $RunDir 'prompt.md'
+$ComposerPromptPath = Join-Path $RunDir 'composer_prompt.md'
+$ComposerRawLog = Join-Path $RunDir 'composer_events.jsonl'
+$ComposedPromptPath = Join-Path $RunDir 'composed_prompt.md'
+$AgyPreludePath = Join-Path $RunDir 'agy_prelude.md'
+$OutputPath = Join-Path $RunDir 'output.txt'
+$DisplayLog = Join-Path $RunDir 'display.log'
+$StatusPath = Join-Path $RunDir 'status.json'
+$SteerQueue = Join-Path $RunDir 'steer_queue'
+$SteerDone = Join-Path $RunDir 'steer_done'
+$ReportsDir = Join-Path $RunDir '{CAPTAIN_REPORTS_DIR}'
+$Agy = {_ps(AGY)}
+$Claude = {_ps(CLAUDE)}
+$Cwd = {_ps(cwd)}
+$Model = {_ps(model)}
+$InitialContinue = {"$true" if initial_continue else "$false"}
+$ComposeWithHaiku = {"$true" if compose_with_haiku else "$false"}
+$ComposerModel = {_ps(composer_model)}
+$ComposerEffort = {_ps(composer_effort)}
+$ComposerMaxBudgetUsd = {_ps(composer_max_budget_usd)}
+$SteerIdleSeconds = {max(0, min(int(steer_idle_seconds), 300))}
+# Force UTF-8 so agy's UTF-8 stdout/stdin is decoded correctly (mirrors the Codex/Grok runners).
+$OutputEncoding = New-Object System.Text.UTF8Encoding $false
+[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false
+[Console]::InputEncoding = New-Object System.Text.UTF8Encoding $false
+$Host.UI.RawUI.WindowTitle = "Antigravity (agy) visible worker - $(Split-Path $RunDir -Leaf)"
+
+# UTF-8 tee helper (Tee-Object writes UTF-16LE in PowerShell 5.1, corrupting display.log).
+function Write-Raw {{
+  param([Parameter(ValueFromPipeline=$true)] $InputObject)
+  process {{
+    $text = [string]$InputObject
+    Write-Host $text
+    Add-Content -LiteralPath $DisplayLog -Encoding UTF8 -Value $text
+  }}
+}}
+
+function Set-Status([string]$Status) {{
+  $json = @{{ status=$Status; updated_at=(Get-Date).ToString('o'); run_dir=$RunDir }} | ConvertTo-Json
+  $tmp = $StatusPath + '.tmp'
+  foreach ($attempt in 1..5) {{
+    try {{
+      Set-Content -LiteralPath $tmp -Value $json -Encoding UTF8 -ErrorAction Stop
+      Move-Item -LiteralPath $tmp -Destination $StatusPath -Force -ErrorAction Stop
+      return
+    }} catch {{
+      Start-Sleep -Milliseconds 200
+    }}
+  }}
+  Log-Line "Set-Status failed after 5 attempts: $Status"
+}}
+
+function Log-Line([string]$Text, [string]$Color = 'Gray') {{
+  $stamp = Get-Date -Format 'HH:mm:ss'
+  $line = "[$stamp] $Text"
+  Add-Content -LiteralPath $DisplayLog -Encoding UTF8 -Value $line
+  Write-Host $line -ForegroundColor $Color
+}}
+
+function Get-NextSteerFile {{
+  if (-not (Test-Path -LiteralPath $SteerQueue)) {{ return $null }}
+  $next = Get-ChildItem -LiteralPath $SteerQueue -Filter '*.md' -File -ErrorAction SilentlyContinue | Sort-Object Name | Select-Object -First 1
+  return $next
+}}
+
+function Write-AutoCaptainReport([string]$Outcome, [string]$Text) {{
+  $reportId = "$(Split-Path $RunDir -Leaf)-auto"
+  $now = (Get-Date).ToString('o')
+  $record = [ordered]@{{
+    report_id = $reportId
+    status = 'submitted'
+    outcome = $Outcome
+    created_at = $now
+    updated_at = $now
+    run_dir = $RunDir
+    thread_id = $null
+    session_id = $null
+    summary = $Text
+    text = $Text
+    model = $Model
+    changed_files = @()
+    verification = @()
+    risks = @()
+    questions = @()
+    close_tui = $true
+    auto_generated = $true
+    agent = 'agy'
+  }}
+  New-Item -ItemType Directory -Force -Path $ReportsDir | Out-Null
+  $json = $record | ConvertTo-Json -Depth 6
+  Set-Content -LiteralPath (Join-Path $ReportsDir '{CAPTAIN_REPORT_FINAL_JSON}') -Value $json -Encoding UTF8
+  $md = "# Captain Report`n`nReport ID: $reportId`nOutcome: $Outcome`nModel: $Model`nCreated: $now`nRun directory: $RunDir`nClose TUI: True`n`n## Summary (full agy stdout for this turn)`n`n$Text`n`n## Changed Files`n`n- none`n`n## Verification`n`n- none`n`n## Risks`n`n- none`n`n## Questions`n`n- none"
+  Set-Content -LiteralPath (Join-Path $ReportsDir '{CAPTAIN_REPORT_FINAL_MD}') -Value $md -Encoding UTF8
+}}
+
+function Invoke-AgyPrompt {{
+  param(
+    [string]$PromptText,
+    [bool]$Continue,
+    [string]$TurnLabel
+  )
+  Set-Status "running:$TurnLabel"
+  if ($Continue) {{
+    Log-Line "Starting Antigravity resume turn (--continue, cwd-scoped, no session id): $TurnLabel" 'Magenta'
+  }} else {{
+    Log-Line "Starting Antigravity new turn: $TurnLabel" 'Magenta'
+  }}
+  Log-Line 'agy has no streaming JSON; its full stdout for this turn is captured once the process exits and appended to output.txt.' 'Magenta'
+
+  $argsList = @('-p',$PromptText,'--model',$Model,'--dangerously-skip-permissions','--add-dir',$Cwd)
+  if ($Continue) {{ $argsList = @('-p',$PromptText,'--continue','--model',$Model,'--dangerously-skip-permissions','--add-dir',$Cwd) }}
+
+  $stdoutTmp = Join-Path $RunDir 'turn_stdout.tmp'
+  $stderrTmp = Join-Path $RunDir 'turn_stderr.tmp'
+
+  Push-Location $Cwd
+  try {{
+    & $Agy @argsList 1> $stdoutTmp 2> $stderrTmp
+  }} finally {{
+    Pop-Location
+  }}
+  $code = $LASTEXITCODE
+
+  $script:turnText = ''
+  if (Test-Path -LiteralPath $stdoutTmp) {{
+    $out = Get-Content -LiteralPath $stdoutTmp -Raw -Encoding UTF8 -ErrorAction SilentlyContinue
+    if ($out) {{ $script:turnText = $out }}
+  }}
+  if ($script:turnText) {{
+    Add-Content -LiteralPath $OutputPath -Encoding UTF8 -Value $script:turnText
+    $script:turnText | Write-Raw
+  }}
+
+  $errText = ''
+  if (Test-Path -LiteralPath $stderrTmp) {{
+    $errOut = Get-Content -LiteralPath $stderrTmp -Raw -Encoding UTF8 -ErrorAction SilentlyContinue
+    if ($errOut) {{ $errText = $errOut }}
+  }}
+  if ($errText) {{
+    Log-Line 'stderr (display.log only; not appended to output.txt/captain report):' 'DarkYellow'
+    $errText | Write-Raw
+  }}
+  try {{ Remove-Item -LiteralPath $stdoutTmp -Force -ErrorAction SilentlyContinue }} catch {{}}
+  try {{ Remove-Item -LiteralPath $stderrTmp -Force -ErrorAction SilentlyContinue }} catch {{}}
+
+  Log-Line "Antigravity turn '$TurnLabel' exited with code $code" $(if ($code -eq 0) {{ 'Green' }} else {{ 'Red' }})
+  Stop-AgyRunDescendants -RootPid $PID
+  return $code
+}}
+
+{_PS_AGY_CLEANUP_FN}
+Clear-Host
+New-Item -ItemType Directory -Force -Path $SteerQueue | Out-Null
+New-Item -ItemType Directory -Force -Path $SteerDone | Out-Null
+Set-Status 'running'
+Log-Line "Run directory: $RunDir" 'Cyan'
+Log-Line "CWD: $Cwd" 'Cyan'
+Log-Line "Model: $Model (effort is baked into the model name; agy has no separate reasoning-effort CLI flag)" 'Cyan'
+Log-Line 'agy never emits a session id. Steering/resume uses --continue, which resumes the MOST RECENT conversation for this cwd (best-effort, not a specific thread).' 'Cyan'
+
+$PromptText = ''
+if ($ComposeWithHaiku) {{
+  Log-Line "Haiku prompt composer enabled. Model: $ComposerModel | Effort: $ComposerEffort | Max budget USD: $ComposerMaxBudgetUsd" 'Magenta'
+  Log-Line 'Compact captain brief follows:' 'Magenta'
+  Get-Content -LiteralPath $PromptPath -Raw | Write-Raw
+  Log-Line 'Starting Haiku prompt composer. Raw stream JSON is saved to composer_events.jsonl.' 'Magenta'
+
+  $composerArgs = @('-p','--safe-mode','--no-session-persistence','--prompt-suggestions','false','--verbose','--output-format','stream-json','--permission-mode','plan','--max-budget-usd',$ComposerMaxBudgetUsd)
+  if ($ComposerModel -and $ComposerModel -ne '') {{ $composerArgs += @('--model',$ComposerModel) }}
+  if ($ComposerEffort -and $ComposerEffort -ne '') {{ $composerArgs += @('--effort',$ComposerEffort) }}
+
+  $assistantChunks = New-Object System.Collections.ArrayList
+  $resultText = ''
+  $composerPrompt = Get-Content -LiteralPath $ComposerPromptPath -Raw
+  $composerPrompt | & $Claude @composerArgs 2>&1 | ForEach-Object {{
+    $line = [string]$_
+    Add-Content -LiteralPath $ComposerRawLog -Encoding UTF8 -Value $line
+    try {{
+      $obj = $line | ConvertFrom-Json -ErrorAction Stop
+      if ($obj.type -eq 'assistant' -and $obj.message) {{
+        foreach ($c in $obj.message.content) {{
+          if ($c.type -eq 'text' -and $c.text) {{ [void]$assistantChunks.Add([string]$c.text) }}
+        }}
+        return
+      }}
+      if ($obj.type -eq 'result') {{
+        Log-Line "Haiku composer result: subtype=$($obj.subtype) cost=$($obj.total_cost_usd) duration_ms=$($obj.duration_ms)" 'Green'
+        if ($obj.result) {{ $resultText = [string]$obj.result }}
+        return
+      }}
+      if ($obj.type -eq 'system') {{
+        if ($obj.session_id) {{ Log-Line "Haiku composer session: $($obj.session_id)" 'Cyan' }}
+        Log-Line "Haiku composer system: $($obj.subtype)" 'DarkCyan'
+        return
+      }}
+    }} catch {{
+      Log-Line $line 'Gray'
+    }}
+  }}
+  $composerExitCode = $LASTEXITCODE
+  if ($composerExitCode -ne 0) {{
+    Log-Line "Haiku prompt composer exited with code $composerExitCode; falling back to the raw captain brief." 'Yellow'
+    $resultText = ''
+  }}
+  if ([string]::IsNullOrWhiteSpace($resultText)) {{
+    $resultText = (($assistantChunks | ForEach-Object {{ [string]$_ }}) -join "`n")
+  }}
+  if ([string]::IsNullOrWhiteSpace($resultText) -and $composerExitCode -eq 0) {{
+    Log-Line 'Haiku prompt composer produced an empty Antigravity prompt; falling back to the raw captain brief.' 'Yellow'
+  }}
+  $prelude = ''
+  if (Test-Path -LiteralPath $AgyPreludePath) {{ $prelude = Get-Content -LiteralPath $AgyPreludePath -Raw }}
+  $briefHeading = "`n`n## Haiku-Composed Worker Brief`n`n"
+  if ([string]::IsNullOrWhiteSpace($resultText)) {{
+    $briefHeading = "`n`n## Captain Brief (raw; Haiku composer unavailable)`n`n"
+    $resultText = Get-Content -LiteralPath $PromptPath -Raw
+  }}
+  $finalPrompt = ($prelude.TrimEnd() + $briefHeading + $resultText.Trim())
+  $finalPrompt | Set-Content -LiteralPath $ComposedPromptPath -Encoding UTF8
+  $PromptText = $finalPrompt
+  Log-Line 'Composed Antigravity prompt follows:' 'Magenta'
+  $PromptText | Write-Raw
+}} else {{
+  Log-Line 'Prompt follows:' 'Magenta'
+  $PromptText = Get-Content -LiteralPath $PromptPath -Raw
+  $PromptText | Write-Raw
+}}
+
+$exitCode = Invoke-AgyPrompt -PromptText $PromptText -Continue $InitialContinue -TurnLabel 'initial'
+if ($exitCode -eq 0) {{
+  $reportText = $(if ([string]::IsNullOrWhiteSpace($script:turnText)) {{ '(agy worker completed the turn with no stdout text; see output.txt for detail)' }} else {{ $script:turnText }})
+  Write-AutoCaptainReport -Outcome 'completed' -Text $reportText
+}} else {{
+  $reportText = $(if ([string]::IsNullOrWhiteSpace($script:turnText)) {{ '(agy turn failed before producing stdout text; see output.txt/display.log for detail)' }} else {{ $script:turnText }})
+  Write-AutoCaptainReport -Outcome 'failed' -Text $reportText
+}}
+
+while ($exitCode -eq 0) {{
+  $waited = 0
+  $steerFile = Get-NextSteerFile
+  while ($null -eq $steerFile -and $waited -lt $SteerIdleSeconds) {{
+    Set-Status 'waiting_for_steer'
+    if ($waited -eq 0) {{
+      Log-Line "Waiting up to $SteerIdleSeconds second(s) for queued Claude steering before closing." 'DarkCyan'
+    }}
+    Start-Sleep -Seconds 1
+    $waited++
+    $steerFile = Get-NextSteerFile
+  }}
+  if ($null -eq $steerFile) {{ break }}
+
+  Log-Line "Applying queued Claude steering: $($steerFile.Name)" 'Magenta'
+  $steerText = Get-Content -LiteralPath $steerFile.FullName -Raw
+  $steerText | Write-Raw
+  $exitCode = Invoke-AgyPrompt -PromptText $steerText -Continue $true -TurnLabel "steer:$($steerFile.BaseName)"
+  if ($exitCode -eq 0) {{
+    $reportText = $(if ([string]::IsNullOrWhiteSpace($script:turnText)) {{ '(agy worker completed the turn with no stdout text; see output.txt for detail)' }} else {{ $script:turnText }})
+    Write-AutoCaptainReport -Outcome 'completed' -Text $reportText
+  }} else {{
+    $reportText = $(if ([string]::IsNullOrWhiteSpace($script:turnText)) {{ '(agy turn failed before producing stdout text; see output.txt/display.log for detail)' }} else {{ $script:turnText }})
+    Write-AutoCaptainReport -Outcome 'failed' -Text $reportText
+  }}
+  $donePath = Join-Path $SteerDone $steerFile.Name
+  try {{ Move-Item -LiteralPath $steerFile.FullName -Destination $donePath -Force }} catch {{}}
+}}
+
+if ($exitCode -eq 0) {{ Set-Status 'completed' }} else {{ Set-Status "failed:$exitCode" }}
+
+try {{
+  Log-Line 'Git status:' 'Cyan'
+  & git -C $Cwd status --short | Write-Raw
+  Log-Line 'Git diff stat:' 'Cyan'
+  & git -C $Cwd diff --stat | Write-Raw
+}} catch {{
+  Log-Line "Git summary unavailable: $($_.Exception.Message)" 'DarkGray'
+}}
+Stop-AgyRunDescendants -RootPid $PID
+Log-Line 'Antigravity (agy) agent for this run has been closed. This window will close in 5 seconds; logs remain in the run directory.' 'Magenta'
+Start-Sleep -Seconds 5
+exit
+"""
+
+
+@mcp.tool()
+def start_visible_agy_worker(
+    prompt: str,
+    cwd: str,
+    title: str = "Antigravity worker",
+    sandbox: str = "read-only",
+    reasoning_effort: str = "high",
+    session_context: str = "",
+    requires_tool_access: bool = False,
+    compose_with_haiku: bool = False,
+    composer_model: str = CLAUDE_PROMPT_COMPOSER_MODEL,
+    composer_effort: str = CLAUDE_PROMPT_COMPOSER_EFFORT,
+    composer_max_budget_usd: str = CLAUDE_PROMPT_COMPOSER_MAX_BUDGET_USD,
+    steer_idle_seconds: int = AGY_STEER_IDLE_SECONDS,
+    resume_continue: bool = False,
+) -> dict[str, Any]:
+    """Launch a visible Antigravity (agy / Gemini) exec worker in a separate PowerShell window and save logs.
+
+    agy is PLAIN TEXT (no JSON/streaming), has no --reasoning-effort flag
+    (effort is baked into --model via AGY_MODELS_BY_EFFORT), and never emits
+    a session id. `resume_continue` is an internal knob used by
+    steer_visible_agy_run to launch a follow-up run whose FIRST turn is
+    itself an `agy --continue` call (cwd-scoped resume of the most recent
+    agy conversation); direct callers should normally leave it False.
+    """
+    effort_key = (reasoning_effort or "").strip().lower()
+    if effort_key not in AGY_MODELS_BY_EFFORT:
+        effort_key = "high"
+    model = AGY_MODELS_BY_EFFORT[effort_key]
+    auto_full_tool_access = _needs_full_tool_access("\n".join([title, prompt, session_context]))
+    effective_sandbox = CODEX_FULL_TOOL_SANDBOX
+    prompt_with_permissions = "\n\n".join([
+        _codex_permission_contract(sandbox, effective_sandbox),
+        prompt,
+    ])
+    if compose_with_haiku:
+        effective_prompt = prompt.strip()
+    else:
+        effective_prompt = _with_session_context_bootstrap(prompt_with_permissions, cwd, "Antigravity worker", session_context)
+    run_dir = _make_run(cwd, "agy", title, effective_prompt, {
+        "agent": "agy",
+        "cwd": str(Path(cwd).resolve()),
+        "sandbox": effective_sandbox,
+        "requested_sandbox": sandbox,
+        "model": model,
+        "requested_reasoning_effort": reasoning_effort,
+        "effective_reasoning_effort": effort_key,
+        "resume_continue": resume_continue,
+        "session_context_supplied": bool(session_context.strip()),
+        "requires_tool_access": requires_tool_access,
+        "auto_full_tool_access": auto_full_tool_access,
+        "sandbox_bypass_enabled": True,
+        "tool_access_default": "full-process-access",
+        "compose_with_haiku": compose_with_haiku,
+        "prompt_composer_model": composer_model if compose_with_haiku else None,
+        "prompt_composer_effort": composer_effort if compose_with_haiku else None,
+        "prompt_composer_max_budget_usd": composer_max_budget_usd if compose_with_haiku else None,
+        "steer_idle_seconds": max(0, min(int(steer_idle_seconds), 300)),
+        "captain_help_enabled": False,
+        "captain_report_auto_write": True,
+        "no_session_id": True,
+        "resume_mechanism": "--continue (cwd-scoped, most-recent-conversation; agy has no session id to resume by thread)",
+    })
+    if not compose_with_haiku:
+        effective_prompt = "\n\n".join([
+            _agy_captain_report_note(run_dir),
+            effective_prompt,
+        ])
+        (run_dir / "prompt.md").write_text(effective_prompt, encoding="utf-8")
+    if compose_with_haiku:
+        composer_prompt = _haiku_codex_prompt_composer_prompt(
+            prompt,
+            cwd,
+            title,
+            sandbox,
+            session_context,
+            "",
+            requires_tool_access or auto_full_tool_access,
+            effort_key,
+        )
+        (run_dir / "composer_prompt.md").write_text(composer_prompt, encoding="utf-8")
+        agy_prelude = _with_session_context_bootstrap(
+            "\n\n".join([
+                _agy_captain_report_note(run_dir),
+                _codex_permission_contract(sandbox, effective_sandbox),
+            ]),
+            cwd,
+            "Antigravity worker",
+            session_context,
+        )
+        (run_dir / "agy_prelude.md").write_text(agy_prelude, encoding="utf-8")
+    script = run_dir / "run.ps1"
+    script.write_text(
+        _agy_runner(
+            run_dir,
+            str(Path(cwd).resolve()),
+            model,
+            resume_continue,
+            compose_with_haiku,
+            composer_model,
+            composer_effort,
+            composer_max_budget_usd,
+            steer_idle_seconds,
+        ),
+        encoding="utf-8",
+    )
+    pid = _launch(script)
+    (run_dir / "launcher_pid.txt").write_text(str(pid), encoding="utf-8")
+    return {
+        "run_id": run_dir.name,
+        "pid": pid,
+        "run_dir": str(run_dir),
+        "prompt": str(run_dir / "prompt.md"),
+        "display_log": str(run_dir / "display.log"),
+        "output": str(run_dir / "output.txt"),
+        "status": str(run_dir / "status.json"),
+        "steer_queue": str(run_dir / "steer_queue"),
+        "captain_reports": str(run_dir / CAPTAIN_REPORTS_DIR),
+        "watch_command": _watch_command(run_dir),
+        "note": (
+            f"A visible PowerShell window was launched. Antigravity runs model '{model}' for "
+            f"requested reasoning effort '{reasoning_effort or 'high'}' (effective: '{effort_key}'; "
+            "effort is baked into the model name -- agy has no --reasoning-effort flag). Effective "
+            f"sandbox is {effective_sandbox} (permission intent conveyed via the prompt contract, "
+            f"matching the Codex/Grok path). Haiku prompt composer enabled={compose_with_haiku}. agy "
+            "NEVER emits a session id, so resume/steer only works via --continue, which resumes the "
+            "MOST RECENT conversation for this cwd -- a best-effort guarantee, not thread-specific. "
+            "agy has NO live agent-visibility MCP callback wired (undocumented/empty "
+            "~/.gemini/config/mcp_config.json, no `agy mcp` subcommand); the runner's Layer-1 "
+            "auto-report to captain_reports/final.json+final.md from agy's raw stdout is the ONLY "
+            "result path for this backend."
+        ),
+    }
+
+
+@mcp.tool()
+def start_visible_haiku_composed_agy_worker(
+    prompt_brief: str,
+    cwd: str,
+    title: str = "Antigravity worker",
+    sandbox: str = "read-only",
+    reasoning_effort: str = "high",
+    session_context: str = "",
+    requires_tool_access: bool = False,
+    composer_max_budget_usd: str = CLAUDE_PROMPT_COMPOSER_MAX_BUDGET_USD,
+    steer_idle_seconds: int = AGY_STEER_IDLE_SECONDS,
+) -> dict[str, Any]:
+    """Launch a visible Antigravity worker from a compact Claude brief expanded by Claude Haiku."""
+    return start_visible_agy_worker(
+        prompt=prompt_brief,
+        cwd=cwd,
+        title=title,
+        sandbox=sandbox,
+        reasoning_effort=reasoning_effort,
+        session_context=session_context,
+        requires_tool_access=requires_tool_access,
+        compose_with_haiku=True,
+        composer_model=CLAUDE_PROMPT_COMPOSER_MODEL,
+        composer_effort=CLAUDE_PROMPT_COMPOSER_EFFORT,
+        composer_max_budget_usd=composer_max_budget_usd,
+        steer_idle_seconds=steer_idle_seconds,
+    )
+
+
+@mcp.tool()
+def steer_visible_agy_run(
+    run_dir: str,
+    instruction: str,
+    title: str = "Claude steering",
+    session_context: str = "",
+    sandbox: str = "",
+    launch_if_closed: bool = True,
+    interrupt_current_turn: bool = True,
+    requires_tool_access: bool = False,
+) -> dict[str, Any]:
+    """Send a Claude steering instruction to a visible Antigravity (agy) run.
+
+    agy never emits a session id, so unlike steer_visible_grok_run /
+    steer_visible_codex_run this never tracks or resumes a specific
+    thread/session id:
+    - If the run's PowerShell window is still open and idle in its steering
+      window, the instruction is queued to steer_queue and picked up within
+      a second, running `agy --continue` in the SAME window/process tree.
+    - If the window is closed (or an active turn is interrupted) and
+      launch_if_closed is true, a brand-new start_visible_agy_worker run is
+      launched with resume_continue=True, so its first turn is itself an
+      `agy --continue` call. Because --continue is cwd-scoped (resumes the
+      most recent agy conversation for that working directory, not a
+      specific run/thread id), this reaches the same underlying agy
+      conversation as long as no other agy conversation has started in that
+      cwd since -- a best-effort guarantee, not a hard one.
+    """
+    path = Path(run_dir).expanduser().resolve()
+    if not path.exists():
+        return {"ok": False, "error": f"run_dir does not exist: {path}"}
+    metadata = _read_json(path / "metadata.json", {})
+    status = _read_json(path / "status.json", {"status": "unknown"})
+    status_name = _status_name(status)
+    if metadata.get("agent") not in (None, "agy"):
+        return {"ok": False, "error": f"run_dir is not an Antigravity (agy) visible run: {path}", "metadata": metadata}
+
+    requested_sandbox = sandbox.strip()
+    permission_contract = (
+        _codex_permission_contract(requested_sandbox, CODEX_FULL_TOOL_SANDBOX)
+        if requested_sandbox
+        else ""
+    )
+    steer_path = _write_steer_file(path, instruction, session_context, title, permission_contract)
+    result: dict[str, Any] = {
+        "ok": True,
+        "mode": "queued",
+        "run_dir": str(path),
+        "status": status,
+        "steer_file": str(steer_path),
+        "note": (
+            "Steering was queued. The visible Antigravity window will consume it after the "
+            "current turn (via agy --continue), or during its steering idle window. agy has no "
+            "session id, so this is always a cwd-scoped --continue, never a thread-specific resume."
+        ),
+    }
+
+    active = status_name == "created" or status_name == "waiting_for_steer" or status_name.startswith("running")
+    idle = status_name in ("created", "waiting_for_steer")
+    if active and (not interrupt_current_turn or idle):
+        if status_name == "waiting_for_steer":
+            result["note"] = (
+                "Steering was queued for immediate pickup: the worker is idle in its "
+                "steering window and polls the queue every second."
+            )
+        return result
+
+    if interrupt_current_turn and active:
+        pid_path = path / "launcher_pid.txt"
+        if not pid_path.exists():
+            result["mode"] = "queued_no_interrupt_no_pid"
+            result["note"] = "Steering was queued, but the current turn was not interrupted because the launcher pid is unavailable."
+            return result
+        try:
+            pid = pid_path.read_text(encoding="utf-8-sig").strip()
+            interrupted, interrupt_warning = _interrupt_visible_run(pid)
+            if not interrupted:
+                result["mode"] = "queued_interrupt_failed"
+                if interrupt_warning:
+                    result["interrupt_warning"] = interrupt_warning
+                result["note"] = "Steering was queued, but the active visible Antigravity run could not be interrupted cleanly."
+                return result
+            result["interrupted_pid"] = pid
+            if interrupt_warning:
+                result["interrupt_warning"] = interrupt_warning
+        except Exception as exc:
+            result["mode"] = "queued_interrupt_failed"
+            result["interrupt_warning"] = str(exc)
+            result["note"] = "Steering was queued, but the active visible Antigravity run could not be interrupted cleanly."
+            return result
+
+    if not launch_if_closed and "interrupted_pid" not in result:
+        result["mode"] = "queued_no_active_runner"
+        result["note"] = "Steering was queued, but the visible Antigravity run is not active and launch_if_closed is false."
+        return result
+
+    cwd = _infer_cwd_from_run_dir(path, metadata)
+    steer_prompt = steer_path.read_text(encoding="utf-8")
+    resume_context = "\n\n".join(
+        part for part in [
+            f"Previous visible run: {path}",
+            f"Previous status: {status_name}",
+            "No agy session id is available; this follow-up resumes via --continue (cwd-scoped, most-recent-conversation, best-effort).",
+            session_context.strip(),
+        ] if part
+    )
+    followup = start_visible_agy_worker(
+        prompt=steer_prompt,
+        cwd=cwd,
+        title=title,
+        sandbox=requested_sandbox or metadata.get("requested_sandbox") or "read-only",
+        reasoning_effort=metadata.get("requested_reasoning_effort") or "high",
+        session_context=resume_context,
+        requires_tool_access=bool(requires_tool_access or metadata.get("requires_tool_access") or metadata.get("auto_full_tool_access")),
+        compose_with_haiku=False,
+        steer_idle_seconds=int(metadata.get("steer_idle_seconds") or AGY_STEER_IDLE_SECONDS),
+        resume_continue=True,
+    )
+    try:
+        done_dir = path / "steer_done"
+        done_dir.mkdir(parents=True, exist_ok=True)
+        steer_path.replace(done_dir / steer_path.name)
+    except Exception:
+        pass
+    result["mode"] = "launched_resume"
+    result["followup_run"] = followup
+    result["note"] = (
+        "The previous visible Antigravity run was not available for in-window steering, so a "
+        "visible Antigravity follow-up run was launched with `agy --continue` (cwd-scoped, "
+        "most-recent-conversation resume; best-effort since agy has no session id)."
+    )
+    return result
+
+
+# --- Worker backend availability check (added 2026-07-14) ---
+# Verifies whether each worker backend is usable before Claude delegates to
+# it. claude_sonnet is always available (in-process Agent tool). grok/codex/
+# agy are probed via their CLI path + local auth-file state. Codex's local
+# JWT can look valid (unexpired `exp` claim, `codex login status` exits 0)
+# even after the server has revoked the refresh token, so a false positive
+# is possible from the cheap default probe; pass deep=True to additionally
+# run one short live `codex exec` round trip that reveals server-side
+# revocation (observed live on this machine: HTTP 401 token_invalidated /
+# refresh_token_invalidated, despite a locally well-formed, unexpired token).
+
+AGY = Path(r"C:\Users\jonny\AppData\Local\agy\bin\agy.exe")
+
+
+def _read_json_file(path: Path) -> tuple[dict[str, Any] | None, str]:
+    try:
+        raw = path.read_text(encoding="utf-8-sig")
+    except Exception as exc:
+        return None, f"cannot read {path.name}: {exc}"
+    try:
+        return json.loads(raw), ""
+    except Exception as exc:
+        return None, f"cannot parse {path.name}: {exc}"
+
+
+def _decode_jwt_exp(token: str) -> float | None:
+    try:
+        import base64 as _base64
+        parts = token.split(".")
+        if len(parts) < 2:
+            return None
+        payload = parts[1]
+        payload += "=" * (-len(payload) % 4)
+        data = json.loads(_base64.urlsafe_b64decode(payload))
+        exp = data.get("exp") if isinstance(data, dict) else None
+        return float(exp) if exp is not None else None
+    except Exception:
+        return None
+
+
+def _check_claude_sonnet_backend() -> dict[str, Any]:
+    return {
+        "available": True,
+        "reason": "in-process Agent tool; no external CLI or auth file required",
+        "detail": "Claude Sonnet subagents run via the Agent tool inside this Claude Code session.",
+    }
+
+
+def _check_grok_backend(deep: bool = False) -> dict[str, Any]:
+    if not GROK.exists():
+        return {"available": False, "reason": f"grok CLI not found at {GROK}", "detail": ""}
+    auth_path = HOME / ".grok" / "auth.json"
+    if not auth_path.exists():
+        return {"available": False, "reason": "grok CLI present but ~/.grok/auth.json is missing (not logged in)", "detail": str(auth_path)}
+    data, err = _read_json_file(auth_path)
+    if data is None:
+        return {"available": False, "reason": f"grok auth.json unreadable: {err}", "detail": str(auth_path)}
+    entries = [value for value in data.values() if isinstance(value, dict)] if isinstance(data, dict) else []
+    if not entries:
+        return {"available": False, "reason": "grok auth.json has no credential entries", "detail": str(auth_path)}
+    entry = entries[0]
+    expires_at_raw = entry.get("expires_at")
+    has_refresh = bool(entry.get("refresh_token"))
+    expires_future = False
+    if isinstance(expires_at_raw, str):
+        try:
+            expires_dt = _dt.datetime.fromisoformat(expires_at_raw.replace("Z", "+00:00"))
+            expires_future = expires_dt > _dt.datetime.now(_dt.timezone.utc)
+        except Exception:
+            expires_future = False
+    if expires_future or has_refresh:
+        return {
+            "available": True,
+            "reason": "grok auth.json present with a non-expired token or a refresh_token",
+            "detail": f"expires_at={expires_at_raw}, has_refresh_token={has_refresh}",
+        }
+    return {
+        "available": False,
+        "reason": "grok auth.json present but the token is expired and no refresh_token is stored",
+        "detail": f"expires_at={expires_at_raw}",
+    }
+
+
+def _check_codex_backend(deep: bool = False, cwd: str | None = None) -> dict[str, Any]:
+    if not CODEX.exists():
+        return {"available": False, "reason": f"codex CLI not found at {CODEX}", "detail": ""}
+    auth_path = HOME / ".codex" / "auth.json"
+    if not auth_path.exists():
+        return {"available": False, "reason": "codex CLI present but ~/.codex/auth.json is missing (not logged in)", "detail": str(auth_path)}
+    data, err = _read_json_file(auth_path)
+    if data is None:
+        return {"available": False, "reason": f"codex auth.json unreadable: {err}", "detail": str(auth_path)}
+    access_token = (data.get("tokens") or {}).get("access_token") if isinstance(data, dict) else None
+    if not access_token:
+        return {"available": False, "reason": "codex auth.json present but has no access_token (not logged in)", "detail": str(auth_path)}
+    exp = _decode_jwt_exp(access_token)
+    locally_valid = exp is None or exp > time.time()
+    if not deep:
+        if not locally_valid:
+            return {"available": False, "reason": "codex access_token is locally expired", "detail": f"exp={exp}"}
+        return {
+            "available": True,
+            "reason": (
+                "codex auth.json present with a locally well-formed, unexpired access_token "
+                "(NOT verified against the server; server-side token revocation is invisible to "
+                "this cheap check -- pass deep=True for a live probe)"
+            ),
+            "detail": f"exp={exp}",
+        }
+    try:
+        probe_cwd = str(Path(cwd).resolve()) if cwd else str(HOME)
+        proc = subprocess.run(
+            [
+                str(CODEX), "exec", "--json", "-C", probe_cwd,
+                "-c", 'approval_policy="never"',
+                "--dangerously-bypass-approvals-and-sandbox",
+                "-m", CODEX_MODEL,
+                "-c", 'model_reasoning_effort="low"',
+                "-c", 'service_tier="fast"',
+                "-",
+            ],
+            input="Reply with exactly PROBE_OK and nothing else. Do not use tools.",
+            capture_output=True,
+            text=True,
+            timeout=40,
+        )
+        combined = (proc.stdout or "") + "\n" + (proc.stderr or "")
+        if "token_invalidated" in combined or "refresh_token_invalidated" in combined:
+            return {
+                "available": False,
+                "reason": "codex not logged in (ChatGPT login lost / token revoked server-side)",
+                "detail": "live `codex exec` probe returned HTTP 401 token_invalidated / refresh_token_invalidated",
+            }
+        if "PROBE_OK" in combined:
+            return {"available": True, "reason": "codex live probe round-tripped successfully", "detail": "PROBE_OK observed in probe output"}
+        return {
+            "available": False,
+            "reason": "codex live probe did not complete cleanly (no PROBE_OK observed)",
+            "detail": combined[-500:],
+        }
+    except Exception as exc:
+        return {"available": False, "reason": f"codex live probe failed: {exc}", "detail": ""}
+
+
+def _check_agy_backend(deep: bool = False) -> dict[str, Any]:
+    if not AGY.exists():
+        return {"available": False, "reason": f"agy CLI not found at {AGY}", "detail": ""}
+    creds_path = HOME / ".gemini" / "oauth_creds.json"
+    if not creds_path.exists():
+        return {"available": False, "reason": "agy CLI present but ~/.gemini/oauth_creds.json is missing (not logged in)", "detail": str(creds_path)}
+    data, err = _read_json_file(creds_path)
+    if data is None:
+        return {"available": False, "reason": f"agy oauth_creds.json unreadable: {err}", "detail": str(creds_path)}
+    expiry_ms = data.get("expiry_date") if isinstance(data, dict) else None
+    has_refresh = bool(data.get("refresh_token")) if isinstance(data, dict) else False
+    expires_future = isinstance(expiry_ms, (int, float)) and (expiry_ms / 1000.0) > time.time()
+    if expires_future or has_refresh:
+        return {
+            "available": True,
+            "reason": (
+                "agy oauth_creds.json present with a non-expired token or a refresh_token "
+                "(NOT deeply verified against Google; deep=True does not add a live ping for agy "
+                "to avoid spending a real prompt turn)"
+            ),
+            "detail": f"expiry_date={expiry_ms}, has_refresh_token={has_refresh}",
+        }
+    return {
+        "available": False,
+        "reason": "agy oauth_creds.json present but the token is expired and no refresh_token is stored",
+        "detail": f"expiry_date={expiry_ms}",
+    }
+
+
+@mcp.tool()
+def check_worker_backends(cwd: str | None = None, deep: bool = False) -> dict[str, Any]:
+    """Probe availability of all four worker backends before delegating to a non-default one.
+
+    Cheap by default: file existence + auth-file/JWT inspection, no network
+    calls. codex's cheap check can be a false positive (see module notes
+    above this function) because server-side token revocation does not
+    change the local JWT's `exp` claim; pass deep=True to additionally run
+    one short live `codex exec` probe that catches that case. Manager
+    doctrine: call this before delegating to a non-default backend (codex,
+    grok, or agy) and fall back to a Claude Sonnet subagent if unavailable.
+    """
+    return {
+        "claude_sonnet": _check_claude_sonnet_backend(),
+        "grok": _check_grok_backend(deep=deep),
+        "codex": _check_codex_backend(deep=deep, cwd=cwd),
+        "agy": _check_agy_backend(deep=deep),
+    }
 
 
 if __name__ == "__main__":

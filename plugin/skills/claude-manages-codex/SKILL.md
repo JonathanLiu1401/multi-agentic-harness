@@ -23,6 +23,38 @@ Use Claude's active manager model as captain, executive architect, QA tech lead,
 - Codex always spawns as a non-interactive visible CLI worker by default: use `start_visible_haiku_composed_codex_worker` for a compact captain brief, `start_visible_codex_worker` when the final prompt already exists, and `start_visible_first_mate_codex_pool` for fan-out. These workers run `codex exec --json` in visible PowerShell windows with structured JSONL logs, direct interrupt steering through `steer_visible_codex_run`, completion watchers, and captain-help mailboxes. The interactive TUI tools are deprecated because they can flash-close, cannot receive programmatic steering in an open TUI, and depend on `submit_captain_report` for handoff. Use a TUI only when the user explicitly asks for a hands-on interactive Codex terminal, and say so when doing it; when in doubt, spawn the non-interactive worker.
 - Hidden model reasoning is not displayable. Surface useful progress, summaries, commands, and implementation state instead.
 
+## Worker Backends & Routing (added 2026-07-14)
+
+This bridge supports four worker backends behind the same visible-run mechanics (run directories, `display.log`, `events.jsonl`, `status.json`, steering, captain-help, captain reports, `get_visible_run_status`, `list_visible_runs`):
+
+- **Claude Sonnet** — an in-process Claude Agent-tool subagent. No CLI, no auth, no visible-run machinery; always available. Default worker for most delegated work.
+- **Grok (grok-4.5)** — `start_visible_grok_worker`, `start_visible_haiku_composed_grok_worker`, `start_visible_first_mate_grok_pool`, `steer_visible_grok_run`. See "Grok Worker Backend" below.
+- **Codex (gpt-5.6-sol)** — the primary backend documented throughout the rest of this skill. Preferred once its ChatGPT login is restored.
+- **Antigravity / Gemini (agy)** — `start_visible_agy_worker`, `start_visible_haiku_composed_agy_worker`, `steer_visible_agy_run`. CLI present and authenticated (`agy.exe`, `~/.gemini/oauth_creds.json`) and reachable through `check_worker_backends`. See "Antigravity / Gemini (agy) Worker Backend" below.
+
+### Default routing policy
+
+Unless the owner says otherwise:
+
+- Default a delegated task to a **Claude Sonnet subagent** (the `Agent` tool) or **grok-4.5** — mostly Claude.
+- Use **Codex** or **Antigravity/Gemini** only when the owner explicitly asks for them.
+- **Always call `check_worker_backends` before delegating to a non-default backend.** Never assume a backend is logged in just because its CLI exists on disk — Codex's local token can look valid (unexpired JWT, `codex login status` exits 0) while the ChatGPT session has actually been revoked server-side; only `check_worker_backends(deep=True)` catches that case. If the chosen backend is unavailable, fall back to a Claude Sonnet subagent and tell the user why.
+
+### `check_worker_backends`
+
+`check_worker_backends(cwd=None, deep=False) -> {"claude_sonnet": {...}, "grok": {...}, "codex": {...}, "agy": {...}}`, one `{available, reason, detail}` record per backend.
+
+- Default (`deep=False`) is cheap: CLI path existence, auth-file presence/parseability, and (for Codex) local JWT-expiry decoding. No network calls.
+- `deep=True` additionally runs one short live `codex exec` round trip (roughly 5-15s, a trivial no-tool prompt) that catches server-side token revocation a locally-valid JWT hides. Grok and agy do not get a live ping in `deep` mode — their file-based expiry/refresh-token check is already reliable, and a live ping would spend a real prompt turn for no better signal.
+- Observed live on this machine (2026-07-14): `claude_sonnet`, `grok`, and `agy` available; `codex` available=False under `deep=True` with reason `"codex not logged in (ChatGPT login lost / token revoked server-side)"` — the ChatGPT session was revoked while the local access-token JWT and `codex login status` both still looked fine, which is exactly the case `deep=True` exists to catch.
+
+### Callback model (Grok and Antigravity/agy workers)
+
+Every non-Codex backend's worker gets a result back to Claude through two layers:
+
+1. **Layer 1 — runner auto-report (robust, always on).** The Grok and agy PowerShell runners each write `captain_reports/final.json` + `final.md` themselves from the worker's own answer text after every turn, independent of whether the worker ever calls an MCP tool. `get_visible_run_status` and `list_captain_reports` read it the same way they read a Codex `submit_captain_report` call. For agy this is the ONLY callback path (see below); for Grok it is the always-on fallback under Layer 2.
+2. **Layer 2 — live MCP callback.** Where wired (Grok: `~/.grok/config.toml` `[mcp_servers.agent-visibility]`, pointed at the deployed bridge), the worker prompt also instructs the model to call `submit_captain_report` / `request_captain_help` mid-run, matching the Codex `codex-consults-claude` pattern. The shared allowlist in `submit_captain_report` and `request_captain_help` was widened from `metadata.agent in (None, "codex")` to `(None, "codex", "grok", "agy")`, so a Grok (or agy, once/if wired) worker's live call is accepted and surfaces through `list_captain_reports` / `list_captain_help_requests` exactly like a Codex call. Codex behavior is unchanged; the codex-only `steer_visible_codex_run` gate stays codex-specific (Grok/agy steer through their own `steer_visible_*_run` tools). **agy has NO Layer 2 wired**: `agy --help` exposes no `mcp` subcommand, and the only MCP-shaped file found on this machine, `~/.gemini/config/mcp_config.json`, is 0 bytes with no schema documented anywhere reachable — editing it blindly to guess a schema would risk the owner's real authenticated agy config for an unverified guess, so this was deliberately left unwired (checked live 2026-07-14; revisit if `agy` ever ships an `mcp` subcommand or documents the config file). The agy worker prompt does NOT tell the model to call `submit_captain_report`/`request_captain_help` (unlike Codex/Grok prompts), since it has no way to reach them.
+
 ## Reasoning Effort Policy
 
 Codex runs on `gpt-5.6-sol`. Claude — the manager — chooses the Codex reasoning effort per task by judging its difficulty. Effort is no longer pinned to `xhigh`; Claude scales it up or down along this ladder:
@@ -202,6 +234,8 @@ When a Codex response includes `structuredContent.threadId`, record it and use `
 
 Use the plugin-provided MCP server `agent-visibility` when the user wants to see what is happening or when work will take more than a quick turn.
 
+(A parallel Grok worker backend exists on the same `agent-visibility` server — see "Grok Worker Backend" below and "Worker Backends & Routing" above. Codex remains the default backend documented in this section.)
+
 The server exposes:
 
 - `start_visible_codex_worker`: launches `codex exec --json` in a separate visible PowerShell window, saves the prompt and event logs, and returns a run directory.
@@ -248,6 +282,71 @@ Use direct `start_visible_codex_worker` for tiny prompts or whenever a final pro
 ## Deprecated: Interactive TUI mode
 
 `start_interactive_codex_tui` and `start_interactive_first_mate_codex_tui` remain available only when the user explicitly asks for a hands-on interactive Codex terminal; tell the user when choosing this deprecated path. TUI mode can flash-close, cannot accept programmatic bridge steering in an already-open terminal, and relies on the worker remembering `submit_captain_report` for captain handoff. It is not the fallback when routing is uncertain.
+
+## Grok Worker Backend (added 2026-07-14)
+
+Added because the owner's ChatGPT/Codex login was lost. Codex is untouched by this addition and remains the preferred backend once its login is restored (see "Worker Backends & Routing" above and `check_worker_backends`). Grok is a peer backend, not a replacement.
+
+The server exposes:
+
+- `start_visible_grok_worker`: launches `grok --prompt-file <prompt.md> --output-format streaming-json --cwd <cwd> --permission-mode bypassPermissions -m grok-4.5 [--reasoning-effort low|medium|high] [-r <sessionId>]` in a separate visible PowerShell window, saves prompt/event logs, and returns a run directory. (`-p`/`--single` and `--prompt-file` are alternative ways to supply the prompt — confirmed live that combining them errors with `a value is required for '--single <PROMPT>'` — so the runner uses `--prompt-file` alone.) Every turn's answer is auto-written to `captain_reports/final.json` / `final.md` (Layer 1 callback, see "Worker Backends & Routing").
+- `start_visible_haiku_composed_grok_worker`: Claude passes a compact `prompt_brief`; the Haiku/low composer expands it (the same composer flow the Codex path uses, including its non-fatal fallback to the raw brief on composer failure), then Grok executes the composed prompt.
+- `start_visible_first_mate_grok_pool`: launches a single grok-4.5 process with its native subagent capability left enabled (no `--no-subagents`), using the same `_first_mate_prompt` brief as the Codex first-mate pool.
+- `steer_visible_grok_run`: sends a captain steering instruction to an existing visible Grok run, mirroring `steer_visible_codex_run`. An idle worker consumes the queued instruction within a second; an active worker is interrupted best-effort (Ctrl+C/taskkill) when a launcher pid is known, then resumed with `grok -r <sessionId>`. Grok has no on-disk session-readiness probe like Codex's thread-file check, so after an interrupt this always launches the resume run directly on the last recorded session id — queued-at-idle delivery is the more reliable v1 path.
+- Grok workers share the backend-agnostic read/report/help tools unchanged: `get_visible_run_status`, `list_visible_runs`, `submit_captain_report`, `list_captain_reports`, `request_captain_help`, `list_captain_help_requests`, `respond_to_captain_help_request` (see the callback-model limitation in "Worker Backends & Routing" for the live-MCP-callback caveat on `submit_captain_report` / `request_captain_help`).
+
+### Grok effort caveat
+
+`grok-4.5`'s `--reasoning-effort` CLI flag only accepts `low` / `medium` / `high` — `xhigh` and `max` are rejected outright ("unknown effort level"). Grok's own `~/.grok/config.toml` sets `default_reasoning_effort = "xhigh"`, which applies only when the flag is **omitted**. So the owner's desired default (grok-4.5 at xhigh) is reached by passing `reasoning_effort=""` (or anything outside low/medium/high) so the bridge's `_grok_effort_flag` omits the CLI flag entirely. Pass `reasoning_effort="high"` (etc.) only when a lower tier than the config default is deliberately wanted.
+
+### Machine setup: `~/.grok/config.toml` MCP entry
+
+To let a Grok worker reach the shared MCP tools (Layer 2 callback), the bridge added this to `~/.grok/config.toml` (backed up first to `config.toml.bak`, merged additively — the existing `[mcp_servers.kicad]` / `[mcp_servers.altium]` entries were preserved):
+
+```toml
+[mcp_servers.agent-visibility]
+command = "C:/Users/jonny/AppData/Local/Python/pythoncore-3.14-64/python.exe"
+args = ["C:/Users/jonny/.agent-bridge/visible_agent_bridge.py"]
+enabled = true
+
+[mcp_servers.agent-visibility.env]
+```
+
+This points at the **deployed** bridge copy (matching how Codex's own `agent-visibility` MCP wiring points at the deployed copy, not the dev repo), so it keeps working once the manager syncs this addition from `claude-manages-codex-bridge/` into `~/.agent-bridge/`.
+
+## Antigravity / Gemini (agy) Worker Backend (added 2026-07-14)
+
+A third peer backend, alongside Codex and Grok — not a replacement for either. Use it only when the owner explicitly asks for Antigravity/Gemini (see "Default routing policy" above).
+
+The server exposes:
+
+- `start_visible_agy_worker`: launches `agy -p "<prompt>" --model "<model>" --dangerously-skip-permissions --add-dir <cwd>` (running with `cwd` set to the target directory) in a separate visible PowerShell window, saves prompt/output/display logs, and returns a run directory. Every turn's raw stdout is auto-written to `captain_reports/final.json` / `final.md` (Layer 1 callback — the ONLY callback path for agy, see "Callback model" above).
+- `start_visible_haiku_composed_agy_worker`: Claude passes a compact `prompt_brief`; the Haiku/low composer expands it (the same composer flow the Codex/Grok paths use, including non-fatal fallback to the raw brief on composer failure), then agy executes the composed prompt.
+- `steer_visible_agy_run`: sends a captain steering instruction to an existing visible agy run. An idle worker (in its steering window) consumes the queued instruction within a second, running `agy --continue` inside the SAME still-open window. A closed or interrupted run instead launches a brand-new `start_visible_agy_worker` run whose first turn is itself `agy --continue` (internal `resume_continue=True` knob) — this reaches the same underlying conversation only because `--continue` is cwd-scoped (see "No session id" below), not because any thread id is tracked. No first-mate pool tool is offered for agy (single worker only; the spec did not call for one).
+- agy workers share the backend-agnostic read/report/help tools unchanged: `get_visible_run_status`, `list_visible_runs`, `submit_captain_report`, `list_captain_reports`, `request_captain_help`, `list_captain_help_requests`, `respond_to_captain_help_request` — the allowlist accepts `metadata.agent == "agy"`, but nothing in the agy worker's own prompt tells it to call them (see "Callback model" above), so these only matter if Claude calls them directly against an agy run directory.
+
+### agy is plain text, not streaming JSON
+
+Unlike Codex (`--json`) and Grok (`--output-format streaming-json`), `agy` has no structured event stream: `agy --help` exposes no `--output-format`/`--json`-style flag. The runner cannot parse `type: "text"/"end"/"error"` events the way the Codex/Grok runners do — it runs `agy` as one blocking call per turn, redirects stdout/stderr to separate temp files (`1> ... 2> ...`, not merged), appends the full stdout to `output.txt` + `display.log`, and writes `captain_reports/final.md`/`final.json` from that turn's **complete, unfiltered** stdout. stderr is logged to `display.log` only and never enters `output.txt` or the captain report. Because there is no incremental streaming, the visible window shows nothing new between "Starting Antigravity new/resume turn" and the turn's exit — this is expected, not a hang, for the turn durations observed live (single-digit seconds for a short prompt).
+
+### agy effort is baked into the model name
+
+`agy` has no `--reasoning-effort` flag at all. Effort is selected by picking a different `--model` value:
+
+```
+AGY_MODELS_BY_EFFORT = {"high": "Gemini 3.5 Flash (High)", "medium": "Gemini 3.5 Flash (Medium)", "low": "Gemini 3.5 Flash (Low)"}
+AGY_DEFAULT_MODEL = "Gemini 3.5 Flash (High)"
+```
+
+`start_visible_agy_worker`'s `reasoning_effort` parameter (default `"high"`) is looked up in this table via `_agy_model_for_effort`; anything outside `low`/`medium`/`high` (case-insensitive) falls back to the `"high"` model. `agy models` also lists non-Gemini options (`Gemini 3.1 Pro (Low|High)`, `Claude Sonnet 4.6 (Thinking)`, `Claude Opus 4.6 (Thinking)`, `GPT-OSS 120B (Medium)`) that this bridge does not route to — the effort table only covers the three Gemini 3.5 Flash tiers the owner asked for.
+
+### agy has no session id — `--continue` is cwd-scoped, not thread-scoped
+
+`agy` never prints a session/conversation id on a plain-text turn. `agy --help` does expose `--conversation <id>` (resume a specific conversation) alongside `--continue`/`-c` (resume the **most recent** conversation for the current working directory), but with no id ever surfaced in stdout to capture, `--conversation <id>` is unusable from this bridge. Every resume in this backend therefore uses `--continue`, which is a **best-effort, cwd-scoped** resume: it reaches whatever agy conversation was most recently active in that directory, not a specific tracked thread. This is weaker than Grok's `-r <sessionId>` or Codex's thread-file resume — if another agy conversation is started in the same cwd between a run closing and a steer/resume call, `--continue` would pick up that other conversation instead. Verified live (2026-07-14): a `steer_visible_agy_run` call on a fully closed run correctly recalled the exact marker text from the original run's first turn after a `launched_resume` follow-up, confirming `--continue` does carry real context across process launches within a cwd, subject to the caveat above.
+
+### Long-prompt inline handling
+
+`agy` has no `--prompt-file` flag; the full prompt (including the permission contract and session-context bootstrap, when not using the Haiku composer) is passed inline as a single `-p` argument via PowerShell array splatting (`& $Agy @argsList`), the same mechanism Codex/Grok use for their own long arguments. This avoids `cmd.exe`'s 8191-character line limit (agy.exe is a real executable, not a `.cmd` shim), but very large prompts are still subject to the OS process-argument limit (Windows `CreateProcess` command-line cap, roughly 32K characters combined). Prefer `start_visible_haiku_composed_agy_worker` for large captain briefs, matching the existing Codex/Grok guidance.
 
 ## Active Steering Loop
 

@@ -750,10 +750,687 @@ def case_claude_advisor() -> dict[str, Any]:
     return {"run_dir": str(run_dir), "session_id": (run_dir / "session_id.txt").read_text(encoding="utf-8-sig").strip()}
 
 
+# --- Grok worker backend + availability-check E2E cases (added 2026-07-14) ---
+# Additive only: no existing case_* function above this point is modified.
+# Run in isolation with `python tests/e2e_visible_bridge.py --grok-only
+# [--skip-expensive]` so a broken Codex login (existing cases 5+ require a
+# live Codex login) never blocks these from running to completion.
+
+GROK_SESSION_CONTEXT = (
+    "Self-contained Grok E2E verification for the claude-manages-codex bridge Grok backend. "
+    "Do not use read-past-sessions. Do not edit files. Return the requested marker exactly."
+)
+
+
+def _wait_grok_completed(run_dir: Path, markers: list[str], timeout_s: int = 240) -> str:
+    """Same polling contract as _wait_completed, kept separate so a Grok-specific
+    timeout/marker-set can be tuned without touching the Codex case's helper.
+
+    Unlike _wait_completed, this tolerates a transient PermissionError on
+    display.log: the PowerShell runner's Add-Content call briefly holds an
+    exclusive handle while appending a line, and polling can race that handle
+    open on Windows. A transient failure here just keeps last_text stale for
+    one poll tick instead of crashing the whole E2E run."""
+    display = run_dir / "display.log"
+    deadline = time.time() + timeout_s
+    last_status = "missing"
+    last_text = ""
+    while time.time() < deadline:
+        last_status = _status(run_dir)
+        if display.exists():
+            try:
+                last_text = display.read_text(encoding="utf-8-sig", errors="replace")
+            except PermissionError:
+                pass
+        marker_ok = all(marker in last_text for marker in markers)
+        if last_status.startswith("failed"):
+            raise AssertionError(f"grok run failed: {run_dir}\nstatus={last_status}\n{_tail(display)}")
+        if last_status in {"completed", "completed_budget_capped"} and marker_ok:
+            _assert_launcher_exited(run_dir)
+            return last_text
+        time.sleep(2)
+    missing = [marker for marker in markers if marker not in last_text]
+    raise AssertionError(
+        f"timed out waiting for grok run {run_dir}\nstatus={last_status}\nmissing={missing}\n{_tail(display)}"
+    )
+
+
+def case_grok_effort_unit() -> dict[str, Any]:
+    assert bridge._grok_effort_flag("xhigh") == [], bridge._grok_effort_flag("xhigh")
+    assert bridge._grok_effort_flag("max") == [], bridge._grok_effort_flag("max")
+    assert bridge._grok_effort_flag("") == [], bridge._grok_effort_flag("")
+    assert bridge._grok_effort_flag("high") == ["--reasoning-effort", "high"], bridge._grok_effort_flag("high")
+    assert bridge._grok_effort_flag("MEDIUM") == ["--reasoning-effort", "medium"], bridge._grok_effort_flag("MEDIUM")
+    assert bridge._grok_effort_flag("low") == ["--reasoning-effort", "low"], bridge._grok_effort_flag("low")
+    assert bridge._grok_effort_flag("bogus") == [], bridge._grok_effort_flag("bogus")
+    return {"ok": True}
+
+
+def case_grok_dry_run_args() -> dict[str, Any]:
+    original_launch = bridge._launch
+    launched_scripts: list[Path] = []
+
+    def fake_launch(script_path: Path) -> int:
+        launched_scripts.append(script_path)
+        return 313131
+
+    try:
+        bridge._launch = fake_launch  # type: ignore[assignment]
+        result = bridge.start_visible_grok_worker(
+            prompt="Self-contained E2E dry-run. Do not edit files. Reply exactly DRY_RUN_UNUSED.",
+            cwd=str(ROOT),
+            title="E2E Grok dry-run",
+            sandbox="read-only",
+            session_context=GROK_SESSION_CONTEXT,
+        )
+    finally:
+        bridge._launch = original_launch  # type: ignore[assignment]
+
+    assert result["pid"] == 313131, result
+    assert launched_scripts, result
+    assert "watch_command" in result and result["watch_command"], result
+
+    run_dir = _run_dir(result)
+    script = launched_scripts[0].read_text(encoding="utf-8-sig")
+    metadata = _read_json(run_dir / "metadata.json", {})
+
+    assert metadata["agent"] == "grok", metadata
+    assert metadata["model"] == bridge.GROK_MODEL, metadata
+    assert metadata["requested_sandbox"] == "read-only", metadata
+    assert metadata["sandbox"] == bridge.CODEX_FULL_TOOL_SANDBOX, metadata
+    assert metadata["session_context_supplied"] is True, metadata
+    assert metadata["captain_help_enabled"] is True, metadata
+    assert metadata["captain_report_auto_write"] is True, metadata
+
+    assert "grok.exe" in script or "grok" in script, script
+    assert "--output-format" in script and "streaming-json" in script, script
+    assert "-m" in script and bridge.GROK_MODEL in script, script
+    assert "--prompt-file" in script, script
+    assert "--permission-mode" in script and "bypassPermissions" in script, script
+    assert "--reasoning-effort xhigh" not in script, script
+    assert "--reasoning-effort max" not in script, script
+    # -p/--single must never be combined with --prompt-file (confirmed live:
+    # grok errors "a value is required for '--single <PROMPT>'" if it is).
+    assert "'-p',$GrokPromptPath" not in script.replace(" ", ""), script
+    assert "'-p','--prompt-file'" not in script.replace(" ", ""), script
+
+    prompt = (run_dir / "prompt.md").read_text(encoding="utf-8-sig")
+    assert "submit_captain_report" in prompt, prompt
+    assert "request_captain_help" in prompt, prompt
+    assert str(run_dir) in prompt, prompt
+
+    return {"run_dir": str(run_dir), "script": str(launched_scripts[0])}
+
+
+def case_grok_haiku_composed_dry_run() -> dict[str, Any]:
+    original_launch = bridge._launch
+    launched_scripts: list[Path] = []
+
+    def fake_launch(script_path: Path) -> int:
+        launched_scripts.append(script_path)
+        return 313132
+
+    try:
+        bridge._launch = fake_launch  # type: ignore[assignment]
+        result = bridge.start_visible_haiku_composed_grok_worker(
+            prompt_brief="Self-contained E2E dry-run brief. Ask Grok to reply exactly DRY_RUN_UNUSED and not edit files.",
+            cwd=str(ROOT),
+            title="E2E Grok Haiku composed dry-run",
+            sandbox="read-only",
+            session_context=GROK_SESSION_CONTEXT,
+        )
+    finally:
+        bridge._launch = original_launch  # type: ignore[assignment]
+
+    assert launched_scripts, result
+    run_dir = _run_dir(result)
+    metadata = _read_json(run_dir / "metadata.json", {})
+    assert metadata["compose_with_haiku"] is True, metadata
+    assert (run_dir / "composer_prompt.md").exists(), run_dir
+    assert (run_dir / "grok_prelude.md").exists(), run_dir
+    script = launched_scripts[0].read_text(encoding="utf-8-sig")
+    assert "$ComposeWithHaiku = $true" in script, script
+    return {"run_dir": str(run_dir)}
+
+
+def case_grok_captain_report_gate() -> dict[str, Any]:
+    """Deterministic proof that the shared captain callback tools accept Grok runs.
+    The allowlist in submit_captain_report / request_captain_help was widened from
+    (None, "codex") to (None, "codex", "grok", "agy") so non-Codex CLI workers can
+    report back to Claude, while the codex-only steer gate is left codex-specific.
+    A Grok run (metadata.agent == "grok") must now be accepted by both tools."""
+    run_dir = bridge._make_run(
+        str(ROOT),
+        "grok",
+        "E2E captain report gate probe",
+        "Self-contained gate probe. Do not launch Grok.",
+        {
+            "agent": "grok",
+            "cwd": str(ROOT),
+            "requested_sandbox": "read-only",
+        },
+    )
+    report = bridge.submit_captain_report(
+        str(run_dir),
+        outcome="completed",
+        summary="Grok run should be accepted by the widened allowlist.",
+    )
+    assert report["ok"] is True, report
+    assert (run_dir / "captain_reports" / "final.json").exists(), report
+
+    help_request = bridge.request_captain_help(
+        str(run_dir),
+        question="Grok run should be accepted by the same widened allowlist.",
+    )
+    assert help_request["ok"] is True, help_request
+
+    # The backend-agnostic read tools carry no such gate and work for any agent.
+    status = bridge.get_visible_run_status(str(run_dir), tail_lines=5)
+    assert status["metadata"]["agent"] == "grok", status
+    listed = bridge.list_visible_runs(str(ROOT), limit=50)
+    assert any(item["run_dir"] == str(run_dir) for item in listed), listed
+    return {"run_dir": str(run_dir), "submit_captain_report_accepted": True, "request_captain_help_accepted": True}
+
+
+def case_check_worker_backends() -> dict[str, Any]:
+    cheap = bridge.check_worker_backends(cwd=str(ROOT), deep=False)
+    for key in ("claude_sonnet", "grok", "codex", "agy"):
+        assert key in cheap, cheap
+        for field in ("available", "reason", "detail"):
+            assert field in cheap[key], (key, cheap)
+    assert cheap["claude_sonnet"]["available"] is True, cheap
+
+    # deep=True is required for an accurate Codex verdict on this machine: the
+    # local access-token JWT is well-formed and unexpired, and `codex login
+    # status` itself exits 0 ("Logged in using ChatGPT"), even though the
+    # ChatGPT session was actually revoked server-side (observed live: HTTP 401
+    # token_invalidated / refresh_token_invalidated). Only the deep live probe
+    # catches that.
+    deep = bridge.check_worker_backends(cwd=str(ROOT), deep=True)
+    assert deep["claude_sonnet"]["available"] is True, deep
+    assert deep["codex"]["available"] is False, deep
+    assert deep["codex"]["reason"], deep
+    return {"cheap": cheap, "deep": deep}
+
+
+def case_grok_live_roundtrip_and_mcp_callback() -> dict[str, Any]:
+    """LIVE (expensive). One live grok-4.5 call does double duty: proves the
+    GROK_E2E_OK round trip (Layer 1 auto-report) and attempts a live
+    submit_captain_report MCP callback (Layer 2), reporting back the raw tool
+    result so this assertion is a real observed outcome, not a guess."""
+    result = bridge.start_visible_grok_worker(
+        prompt=(
+            "Self-contained E2E. Do not edit files. First, call the submit_captain_report "
+            "MCP tool if it is available (from the agent-visibility MCP server), with "
+            "run_dir set to the exact run directory named in your permission contract above, "
+            'outcome="completed", summary="GROK_E2E_OK". Report back the raw JSON result of '
+            "that tool call, prefixed exactly with MCP_RESULT:. If the tool is not available, "
+            "write MCP_RESULT: unavailable instead. Then, on its own line, reply with exactly "
+            "GROK_E2E_OK and nothing else."
+        ),
+        cwd=str(ROOT),
+        title="E2E Grok live roundtrip + MCP callback",
+        sandbox="read-only",
+        session_context=GROK_SESSION_CONTEXT,
+        steer_idle_seconds=10,
+    )
+    run_dir = _run_dir(result)
+    text = _wait_grok_completed(run_dir, ["GROK_E2E_OK"], timeout_s=240)
+
+    events_path = run_dir / "events.jsonl"
+    events_text = events_path.read_text(encoding="utf-8-sig", errors="replace")
+    assert '"type":"end"' in events_text or '"type": "end"' in events_text, events_text[-2000:]
+
+    session_id_path = run_dir / "session_id.txt"
+    assert session_id_path.exists(), run_dir
+    session_id = session_id_path.read_text(encoding="utf-8-sig").strip()
+    assert session_id, "session_id.txt was empty"
+
+    final_md = (run_dir / "captain_reports" / "final.md").read_text(encoding="utf-8-sig")
+    assert "GROK_E2E_OK" in final_md, final_md
+    final_json = _read_json(run_dir / "captain_reports" / "final.json", {})
+    assert final_json.get("outcome") == "completed", final_json
+    # After the callback-gate fix, a grok worker's live submit_captain_report is
+    # accepted, so its explicit report is authoritative and the runner defers its
+    # own auto-report (the Test-WorkerReportSince guard). Accept either the
+    # worker's report (Layer 2 live callback) or the runner auto-report (Layer 1
+    # fallback, used when the model did not call the tool this turn).
+    is_worker_report = final_json.get("auto_generated") is not True and "-report-" in str(final_json.get("report_id", ""))
+    is_auto_report = final_json.get("auto_generated") is True and final_json.get("agent") == "grok"
+    assert is_worker_report or is_auto_report, final_json
+    summary_text = str(final_json.get("summary", "")) + str(final_json.get("text", ""))
+    assert "GROK_E2E_OK" in summary_text, final_json
+
+    # The deterministic case_grok_captain_report_gate hard-proves the widened
+    # allowlist accepts a grok run; here we additionally record whether the live
+    # worker's own callback won (is_worker_report) vs the auto-report fallback.
+    return {
+        "run_dir": str(run_dir),
+        "session_id": session_id,
+        "live_callback_won": is_worker_report,
+    }
+
+
+def case_grok_live_steer_resume(previous: dict[str, Any]) -> dict[str, Any]:
+    """LIVE (expensive). Steers the completed run from
+    case_grok_live_roundtrip_and_mcp_callback with a trivial follow-up and
+    confirms a second turn actually ran (new events appended, new end event,
+    session id unchanged)."""
+    run_dir = Path(previous["run_dir"])
+    events_before = (run_dir / "events.jsonl").read_text(encoding="utf-8-sig", errors="replace")
+    end_count_before = events_before.count('"type":"end"') + events_before.count('"type": "end"')
+
+    steer = bridge.steer_visible_grok_run(
+        str(run_dir),
+        "Self-contained steering E2E. Reply with exactly GROK_STEERED_OK and nothing else. Do not edit files.",
+        title="E2E Grok steer follow-up",
+        sandbox="read-only",
+        session_context=GROK_SESSION_CONTEXT,
+        launch_if_closed=True,
+        interrupt_current_turn=False,
+    )
+    assert steer["ok"], steer
+
+    if steer["mode"] == "launched_resume":
+        followup_dir = _run_dir(steer["followup_run"])
+        _wait_grok_completed(followup_dir, ["GROK_STEERED_OK"], timeout_s=240)
+        followup_session = (followup_dir / "session_id.txt").read_text(encoding="utf-8-sig").strip()
+        assert followup_session == previous["session_id"], (followup_session, previous["session_id"])
+        return {"run_dir": str(followup_dir), "mode": steer["mode"], "session_id": followup_session}
+
+    # queued modes: the same run_dir picks up the steer file in its idle window.
+    _wait_grok_completed(run_dir, ["GROK_E2E_OK", "GROK_STEERED_OK"], timeout_s=240)
+    events_after = (run_dir / "events.jsonl").read_text(encoding="utf-8-sig", errors="replace")
+    end_count_after = events_after.count('"type":"end"') + events_after.count('"type": "end"')
+    assert end_count_after > end_count_before, (end_count_after, end_count_before)
+    return {"run_dir": str(run_dir), "mode": steer["mode"], "session_id": previous["session_id"]}
+
+
+def run_grok_suite(skip_expensive: bool) -> dict[str, Any]:
+    results: dict[str, Any] = {}
+
+    print("[grok 1/8] effort flag unit", flush=True)
+    results["effort_unit"] = case_grok_effort_unit()
+
+    print("[grok 2/8] dry-run arg assertions", flush=True)
+    results["dry_run"] = case_grok_dry_run_args()
+    print(json.dumps(results["dry_run"], indent=2), flush=True)
+
+    print("[grok 3/8] Haiku-composed dry-run", flush=True)
+    results["haiku_dry_run"] = case_grok_haiku_composed_dry_run()
+    print(json.dumps(results["haiku_dry_run"], indent=2), flush=True)
+
+    print("[grok 4/8] captain report / help gate (deterministic)", flush=True)
+    results["captain_report_gate"] = case_grok_captain_report_gate()
+    print(json.dumps(results["captain_report_gate"], indent=2), flush=True)
+
+    print("[grok 5/8] check_worker_backends (cheap + deep)", flush=True)
+    results["availability"] = case_check_worker_backends()
+    print(json.dumps(results["availability"], indent=2), flush=True)
+
+    if skip_expensive:
+        print("[grok 6-7/8] SKIPPED (--skip-expensive): live roundtrip + steer", flush=True)
+        results["live_roundtrip"] = "skipped"
+        results["live_steer"] = "skipped"
+    else:
+        print("[grok 6/8] LIVE roundtrip + MCP callback attempt", flush=True)
+        results["live_roundtrip"] = case_grok_live_roundtrip_and_mcp_callback()
+        print(json.dumps(results["live_roundtrip"], indent=2), flush=True)
+
+        print("[grok 7/8] LIVE steer/resume", flush=True)
+        results["live_steer"] = case_grok_live_steer_resume(results["live_roundtrip"])
+        print(json.dumps(results["live_steer"], indent=2), flush=True)
+
+    print("[grok 8/8] done", flush=True)
+    print(json.dumps({"ok": True, "results": results}, indent=2), flush=True)
+    return results
+
+
+# --- Antigravity (agy) worker backend E2E cases (added 2026-07-14) ---
+# Additive only: no existing case_* function above this point is modified,
+# including the Grok cases just above. Run in isolation with
+# `python tests/e2e_visible_bridge.py --agy-only [--skip-expensive]` so a
+# broken Codex login or missing Grok auth never blocks these from running to
+# completion.
+
+AGY_SESSION_CONTEXT = (
+    "Self-contained Antigravity (agy) E2E verification for the claude-manages-codex bridge agy backend. "
+    "Do not use read-past-sessions. Do not edit files. Return the requested marker exactly."
+)
+
+
+def _wait_agy_completed(run_dir: Path, markers: list[str], timeout_s: int = 180) -> str:
+    """Same polling contract as _wait_grok_completed, kept separate so an
+    agy-specific timeout/marker-set can be tuned independently. agy turns are
+    single blocking CLI calls (no incremental streaming; see _agy_runner), so
+    display.log only gains new content once each turn's process exits."""
+    display = run_dir / "display.log"
+    deadline = time.time() + timeout_s
+    last_status = "missing"
+    last_text = ""
+    while time.time() < deadline:
+        last_status = _status(run_dir)
+        if display.exists():
+            try:
+                last_text = display.read_text(encoding="utf-8-sig", errors="replace")
+            except PermissionError:
+                pass
+        marker_ok = all(marker in last_text for marker in markers)
+        if last_status.startswith("failed"):
+            raise AssertionError(f"agy run failed: {run_dir}\nstatus={last_status}\n{_tail(display)}")
+        if last_status in {"completed", "completed_budget_capped"} and marker_ok:
+            _assert_launcher_exited(run_dir)
+            return last_text
+        time.sleep(2)
+    missing = [marker for marker in markers if marker not in last_text]
+    raise AssertionError(
+        f"timed out waiting for agy run {run_dir}\nstatus={last_status}\nmissing={missing}\n{_tail(display)}"
+    )
+
+
+def case_agy_effort_unit() -> dict[str, Any]:
+    assert bridge._agy_model_for_effort("high") == "Gemini 3.5 Flash (High)", bridge._agy_model_for_effort("high")
+    assert bridge._agy_model_for_effort("HIGH") == "Gemini 3.5 Flash (High)", bridge._agy_model_for_effort("HIGH")
+    assert bridge._agy_model_for_effort("medium") == "Gemini 3.5 Flash (Medium)", bridge._agy_model_for_effort("medium")
+    assert bridge._agy_model_for_effort("low") == "Gemini 3.5 Flash (Low)", bridge._agy_model_for_effort("low")
+    assert bridge._agy_model_for_effort("") == bridge.AGY_DEFAULT_MODEL, bridge._agy_model_for_effort("")
+    assert bridge._agy_model_for_effort("xhigh") == bridge.AGY_DEFAULT_MODEL, bridge._agy_model_for_effort("xhigh")
+    assert bridge._agy_model_for_effort("bogus") == bridge.AGY_DEFAULT_MODEL, bridge._agy_model_for_effort("bogus")
+    assert bridge.AGY_DEFAULT_MODEL == "Gemini 3.5 Flash (High)", bridge.AGY_DEFAULT_MODEL
+    assert bridge.AGY_MODELS_BY_EFFORT == {
+        "high": "Gemini 3.5 Flash (High)",
+        "medium": "Gemini 3.5 Flash (Medium)",
+        "low": "Gemini 3.5 Flash (Low)",
+    }, bridge.AGY_MODELS_BY_EFFORT
+    return {"ok": True}
+
+
+def case_agy_dry_run_args() -> dict[str, Any]:
+    original_launch = bridge._launch
+    launched_scripts: list[Path] = []
+
+    def fake_launch(script_path: Path) -> int:
+        launched_scripts.append(script_path)
+        return 515151
+
+    try:
+        bridge._launch = fake_launch  # type: ignore[assignment]
+        result = bridge.start_visible_agy_worker(
+            prompt="Self-contained E2E dry-run. Do not edit files. Reply exactly DRY_RUN_UNUSED.",
+            cwd=str(ROOT),
+            title="E2E Antigravity dry-run",
+            sandbox="read-only",
+            session_context=AGY_SESSION_CONTEXT,
+        )
+    finally:
+        bridge._launch = original_launch  # type: ignore[assignment]
+
+    assert result["pid"] == 515151, result
+    assert launched_scripts, result
+    assert "watch_command" in result and result["watch_command"], result
+
+    run_dir = _run_dir(result)
+    script = launched_scripts[0].read_text(encoding="utf-8-sig")
+    metadata = _read_json(run_dir / "metadata.json", {})
+
+    assert metadata["agent"] == "agy", metadata
+    assert metadata["model"] == bridge.AGY_DEFAULT_MODEL, metadata
+    assert metadata["effective_reasoning_effort"] == "high", metadata
+    assert metadata["requested_sandbox"] == "read-only", metadata
+    assert metadata["sandbox"] == bridge.CODEX_FULL_TOOL_SANDBOX, metadata
+    assert metadata["session_context_supplied"] is True, metadata
+    assert metadata["captain_report_auto_write"] is True, metadata
+    assert metadata["no_session_id"] is True, metadata
+    assert metadata["resume_continue"] is False, metadata
+
+    assert "agy" in script, script
+    assert "Gemini 3.5 Flash (High)" in script, script
+    assert "--dangerously-skip-permissions" in script, script
+    assert "--add-dir" in script, script
+
+    # The two lines that build agy's OWN $argsList (initial turn + the
+    # --continue turn) must never include --reasoning-effort or
+    # --output-format: agy has neither flag (see agy --help). The unrelated
+    # Haiku prompt-composer sub-block further down the script legitimately
+    # uses --output-format for ITS OWN call to $Claude when
+    # compose_with_haiku=True; that block does not touch $argsList and is
+    # checked separately in case_agy_haiku_composed_dry_run.
+    argslist_lines = [line for line in script.splitlines() if "$argsList" in line and "@(" in line]
+    assert len(argslist_lines) == 2, script
+    for line in argslist_lines:
+        assert "--reasoning-effort" not in line, line
+        assert "--output-format" not in line, line
+    assert "--reasoning-effort" not in script, script
+    assert "--prompt-file" not in script, script
+
+    prompt = (run_dir / "prompt.md").read_text(encoding="utf-8-sig")
+    assert str(run_dir) in prompt, prompt
+    # agy has no live MCP callback wired; the prompt must not falsely tell
+    # the worker to call submit_captain_report/request_captain_help (unlike
+    # the Codex/Grok prompts, which do include that contract).
+    assert "submit_captain_report" not in prompt, prompt
+    assert "request_captain_help" not in prompt, prompt
+
+    return {"run_dir": str(run_dir), "script": str(launched_scripts[0])}
+
+
+def case_agy_haiku_composed_dry_run() -> dict[str, Any]:
+    original_launch = bridge._launch
+    launched_scripts: list[Path] = []
+
+    def fake_launch(script_path: Path) -> int:
+        launched_scripts.append(script_path)
+        return 515152
+
+    try:
+        bridge._launch = fake_launch  # type: ignore[assignment]
+        result = bridge.start_visible_haiku_composed_agy_worker(
+            prompt_brief="Self-contained E2E dry-run brief. Ask Antigravity to reply exactly DRY_RUN_UNUSED and not edit files.",
+            cwd=str(ROOT),
+            title="E2E Antigravity Haiku composed dry-run",
+            sandbox="read-only",
+            session_context=AGY_SESSION_CONTEXT,
+        )
+    finally:
+        bridge._launch = original_launch  # type: ignore[assignment]
+
+    assert launched_scripts, result
+    run_dir = _run_dir(result)
+    metadata = _read_json(run_dir / "metadata.json", {})
+    assert metadata["compose_with_haiku"] is True, metadata
+    assert (run_dir / "composer_prompt.md").exists(), run_dir
+    assert (run_dir / "agy_prelude.md").exists(), run_dir
+    script = launched_scripts[0].read_text(encoding="utf-8-sig")
+    assert "$ComposeWithHaiku = $true" in script, script
+    # This IS the one place --output-format legitimately appears: the Haiku
+    # composer's own call to $Claude, not agy's argsList (checked negatively
+    # in case_agy_dry_run_args).
+    assert "--output-format" in script, script
+    assert "'stream-json'" in script, script
+    return {"run_dir": str(run_dir)}
+
+
+def case_agy_captain_report_gate() -> dict[str, Any]:
+    """Deterministic proof that the shared captain callback tools accept agy runs.
+    The allowlist in submit_captain_report / request_captain_help was widened to
+    (None, "codex", "grok", "agy"), so a metadata.agent == "agy" run must be
+    accepted by both tools. This only proves the allowlist gate -- agy cannot
+    reach these tools on its own mid-run until a live MCP callback is wired
+    (deferred; see SKILL.md and case_agy_dry_run_args's prompt assertions)."""
+    run_dir = bridge._make_run(
+        str(ROOT),
+        "agy",
+        "E2E captain report gate probe",
+        "Self-contained gate probe. Do not launch Antigravity.",
+        {
+            "agent": "agy",
+            "cwd": str(ROOT),
+            "requested_sandbox": "read-only",
+        },
+    )
+    report = bridge.submit_captain_report(
+        str(run_dir),
+        outcome="completed",
+        summary="Antigravity (agy) run should be accepted by the widened allowlist.",
+    )
+    assert report["ok"] is True, report
+    assert (run_dir / "captain_reports" / "final.json").exists(), report
+
+    help_request = bridge.request_captain_help(
+        str(run_dir),
+        question="Antigravity (agy) run should be accepted by the same widened allowlist.",
+    )
+    assert help_request["ok"] is True, help_request
+
+    status = bridge.get_visible_run_status(str(run_dir), tail_lines=5)
+    assert status["metadata"]["agent"] == "agy", status
+    listed = bridge.list_visible_runs(str(ROOT), limit=50)
+    assert any(item["run_dir"] == str(run_dir) for item in listed), listed
+    return {"run_dir": str(run_dir), "submit_captain_report_accepted": True, "request_captain_help_accepted": True}
+
+
+def case_agy_live_roundtrip() -> dict[str, Any]:
+    """LIVE (expensive). Proves the AGY_E2E_OK round trip through Layer 1
+    (the runner's own auto-report to captain_reports/final.json+final.md),
+    since agy has no live MCP callback wired (Layer 2 is not attempted)."""
+    result = bridge.start_visible_agy_worker(
+        prompt=(
+            "Self-contained E2E. Do not edit files. Reply with exactly AGY_E2E_OK and nothing else."
+        ),
+        cwd=str(ROOT),
+        title="E2E Antigravity live roundtrip",
+        sandbox="read-only",
+        session_context=AGY_SESSION_CONTEXT,
+        steer_idle_seconds=10,
+    )
+    run_dir = _run_dir(result)
+    text = _wait_agy_completed(run_dir, ["AGY_E2E_OK"], timeout_s=180)
+
+    output_path = run_dir / "output.txt"
+    assert output_path.exists(), run_dir
+    assert "AGY_E2E_OK" in output_path.read_text(encoding="utf-8-sig", errors="replace"), text
+
+    final_md = (run_dir / "captain_reports" / "final.md").read_text(encoding="utf-8-sig")
+    assert "AGY_E2E_OK" in final_md, final_md
+    final_json = _read_json(run_dir / "captain_reports" / "final.json", {})
+    assert final_json.get("outcome") == "completed", final_json
+    assert final_json.get("agent") == "agy", final_json
+    assert final_json.get("auto_generated") is True, final_json
+    assert final_json.get("model") == bridge.AGY_DEFAULT_MODEL, final_json
+    assert "AGY_E2E_OK" in (final_json.get("text") or ""), final_json
+
+    return {"run_dir": str(run_dir)}
+
+
+def case_agy_live_steer_resume(previous: dict[str, Any]) -> dict[str, Any]:
+    """LIVE (expensive). Steers the run from case_agy_live_roundtrip and
+    confirms a second turn actually ran, mirroring the adaptive branch in
+    case_grok_live_steer_resume rather than assuming a specific pre-state.
+
+    case_agy_live_roundtrip's own wait loop only returns once status.json
+    says "completed", which for agy only happens AFTER the full
+    steer_idle_seconds idle window has already elapsed and the PowerShell
+    window has closed (agy has no mid-run structured "turn ended, now idle"
+    signal to catch mid-flight the way grok's JSON stream does). So by the
+    time this case runs, the window is essentially always already closed --
+    polling for a transient "waiting_for_steer" state here would be racing
+    a window that already exited. Instead this calls steer_visible_agy_run
+    with launch_if_closed=True and branches on the returned mode, exactly
+    like the Grok case does, so it is correct whether the window is still
+    open (mode="queued", picked up via the SAME window's idle --continue
+    loop) or already closed (mode="launched_resume", a brand-new agy
+    --continue call in the same cwd -- verified live to correctly recall
+    context from the first turn)."""
+    run_dir = Path(previous["run_dir"])
+
+    steer = bridge.steer_visible_agy_run(
+        str(run_dir),
+        "Self-contained steering E2E. Reply with exactly AGY_STEERED_OK and nothing else. Do not edit files.",
+        title="E2E Antigravity steer follow-up",
+        sandbox="read-only",
+        launch_if_closed=True,
+        interrupt_current_turn=False,
+    )
+    assert steer["ok"], steer
+    assert steer["mode"] in {"queued", "launched_resume"}, steer
+
+    if steer["mode"] == "launched_resume":
+        followup_dir = _run_dir(steer["followup_run"])
+        _wait_agy_completed(followup_dir, ["AGY_STEERED_OK"], timeout_s=180)
+        followup_output = (followup_dir / "output.txt").read_text(encoding="utf-8-sig", errors="replace")
+        assert "AGY_STEERED_OK" in followup_output, followup_output
+        followup_metadata = _read_json(followup_dir / "metadata.json", {})
+        assert followup_metadata.get("resume_continue") is True, followup_metadata
+        return {"run_dir": str(followup_dir), "mode": steer["mode"]}
+
+    # Queued mode: the same run_dir picks up the steer file in its idle window.
+    _wait_agy_completed(run_dir, ["AGY_E2E_OK", "AGY_STEERED_OK"], timeout_s=180)
+    output_text = (run_dir / "output.txt").read_text(encoding="utf-8-sig", errors="replace")
+    assert "AGY_E2E_OK" in output_text and "AGY_STEERED_OK" in output_text, output_text
+    return {"run_dir": str(run_dir), "mode": steer["mode"]}
+
+
+def run_agy_suite(skip_expensive: bool) -> dict[str, Any]:
+    results: dict[str, Any] = {}
+
+    print("[agy 1/7] effort->model unit", flush=True)
+    results["effort_unit"] = case_agy_effort_unit()
+
+    print("[agy 2/7] dry-run arg assertions", flush=True)
+    results["dry_run"] = case_agy_dry_run_args()
+    print(json.dumps(results["dry_run"], indent=2), flush=True)
+
+    print("[agy 3/7] Haiku-composed dry-run", flush=True)
+    results["haiku_dry_run"] = case_agy_haiku_composed_dry_run()
+    print(json.dumps(results["haiku_dry_run"], indent=2), flush=True)
+
+    print("[agy 4/7] captain report / help gate (deterministic)", flush=True)
+    results["captain_report_gate"] = case_agy_captain_report_gate()
+    print(json.dumps(results["captain_report_gate"], indent=2), flush=True)
+
+    print("[agy 5/7] check_worker_backends (cheap + deep)", flush=True)
+    results["availability"] = case_check_worker_backends()
+    print(json.dumps(results["availability"], indent=2), flush=True)
+
+    if skip_expensive:
+        print("[agy 6-7/7] SKIPPED (--skip-expensive): live roundtrip + steer", flush=True)
+        results["live_roundtrip"] = "skipped"
+        results["live_steer"] = "skipped"
+    else:
+        print("[agy 6/7] LIVE roundtrip", flush=True)
+        results["live_roundtrip"] = case_agy_live_roundtrip()
+        print(json.dumps(results["live_roundtrip"], indent=2), flush=True)
+
+        print("[agy 7/7] LIVE queued steer/resume", flush=True)
+        results["live_steer"] = case_agy_live_steer_resume(results["live_roundtrip"])
+        print(json.dumps(results["live_steer"], indent=2), flush=True)
+
+    print(json.dumps({"ok": True, "results": results}, indent=2), flush=True)
+    return results
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--skip-expensive", action="store_true", help="Skip Haiku, first-mate, and Claude advisor cases.")
+    parser.add_argument(
+        "--grok-only",
+        action="store_true",
+        help="Run only the Grok backend + availability-check cases (added 2026-07-14), skipping all Codex cases. Lets the Grok suite run to completion even when Codex is not logged in.",
+    )
+    parser.add_argument(
+        "--agy-only",
+        action="store_true",
+        help="Run only the Antigravity (agy) backend + availability-check cases (added 2026-07-14), skipping all Codex and Grok cases. Lets the agy suite run to completion even when Codex/Grok are not logged in.",
+    )
     args = parser.parse_args()
+
+    if args.grok_only:
+        run_grok_suite(skip_expensive=args.skip_expensive)
+        return
+
+    if args.agy_only:
+        run_agy_suite(skip_expensive=args.skip_expensive)
+        return
 
     results: dict[str, Any] = {}
     print("[0/11] advisor model policy", flush=True)
