@@ -1,11 +1,13 @@
 ---
 name: claude-manages-codex
-description: Use when Claude Code should act as executive architect, QA tech lead, first-mate captain, and reviewer while delegating implementation, exploration, Codex subagent orchestration, codebase reading, mechanical refactors, test repair, or cheap iteration to OpenAI Codex through the bundled codex-worker and visible agent MCP servers. Trigger for requests like "have Claude manage Codex", "delegate this to Codex", "use Codex as the worker", "parallelize with Codex", "ask Codex to implement", "use Codex subagents", "show or steer visible worker logs", "first mate", or any coding task where Claude should make high-level decisions and Codex should do low-level work.
+description: Multi-Agentic Harness — use when Claude Code should act as executive architect, QA tech lead, first-mate captain, and reviewer while delegating implementation, exploration, subagent orchestration, codebase reading, mechanical refactors, test repair, or cheap iteration to a worker backend through the bundled visible-agent MCP server. The PREFERRED worker is a grok-4.5 CLI worker (SuperGrok Heavy); Claude Sonnet subagents are the fallback; Google Antigravity / Gemini 3.5 Flash is available on request; Codex is disabled until further notice. Trigger for requests like "have Claude manage the worker", "delegate this to grok", "use grok/sonnet/gemini as the worker", "parallelize with subagents", "ask the worker to implement", "spawn a first-mate pool", "show or steer visible worker logs", "first mate", "multi-agent harness", or any coding task where Claude makes high-level decisions and a worker does low-level work.
 ---
 
-# claude-manages-codex
+# Multi-Agentic Harness (internal id: claude-manages-codex)
 
-Use Claude's active manager model as captain, executive architect, QA tech lead, and reviewer. Use Codex as the first mate and worker harness, including Codex root sessions and Codex subagents.
+> **Rename note (2026-07-15):** this skill is now branded the **Multi-Agentic Harness** to reflect that it drives multiple worker backends (grok-4.5 preferred, Claude Sonnet fallback, Google Antigravity/Gemini on request; Codex disabled until further notice), not just Codex. Its internal id / MCP tool prefix / install directory remain `claude-manages-codex` for tool-name, permission-allowlist, and install compatibility — a full id-level rename is a separate breaking change. Much of the prose below still says "Codex" because Codex was the original backend; read it as "the worker backend" and apply it to the preferred backend (grok) while Codex is disabled.
+
+Use Claude's active manager model as captain, executive architect, QA tech lead, and reviewer. Delegate the low-level work to a worker backend — by default a **grok-4.5** CLI worker (see "Worker Backends & Routing") — including root sessions and native subagents.
 
 ## Core Model
 
@@ -27,18 +29,27 @@ Use Claude's active manager model as captain, executive architect, QA tech lead,
 
 This bridge supports four worker backends behind the same visible-run mechanics (run directories, `display.log`, `events.jsonl`, `status.json`, steering, captain-help, captain reports, `get_visible_run_status`, `list_visible_runs`):
 
-- **Claude Sonnet** — an in-process Claude Agent-tool subagent. No CLI, no auth, no visible-run machinery; always available. Default worker for most delegated work.
-- **Grok (grok-4.5)** — `start_visible_grok_worker`, `start_visible_haiku_composed_grok_worker`, `start_visible_first_mate_grok_pool`, `steer_visible_grok_run`. See "Grok Worker Backend" below.
-- **Codex (gpt-5.6-sol)** — the primary backend documented throughout the rest of this skill. Preferred once its ChatGPT login is restored.
-- **Antigravity / Gemini (agy)** — `start_visible_agy_worker`, `start_visible_haiku_composed_agy_worker`, `steer_visible_agy_run`. CLI present and authenticated (`agy.exe`, `~/.gemini/oauth_creds.json`) and reachable through `check_worker_backends`. See "Antigravity / Gemini (agy) Worker Backend" below.
+- **Grok (grok-4.5)** — the **PREFERRED default worker** (owner upgraded to SuperGrok Heavy / $300 plan on 2026-07-15, tier 5; grok is the primary agentic-engineering worker now). `start_visible_grok_worker`, `start_visible_haiku_composed_grok_worker`, `start_visible_first_mate_grok_pool`, `steer_visible_grok_run`. See "Grok Worker Backend" below.
+- **Claude Sonnet** — an in-process Claude Agent-tool subagent. No CLI, no auth, no visible-run machinery; always available. The **fallback** worker: use when grok is unavailable/capped, or when a task genuinely needs a Claude-only capability.
+- **Antigravity / Gemini 3.5 Flash (agy)** — `start_visible_agy_worker`, `start_visible_haiku_composed_agy_worker`, `steer_visible_agy_run`. CLI present and authenticated (`agy.exe`, `~/.gemini/oauth_creds.json`), reachable through `check_worker_backends`. **On request.** Gemini 3.5 Flash is highly optimized for coding proficiency, front-end design, and complex multi-turn coding-agent tasks — in some developer environments it reaches near-Pro output on syntax generation and low-reasoning programming tasks. So it is a strong pick when the owner asks for a fast, coding/front-end-heavy or multi-turn worker; the main tradeoffs are plain-text output and best-effort `--continue`-only resume. See "Antigravity / Gemini (agy) Worker Backend" below.
+- **Codex (gpt-5.6-sol)** — the historically original backend, referenced throughout the older prose below. **DISABLED until further notice (owner 2026-07-15): there is no more Codex** — its ChatGPT login is revoked and it is not to be used. The tools and code are left intact so it can be revived later, but do not route to Codex; `check_worker_backends(deep=True)` will report it unavailable.
 
 ### Default routing policy
 
 Unless the owner says otherwise:
 
-- Default a delegated task to a **Claude Sonnet subagent** (the `Agent` tool) or **grok-4.5** — mostly Claude.
-- Use **Codex** or **Antigravity/Gemini** only when the owner explicitly asks for them.
-- **Always call `check_worker_backends` before delegating to a non-default backend.** Never assume a backend is logged in just because its CLI exists on disk — Codex's local token can look valid (unexpired JWT, `codex login status` exits 0) while the ChatGPT session has actually been revoked server-side; only `check_worker_backends(deep=True)` catches that case. If the chosen backend is unavailable, fall back to a Claude Sonnet subagent and tell the user why.
+- **Default a delegated task to a grok-4.5 worker** (`start_visible_grok_worker` / `start_visible_haiku_composed_grok_worker` for single work, `start_visible_first_mate_grok_pool` for fan-out). Grok is the preferred agentic-engineering worker since the SuperGrok Heavy upgrade.
+- **Fall back to a Claude Sonnet subagent** (the `Agent` tool) when grok is unavailable, capped, or the task needs a Claude-only capability.
+- Use **Antigravity/Gemini** when the owner explicitly asks, or when a task plays to Gemini 3.5 Flash's strengths (coding proficiency, front-end design, fast multi-turn coding-agent work) and the owner is open to it. **Do not use Codex — it is disabled.**
+- **Always call `check_worker_backends` before delegating.** Never assume a backend is usable just because its CLI exists on disk. If grok is unavailable, fall back to a Claude Sonnet subagent and tell the user why.
+
+### Leveraging SuperGrok Heavy (grok "heavy mode")
+
+There is no separate `heavy` CLI flag or model id — SuperGrok Heavy (owner is tier 5) is a subscription tier that raises grok's compute/rate limits, and grok exposes that power through its agent system, which the bridge already uses:
+
+- **Native subagents are ENABLED by default** on every grok worker (the bridge never passes `--no-subagents`), so a single `start_visible_grok_worker` can already spawn parallel child agents ("uses agents efficiently") when the task warrants it.
+- **`start_visible_first_mate_grok_pool`** is the explicit fan-out path — a grok root that coordinates native subagents, the grok analog of the first-mate pool.
+- Grok's `--best-of-n <N>` (run a task N ways in parallel and pick the best, headless only) and `[subagents]` config in `~/.grok/config.toml` (per-agent model pins, roles, personas) are further Heavy-tier levers; ask the owner before wiring `best-of-n` into a worker since it multiplies token spend.
 
 ### `check_worker_backends`
 

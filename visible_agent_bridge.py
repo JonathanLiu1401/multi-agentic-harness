@@ -2923,6 +2923,7 @@ function Invoke-GrokPrompt {{
   $script:turnErrorSeen = $false
   $script:turnErrorMessage = ''
   $script:turnSessionId = $SessionId
+  $script:thoughtNoted = $false
 
   Push-Location $Cwd
   try {{
@@ -2937,12 +2938,15 @@ function Invoke-GrokPrompt {{
       }}
       switch ($obj.type) {{
         'thought' {{
-          Log-Line 'Reasoning/progress event received. Hidden model reasoning is not displayed.' 'DarkGray'
+          if (-not $script:thoughtNoted) {{
+            Log-Line 'Model is reasoning (hidden reasoning tokens are not shown; the coherent answer block follows when the turn ends).' 'DarkGray'
+            $script:thoughtNoted = $true
+          }}
         }}
         'text' {{
           if ($obj.data) {{
             [void]$script:turnText.Add([string]$obj.data)
-            [string]$obj.data | Write-Raw
+            Write-Host ([string]$obj.data) -NoNewline
           }}
         }}
         'end' {{
@@ -2969,6 +2973,11 @@ function Invoke-GrokPrompt {{
   }}
 
   $code = $LASTEXITCODE
+  $answer = ($script:turnText -join '').Trim()
+  if ($answer.Length -gt 0) {{
+    Write-Host ''
+    Add-Content -LiteralPath $DisplayLog -Encoding UTF8 -Value ("`n===== Grok answer ($TurnLabel) =====`n" + $answer + "`n===== end Grok answer =====`n")
+  }}
   if ($code -eq 0 -and $script:turnErrorSeen) {{ $code = 1 }}
   Log-Line "Grok turn '$TurnLabel' exited with code $code" $(if ($code -eq 0) {{ 'Green' }} else {{ 'Red' }})
   Stop-GrokRunDescendants -RootPid $PID

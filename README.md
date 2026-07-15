@@ -1,10 +1,23 @@
-# claude-manages-codex-bridge
+# Multi-Agentic Harness
 
-A small Python MCP server (`visible_agent_bridge.py`) that powers the **visible-agent harness** for the
-`claude-manages-codex` workflow: Claude Code's active manager model acts as captain/executive architect/QA tech lead/reviewer while OpenAI Codex
-does the implementation work. The bridge launches Codex and Claude advisor sessions in visible PowerShell
-windows so you can watch prompts, streamed events, agent messages, commands, token usage, and diffs live,
-while also persisting logs under `.claude-codex/runs/<run-id>/`. Claude-managed Codex work defaults to non-interactive visible CLI workers running `codex exec --json`, with structured logs, direct captain steering, completion watchers, and captain-help mailboxes. Interactive TUI tools remain available as a deprecated path only when the user explicitly asks for a hands-on Codex terminal.
+> Internal id / repo / MCP-tool prefix / install dir remain **`claude-manages-codex`** for tool-name,
+> permission-allowlist, and install compatibility. The skill/project is **branded "Multi-Agentic Harness"**
+> (renamed 2026-07-15) to reflect that it now drives several worker backends, not just Codex. A full
+> id-level rename (MCP tool names, install directory, GitHub repo) is a separate breaking change.
+
+A small Python MCP server (`visible_agent_bridge.py`) that powers a **visible-agent harness**: Claude
+Code's active manager model acts as captain / executive architect / QA tech lead / reviewer while a
+**worker backend** does the implementation work, in visible PowerShell windows so you can watch prompts,
+streamed events, agent messages, commands, token usage, and diffs live, with logs persisted under
+`.claude-codex/runs/<run-id>/` and structured captain steering, completion watchers, and captain-help
+mailboxes.
+
+**Worker backends (2026-07-15):** the preferred worker is a **grok-4.5** CLI worker (owner is on SuperGrok
+Heavy); **Claude Sonnet** subagents are the fallback; **Google Antigravity / Gemini 3.5 Flash** is
+available on request (Gemini 3.5 Flash is strong at coding, front-end design, and fast multi-turn
+coding-agent tasks); **Codex is disabled until further notice** (its ChatGPT login is revoked — the code
+is left intact but not used). Always `check_worker_backends` before delegating. Much of the older prose
+below is Codex-centric because Codex was the original backend — read "Codex" as "the worker backend."
 
 ## Tools exposed
 
@@ -38,14 +51,14 @@ while also persisting logs under `.claude-codex/runs/<run-id>/`. Claude-managed 
 
 ## Worker backends (added 2026-07-14)
 
-Codex is the primary, most-documented backend in this README, but the bridge now supports four worker
-backends behind the same visible-run mechanics: **Claude Sonnet** (in-process `Agent` tool, always
-available), **Grok** (`grok-4.5`), **Codex** (`gpt-5.6-sol`, preferred once its ChatGPT login is back),
-and **Antigravity/Gemini** (`agy`). Default delegated work
-to Claude Sonnet or grok-4.5; use Codex or Antigravity only when explicitly asked, and call
-`check_worker_backends(cwd=None, deep=False)` first to confirm a non-default backend is actually usable
-(`deep=True` adds one short live `codex exec` probe, since Codex's local JWT can look valid while the
-ChatGPT session was revoked server-side — observed live on this dev machine).
+Codex is the historically most-documented backend in this README, but the bridge now supports four worker
+backends behind the same visible-run mechanics: **Grok** (`grok-4.5`), **Claude Sonnet** (in-process
+`Agent` tool, always available), **Codex** (`gpt-5.6-sol`), and **Antigravity/Gemini** (`agy`).
+**Grok is the preferred default worker** (owner upgraded to SuperGrok Heavy on 2026-07-15); **Claude
+Sonnet is the fallback** when grok is unavailable or capped. Use Codex or Antigravity only when
+explicitly asked, and call `check_worker_backends(cwd=None, deep=False)` first to confirm the backend is
+actually usable (`deep=True` adds one short live `codex exec` probe, since Codex's local JWT can look
+valid while the ChatGPT session was revoked server-side — observed live on this dev machine).
 
 ### Grok backend
 
