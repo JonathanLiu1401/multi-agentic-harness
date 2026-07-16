@@ -896,6 +896,9 @@ def case_grok_dry_run_args() -> dict[str, Any]:
     assert "Parallel Competition Mode" in prompt, prompt
     assert "up to 16" in prompt and "no new terminals" in prompt, "competition mode must offer up to 16 in-turn competitors"
     assert metadata["competition_agents"] == 16, metadata
+    # Mandatory Parallel Work-Checker gate must be present on EVERY grok prompt.
+    assert "Mandatory Parallel Work-Checker" in prompt, prompt
+    assert "RE-RUN the checkers until they come back clean" in prompt, "work-checker must fix + re-run until clean before done"
 
     return {"run_dir": str(run_dir), "script": str(launched_scripts[0])}
 

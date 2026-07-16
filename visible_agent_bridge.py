@@ -2825,6 +2825,38 @@ def _grok_competition_contract(max_agents: int) -> str:
     """).strip()
 
 
+def _grok_work_checker_contract() -> str:
+    """Mandatory parallel work-checker gate injected into every grok worker prompt. grok-4.5's
+    worst habit is declaring 'done' without testing; this forces a full parallel adversarial audit
+    of its OWN finished work (native subagents, one terminal) before it may report done, and to fix
+    every proven finding and re-check until clean."""
+    return textwrap.dedent("""
+    # Mandatory Parallel Work-Checker (run EVERY time, right before you report done)
+
+    When you believe the work is complete, DO NOT declare done yet. First run a full parallel
+    work-checker over your OWN finished work: spawn a fleet of parallel checker subagents inside this
+    same turn (native subagents — one terminal, no extra windows), each adversarially auditing the
+    completed work from a DIFFERENT lens and assuming it is WRONG until it proves otherwise. Cover, in
+    parallel, at least:
+
+    - Correctness & logic: does it actually do what was asked? trace the real execution.
+    - Edge cases & error paths: empty / null / boundary / oversized / malformed inputs, and every
+      failure branch.
+    - Did it actually run? RE-EXECUTE the acceptance test / repro end to end and read the real output.
+    - Requirements coverage: every stated requirement and acceptance criterion met, nothing skipped.
+    - Regressions / blast radius: did the change break an adjacent case, an existing test, or a caller?
+    - Security / concurrency / performance where the task touches them.
+
+    Then consolidate the checkers' findings, keep only the ones proven with evidence (no cry-wolf),
+    FIX every real issue, and RE-RUN the checkers until they come back clean. Only after a clean
+    parallel work-checker pass may you report done, and your report MUST include what the checkers
+    found, what you fixed, and the final clean verification output. Skipping this pass — or reporting
+    done with unfixed findings — is a failure of this contract. (For a purely trivial informational
+    reply with no code or artifacts to check, a full fleet is unnecessary — but you must still
+    re-verify your answer is correct before reporting.)
+    """).strip()
+
+
 # PowerShell descendant-reaper scoped to Grok's own process tree, mirroring
 # _PS_CLEANUP_FN's shape but targeting grok's process name instead of
 # codex/node/claude. Kept as a separate constant so _PS_CLEANUP_FN (used by
@@ -3368,6 +3400,7 @@ def start_visible_grok_worker(
         _parts = [_grok_rigor_contract()]
         if competition_note:
             _parts.append(competition_note)
+        _parts.append(_grok_work_checker_contract())
         _parts += [_grok_captain_report_note(run_dir), _captain_help_contract(run_dir), effective_prompt]
         effective_prompt = "\n\n".join(_parts)
         (run_dir / "prompt.md").write_text(effective_prompt, encoding="utf-8")
@@ -3386,6 +3419,7 @@ def start_visible_grok_worker(
         _prelude_parts = [_grok_rigor_contract()]
         if competition_note:
             _prelude_parts.append(competition_note)
+        _prelude_parts.append(_grok_work_checker_contract())
         _prelude_parts += [
             _grok_captain_report_note(run_dir),
             _captain_help_contract(run_dir),

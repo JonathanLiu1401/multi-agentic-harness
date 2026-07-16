@@ -83,6 +83,10 @@ grok usage is abundant and resets often, so lean on parallelism to compensate fo
 - It composes with the rest: competitors still obey the Rigor Contract (run + prove), and the Opus captain STILL independently e2e-verifies the compiled result — a grok-run competition that picks a winner is not a substitute for the captain's own verification.
 - `competition_agents` is a prompt capability, not a CLI flag; it stacks with `best_of_n` (a CLI-level N-way retry) but the two overlap, so prefer one lever at a time unless a task is genuinely huge.
 
+### Mandatory parallel work-checker (grok, every run)
+
+Every grok worker prompt also carries a **Mandatory Parallel Work-Checker** contract (`_grok_work_checker_contract`, always injected) that fires right before the worker may report done: it must spawn a fleet of parallel checker subagents inside the same turn (one terminal), each adversarially auditing its OWN finished work from a different lens (correctness/logic, edge cases & error paths, did-it-actually-run/re-execute the acceptance test, requirements coverage, regressions/blast-radius, and security/concurrency/perf where relevant), then consolidate the proven findings (no cry-wolf), **fix every real issue, and re-run the checkers until they come back clean.** A grok worker may not declare done until a clean parallel work-checker pass, and its report must include what the checkers found, what it fixed, and the final clean verification output. This is the automatic, worker-side counterpart to the captain's own adversarial review — it directly attacks grok-4.5's "declares done without testing" habit. (It is judgment-scaled: a purely trivial informational reply self-verifies instead of spawning a full fleet.) The captain STILL independently e2e-verifies after — the worker's self-run checker is not a substitute for the captain's verification.
+
 ### `check_worker_backends`
 
 `check_worker_backends(cwd=None, deep=False) -> {"claude_sonnet": {...}, "grok": {...}, "codex": {...}, "agy": {...}}`, one `{available, reason, detail}` record per backend.
