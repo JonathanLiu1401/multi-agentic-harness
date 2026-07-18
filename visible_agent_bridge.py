@@ -5,7 +5,10 @@ import datetime as _dt
 import json
 import os
 import re
+import shutil
+import signal
 import subprocess
+import sys
 import textwrap
 import time
 import uuid
@@ -18,10 +21,38 @@ from mcp.server.fastmcp import FastMCP
 mcp = FastMCP("agent-visibility")
 
 HOME = Path.home()
-CODEX = Path(r"C:\Users\jonny\AppData\Roaming\npm\codex.cmd")
-CLAUDE = Path(r"C:\Users\jonny\.local\bin\claude.exe")
-PYTHON = Path(r"C:\Users\jonny\AppData\Local\Python\pythoncore-3.14-64\python.exe")
-READ_PAST_SESSIONS_SKILL = Path(r"C:\Users\jonny\.agents\skills\read-past-sessions")
+
+
+def _resolve_cli(env_var: str, names: tuple[str, ...], *fallbacks: str) -> Path:
+    """Resolve a worker CLI cross-platform: env override > PATH > known installs.
+
+    Keeps the original hardcoded Windows paths as last-resort fallbacks so the
+    bridge still works verbatim on the original Windows machine, while macOS /
+    Linux (and any relocated Windows install) resolve via PATH.
+    """
+    override = os.environ.get(env_var, "").strip()
+    if override:
+        return Path(override).expanduser()
+    for name in names:
+        found = shutil.which(name)
+        if found:
+            return Path(found)
+    for fallback in fallbacks:
+        candidate = Path(os.path.expandvars(fallback)).expanduser()
+        if candidate.exists():
+            return candidate
+    return Path(names[0])
+
+
+CODEX = _resolve_cli("BRIDGE_CODEX_CLI", ("codex", "codex.cmd"), r"C:\Users\jonny\AppData\Roaming\npm\codex.cmd")
+CLAUDE = _resolve_cli("BRIDGE_CLAUDE_CLI", ("claude", "claude.exe"), "~/.local/bin/claude", r"C:\Users\jonny\.local\bin\claude.exe")
+PYTHON = Path(os.environ.get("BRIDGE_PYTHON", "").strip() or sys.executable)
+READ_PAST_SESSIONS_SKILL = _resolve_cli(
+    "BRIDGE_READ_PAST_SESSIONS",
+    ("read-past-sessions-skill-dir-not-a-cli",),
+    "~/.claude/skills/read-past-sessions",
+    r"C:\Users\jonny\.agents\skills\read-past-sessions",
+)
 PLAYWRIGHT_NODE_PATH = r"C:\Users\jonny\node_modules;C:\Users\jonny\.codex\playwright-runtime\node_modules"
 PLAYWRIGHT_BROWSERS_PATH = Path(r"C:\Users\jonny\AppData\Local\ms-playwright")
 
@@ -215,11 +246,17 @@ _LAUNCHED_PIDS: list[int] = []
 def _reap_launched() -> None:
     for pid in _LAUNCHED_PIDS:
         try:
-            subprocess.run(
-                ["taskkill", "/PID", str(pid), "/T", "/F"],
-                capture_output=True,
-                timeout=10,
-            )
+            if os.name == "nt":
+                subprocess.run(
+                    ["taskkill", "/PID", str(pid), "/T", "/F"],
+                    capture_output=True,
+                    timeout=10,
+                )
+            else:
+                try:
+                    os.killpg(pid, signal.SIGTERM)
+                except (ProcessLookupError, PermissionError, OSError):
+                    os.kill(pid, signal.SIGTERM)
         except Exception:
             pass
 
@@ -234,6 +271,16 @@ def _pid_is_running(pid: str | int) -> bool:
         return False
     if pid_int <= 0:
         return False
+    if os.name != "nt":
+        try:
+            os.kill(pid_int, 0)
+            return True
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        except OSError:
+            return False
     try:
         proc = subprocess.run(
             ["tasklist", "/FI", f"PID eq {pid_int}", "/FO", "CSV", "/NH"],
@@ -258,7 +305,20 @@ def _wait_for_pid_exit(pid: str | int, timeout_sec: float = 5.0) -> bool:
 
 def _send_ctrl_c_to_console(pid: str | int) -> tuple[bool, str]:
     if os.name != "nt":
-        return False, "Ctrl+C console signaling is only implemented on Windows."
+        try:
+            pid_int = int(str(pid).strip())
+        except (TypeError, ValueError):
+            return False, f"Invalid pid for SIGINT: {pid!r}"
+        try:
+            try:
+                os.killpg(pid_int, signal.SIGINT)
+            except (ProcessLookupError, PermissionError, OSError):
+                os.kill(pid_int, signal.SIGINT)
+            return True, ""
+        except ProcessLookupError:
+            return False, f"No such process: {pid_int}"
+        except Exception as exc:
+            return False, str(exc)
     try:
         pid_int = int(str(pid).strip())
     except (TypeError, ValueError):
@@ -349,15 +409,22 @@ def _interrupt_visible_run(pid: str | int, graceful_timeout_sec: float = 12.0) -
 
     warnings = [ctrlc_warning] if ctrlc_warning else []
     try:
-        killed = subprocess.run(
-            ["taskkill", "/PID", str(pid), "/T", "/F"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        kill_warning = (killed.stderr or killed.stdout or "").strip()
-        if killed.returncode != 0 and kill_warning:
-            warnings.append(kill_warning)
+        if os.name == "nt":
+            killed = subprocess.run(
+                ["taskkill", "/PID", str(pid), "/T", "/F"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            kill_warning = (killed.stderr or killed.stdout or "").strip()
+            if killed.returncode != 0 and kill_warning:
+                warnings.append(kill_warning)
+        else:
+            pid_int = int(str(pid).strip())
+            try:
+                os.killpg(pid_int, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError, OSError):
+                os.kill(pid_int, signal.SIGKILL)
     except Exception as exc:
         warnings.append(str(exc))
 
@@ -2316,7 +2383,7 @@ def submit_captain_report(
     if not path.exists():
         return {"ok": False, "error": f"run_dir does not exist: {path}"}
     metadata = _read_json(path / "metadata.json", {})
-    if metadata.get("agent") not in (None, "codex", "grok", "agy"):
+    if metadata.get("agent") not in (None, "codex", "grok", "agy", "claude"):
         return {"ok": False, "error": f"run_dir is not a captain-reporting worker run: {path}", "metadata": metadata}
     normalized_outcome = (outcome or "").strip().lower()
     if normalized_outcome not in {"completed", "partial", "blocked", "failed"}:
@@ -2414,7 +2481,7 @@ def request_captain_help(
     if not path.exists():
         return {"ok": False, "error": f"run_dir does not exist: {path}"}
     metadata = _read_json(path / "metadata.json", {})
-    if metadata.get("agent") not in (None, "codex", "grok", "agy"):
+    if metadata.get("agent") not in (None, "codex", "grok", "agy", "claude"):
         return {"ok": False, "error": f"run_dir is not a captain-help-capable worker run: {path}", "metadata": metadata}
     if not question.strip():
         return {"ok": False, "error": "question is required"}
@@ -4594,10 +4661,351 @@ def check_worker_backends(cwd: str | None = None, deep: bool = False) -> dict[st
     """
     return {
         "claude_sonnet": _check_claude_sonnet_backend(),
+        "claude_worker": _check_claude_worker_backend(),
         "grok": _check_grok_backend(deep=deep),
         "codex": _check_codex_backend(deep=deep, cwd=cwd),
         "agy": _check_agy_backend(deep=deep),
     }
+
+
+# ============================================================================
+# Claude Code worker backend (headless, cross-platform, multi-provider)
+# ============================================================================
+# Spawns worker agents NATIVELY as headless Claude Code CLI processes
+# (`claude -p --output-format stream-json`) instead of opening a visible
+# terminal/TUI per agent. Routed through a local CLIProxyAPI gateway
+# (ANTHROPIC_BASE_URL / ANTHROPIC_AUTH_TOKEN), one worker can run ANY
+# provider's model — claude-opus-4-8, claude-sonnet-5, grok-4.5, kimi-k2.5,
+# gpt-5-codex, ... — selected per spawn via the `model` argument, which is
+# genuinely honored (unlike the Codex backend's recorded-but-ignored pattern).
+# The runner (claude_worker_runner.py, deployed beside this file) is plain
+# stdlib Python, so the same backend works on Windows, macOS, and Linux with
+# the full run-directory protocol: steering, captain help/report, watchers.
+
+CLAUDE_WORKER_RUNNER = Path(__file__).resolve().parent / "claude_worker_runner.py"
+CLAUDE_WORKER_DEFAULT_MODEL = os.environ.get("BRIDGE_CLAUDE_WORKER_MODEL", "").strip() or "claude-opus-4-8"
+CLAUDE_WORKER_EFFORTS = ("low", "medium", "high", "xhigh", "max")
+CLIPROXY_BASE_URL_ENV = "CLIPROXY_BASE_URL"
+CLIPROXY_API_KEY_ENV = "CLIPROXY_API_KEY"
+CLIPROXY_CONFIG_PATH = HOME / ".agent-bridge" / "proxy.json"
+
+
+def _proxy_config() -> dict[str, str]:
+    """CLIProxyAPI connection settings: env overrides > ~/.agent-bridge/proxy.json.
+
+    proxy.json shape: {"base_url": "http://127.0.0.1:8317", "api_key": "sk-...",
+    "claude_config_dir": ""}. The api key is never written into run metadata;
+    it reaches the runner only via the CLIPROXY_API_KEY environment variable.
+    """
+    config = _read_json(CLIPROXY_CONFIG_PATH, {}) or {}
+    base_url = os.environ.get(CLIPROXY_BASE_URL_ENV, "").strip() or str(config.get("base_url") or "http://127.0.0.1:8317")
+    api_key = os.environ.get(CLIPROXY_API_KEY_ENV, "").strip() or str(config.get("api_key") or "")
+    claude_config_dir = str(config.get("claude_config_dir") or "")
+    return {"base_url": base_url, "api_key": api_key, "claude_config_dir": claude_config_dir}
+
+
+def _claude_worker_effort(requested: str) -> str:
+    candidate = (requested or "").strip().lower()
+    return candidate if candidate in CLAUDE_WORKER_EFFORTS else ""
+
+
+def _claude_worker_permission_mode(sandbox: str) -> tuple[str, bool]:
+    """Map the bridge's permission-intent vocabulary onto Claude Code CLI modes.
+
+    Returns (permission_mode, enforce_read_only). read-only additionally strips
+    Write/Edit via --disallowed-tools so no-edit is enforced, not just requested
+    (same policy as the Grok backend's _grok_read_only_args).
+    """
+    requested = (sandbox or "read-only").strip().lower()
+    if requested == "read-only":
+        return "plan", True
+    if requested == "workspace-write":
+        return "acceptEdits", False
+    return "bypassPermissions", False
+
+
+def _claude_worker_report_note(run_dir: Path) -> str:
+    return textwrap.dedent(f"""
+    # Captain Report (Claude worker)
+
+    Run directory: {run_dir}
+
+    This run's launcher automatically writes a captain report to
+    `{run_dir / CAPTAIN_REPORTS_DIR / CAPTAIN_REPORT_FINAL_JSON}` and
+    `{run_dir / CAPTAIN_REPORTS_DIR / CAPTAIN_REPORT_FINAL_MD}` from your final
+    answer text once this turn ends, so the captain can read your result with
+    `get_visible_run_status` or `list_captain_reports` even if you never call a
+    tool. If the `agent-visibility` MCP server is reachable in this session,
+    also call `submit_captain_report` with a structured outcome/summary before
+    stopping, and use `request_captain_help` if you are blocked.
+    """).strip()
+
+
+def _claude_worker_rigor_note() -> str:
+    return textwrap.dedent("""
+    # Worker Rigor Contract (mandatory)
+
+    1. ENUMERATE candidate approaches and the edge/error cases the change must
+       survive before changing anything; do not tunnel on the first idea.
+    2. PRESSURE-TEST your own work adversarially before reporting; fix what you find.
+    3. ACTUALLY RUN IT end to end and paste observed output as proof. If you cannot
+       execute it, label the result UNVERIFIED explicitly.
+    4. REPORT HONESTLY: what changed, exact commands and real output, what you did
+       NOT test, and the top ways this could still be wrong.
+
+    The captain reviews antagonistically; unexecuted "done" claims are failures.
+    """).strip()
+
+
+def _launch_headless_python(script_path: Path, run_dir: Path, env: dict[str, str] | None = None) -> int:
+    """Launch the stdlib runner headless and detached, cross-platform."""
+    log_handle = (run_dir / "launcher.log").open("ab")
+    kwargs: dict[str, Any] = {
+        "cwd": str(run_dir),
+        "stdin": subprocess.DEVNULL,
+        "stdout": log_handle,
+        "stderr": log_handle,
+        "env": env,
+    }
+    if os.name == "nt":
+        # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP: no console window at all.
+        kwargs["creationflags"] = 0x00000008 | 0x00000200
+    else:
+        kwargs["start_new_session"] = True  # own process group for clean SIGINT/SIGTERM
+    proc = subprocess.Popen([str(PYTHON), str(script_path), str(run_dir)], **kwargs)
+    _LAUNCHED_PIDS.append(int(proc.pid))
+    return int(proc.pid)
+
+
+@mcp.tool()
+def start_claude_worker(
+    prompt: str,
+    cwd: str,
+    title: str = "Claude worker",
+    model: str = CLAUDE_WORKER_DEFAULT_MODEL,
+    sandbox: str = "read-only",
+    effort: str = "",
+    session_context: str = "",
+    resume_session_id: str = "",
+    max_budget_usd: str = "",
+    steer_idle_seconds: int = CODEX_STEER_IDLE_SECONDS,
+    use_proxy: bool = True,
+) -> dict[str, Any]:
+    """Spawn a native headless Claude Code CLI worker on ANY provider's model.
+
+    No terminal/TUI window is opened: the worker runs as a detached headless
+    `claude -p` process whose stream-json output is captured into the standard
+    run directory (events.jsonl, display.log, status.json, captain_reports/).
+    With use_proxy=True (default) the worker is routed through the local
+    CLIProxyAPI gateway, so `model` may be any model the proxy serves —
+    e.g. claude-opus-4-8, claude-sonnet-5, claude-fable-5, grok-4.5 — and it is
+    honored exactly as passed. Steering, captain-help, and captain-report
+    tooling work identically to the other backends. Cross-platform.
+    """
+    effective_model = (model or "").strip() or CLAUDE_WORKER_DEFAULT_MODEL
+    effective_effort = _claude_worker_effort(effort)
+    permission_mode, read_only_enforced = _claude_worker_permission_mode(sandbox)
+    proxy = _proxy_config()
+    proxy_enabled = bool(use_proxy)
+    if proxy_enabled and not proxy["api_key"]:
+        return {
+            "ok": False,
+            "error": (
+                "CLIProxyAPI key not configured. Set CLIPROXY_API_KEY or write "
+                f"{CLIPROXY_CONFIG_PATH} with {{\"base_url\": ..., \"api_key\": ...}}, "
+                "or pass use_proxy=False to run direct-Anthropic."
+            ),
+        }
+    prompt_with_permissions = "\n\n".join([
+        _codex_permission_contract(sandbox, "native-claude-code-permission-mode:" + permission_mode),
+        prompt,
+    ])
+    effective_prompt = _with_session_context_bootstrap(
+        prompt_with_permissions, cwd, "Claude worker", session_context
+    )
+    run_dir = _make_run(cwd, "claude-resume" if resume_session_id else "claude", title, effective_prompt, {
+        "agent": "claude",
+        "cwd": str(Path(cwd).resolve()),
+        "sandbox": sandbox,
+        "permission_mode": permission_mode,
+        "read_only_enforced": read_only_enforced,
+        "model": effective_model,
+        "requested_model": model,
+        "effort": effective_effort,
+        "requested_effort": effort,
+        "max_budget_usd": max_budget_usd,
+        "resume_session_id": resume_session_id or None,
+        "session_context_supplied": bool(session_context.strip()),
+        "steer_idle_seconds": max(0, min(int(steer_idle_seconds), 300)),
+        "captain_help_enabled": True,
+        "captain_report_auto_write": True,
+        "claude_cli": str(CLAUDE),
+        "mode": "headless_native",
+        "proxy": {
+            "enabled": proxy_enabled,
+            "base_url": proxy["base_url"] if proxy_enabled else "",
+            "claude_config_dir": proxy["claude_config_dir"] if proxy_enabled else "",
+        },
+    })
+    effective_prompt = "\n\n".join([
+        _claude_worker_rigor_note(),
+        _claude_worker_report_note(run_dir),
+        _captain_help_contract(run_dir),
+        effective_prompt,
+    ])
+    (run_dir / "prompt.md").write_text(effective_prompt, encoding="utf-8")
+    launch_env = dict(os.environ)
+    if proxy_enabled:
+        launch_env[CLIPROXY_API_KEY_ENV] = proxy["api_key"]
+    pid = _launch_headless_python(CLAUDE_WORKER_RUNNER, run_dir, env=launch_env)
+    (run_dir / "launcher_pid.txt").write_text(str(pid), encoding="utf-8")
+    return {
+        "run_id": run_dir.name,
+        "pid": pid,
+        "run_dir": str(run_dir),
+        "prompt": str(run_dir / "prompt.md"),
+        "display_log": str(run_dir / "display.log"),
+        "raw_events": str(run_dir / "events.jsonl"),
+        "status": str(run_dir / "status.json"),
+        "steer_queue": str(run_dir / "steer_queue"),
+        "captain_help": str(run_dir / CAPTAIN_HELP_DIR),
+        "captain_reports": str(run_dir / CAPTAIN_REPORTS_DIR),
+        "session_id_file": str(run_dir / "session_id.txt"),
+        "watch_command": _watch_command(run_dir),
+        "note": (
+            f"A headless native Claude Code worker was spawned (no terminal window). "
+            f"Model: {effective_model} via "
+            f"{proxy['base_url'] if proxy_enabled else 'direct Anthropic'} | "
+            f"permission mode: {permission_mode}"
+            f"{' | read-only enforced (Write/Edit stripped)' if read_only_enforced else ''} | "
+            f"effort: {effective_effort or 'CLI default'}. The runner auto-writes "
+            "captain_reports/final.json+final.md from the answer text after every turn "
+            "and honors queued steering during its idle window."
+        ),
+    }
+
+
+@mcp.tool()
+def steer_claude_run(
+    run_dir: str,
+    instruction: str,
+    title: str = "Claude steering",
+    session_context: str = "",
+    sandbox: str = "",
+    launch_if_closed: bool = True,
+    interrupt_current_turn: bool = False,
+) -> dict[str, Any]:
+    """Steer a headless Claude worker run, resuming its session if it already closed.
+
+    An idle worker (in its steering window) consumes the queued instruction
+    within a second. If the run has exited and launch_if_closed=True, a new
+    headless worker is spawned resuming the same Claude session id with the
+    same model/permission settings. interrupt_current_turn uses SIGINT on
+    POSIX / console Ctrl+C on Windows, best-effort.
+    """
+    path = Path(run_dir).expanduser().resolve()
+    if not path.exists():
+        return {"ok": False, "error": f"run_dir does not exist: {path}"}
+    metadata = _read_json(path / "metadata.json", {})
+    if metadata.get("agent") not in (None, "claude"):
+        return {"ok": False, "error": f"run_dir is not a Claude worker run: {path}", "metadata": metadata}
+    status = _read_json(path / "status.json", {"status": "unknown"})
+    status_name = _status_name(status)
+    requested_sandbox = sandbox.strip()
+    permission_contract = (
+        _codex_permission_contract(requested_sandbox, "native-claude-code-permission-mode")
+        if requested_sandbox
+        else ""
+    )
+    steer_path = _write_steer_file(path, instruction, session_context, title, permission_contract)
+    session_id = _read_session_id_file(path / "session_id.txt") or ""
+    result: dict[str, Any] = {
+        "ok": True,
+        "mode": "queued",
+        "run_dir": str(path),
+        "status": status,
+        "session_id": session_id or None,
+        "steer_file": str(steer_path),
+        "note": "Steering was queued. The worker will consume it after the current turn or during its steering idle window.",
+    }
+    active = status_name in ("created", "waiting_for_steer") or status_name.startswith("running")
+    if active and not interrupt_current_turn:
+        if status_name == "waiting_for_steer":
+            result["note"] = "Steering was queued for immediate pickup: the worker polls the queue every second while idle."
+        return result
+    if active and interrupt_current_turn:
+        pid_path = path / "launcher_pid.txt"
+        if pid_path.exists():
+            pid = pid_path.read_text(encoding="utf-8-sig").strip()
+            interrupted, warning = _interrupt_visible_run(pid)
+            result["interrupted_pid" if interrupted else "interrupt_warning"] = pid if interrupted else warning
+            if not interrupted:
+                result["mode"] = "queued_interrupt_failed"
+                return result
+        else:
+            result["mode"] = "queued_no_interrupt_no_pid"
+            return result
+    if not launch_if_closed:
+        result["mode"] = "queued_no_active_runner"
+        result["note"] = "Steering was queued, but the run is not active and launch_if_closed is false."
+        return result
+    if not session_id:
+        result["mode"] = "queued_no_resume_session"
+        result["note"] = "Steering was queued, but no Claude session id is recorded to resume."
+        return result
+    cwd = _infer_cwd_from_run_dir(path, metadata)
+    resume = start_claude_worker(
+        prompt=steer_path.read_text(encoding="utf-8-sig"),
+        cwd=cwd,
+        title=f"{title} (resume)",
+        model=str(metadata.get("model") or CLAUDE_WORKER_DEFAULT_MODEL),
+        sandbox=requested_sandbox or str(metadata.get("sandbox") or "read-only"),
+        effort=str(metadata.get("effort") or ""),
+        session_context=session_context,
+        resume_session_id=session_id,
+        steer_idle_seconds=int(metadata.get("steer_idle_seconds") or CODEX_STEER_IDLE_SECONDS),
+        use_proxy=bool((metadata.get("proxy") or {}).get("enabled", True)),
+    )
+    result["mode"] = "launched_resume"
+    result["resume_run"] = resume
+    result["note"] = "A new headless Claude worker was launched resuming the same session id with the steering instruction."
+    return result
+
+
+def _check_claude_worker_backend() -> dict[str, Any]:
+    claude_found = shutil.which(str(CLAUDE)) or (CLAUDE.exists() and str(CLAUDE))
+    if not claude_found:
+        return {"available": False, "reason": f"claude CLI not found at {CLAUDE}", "detail": ""}
+    if not CLAUDE_WORKER_RUNNER.exists():
+        return {"available": False, "reason": f"claude_worker_runner.py missing at {CLAUDE_WORKER_RUNNER}", "detail": ""}
+    proxy = _proxy_config()
+    if not proxy["api_key"]:
+        return {
+            "available": True,
+            "reason": "claude CLI + runner present; proxy key not configured, so only use_proxy=False (direct Anthropic) runs work",
+            "detail": f"set {CLIPROXY_API_KEY_ENV} or write {CLIPROXY_CONFIG_PATH}",
+        }
+    try:
+        import urllib.request
+
+        request = urllib.request.Request(
+            proxy["base_url"].rstrip("/") + "/v1/models",
+            headers={"Authorization": f"Bearer {proxy['api_key']}"},
+        )
+        with urllib.request.urlopen(request, timeout=5) as response:
+            data = json.loads(response.read().decode("utf-8"))
+        count = len(data.get("data") or [])
+        return {
+            "available": True,
+            "reason": f"claude CLI + runner present; CLIProxyAPI reachable with {count} model(s)",
+            "detail": f"{proxy['base_url']} | example models: " + ", ".join(m.get("id", "?") for m in (data.get("data") or [])[:5]),
+        }
+    except Exception as exc:
+        return {
+            "available": True,
+            "reason": "claude CLI + runner present but CLIProxyAPI probe failed; use_proxy=False (direct Anthropic) still works",
+            "detail": f"{proxy['base_url']}: {exc}",
+        }
 
 
 if __name__ == "__main__":
