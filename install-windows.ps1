@@ -43,6 +43,28 @@ if (Test-Path $SkillSrc) {
   Write-Host 'Installed skill: claude-manages-codex'
 }
 
+# Native grok subagent definition (Agent tool, subagent_type "grok").
+$AgentSrc = Join-Path $Here 'plugin\agents\grok.md'
+if (Test-Path $AgentSrc) {
+  $AgentDst = Join-Path $env:USERPROFILE '.claude\agents'
+  New-Item -ItemType Directory -Force -Path $AgentDst | Out-Null
+  Copy-Item $AgentSrc $AgentDst -Force
+  Write-Host 'Installed agent: grok (native subagent, ~\.claude\agents\grok.md)'
+}
+
+# World launchers (clg/cld/clx + force-direct.json) to ~\.local\bin.
+$LaunchSrc = Join-Path $Here 'launchers'
+if (Test-Path $LaunchSrc) {
+  $BinDst = Join-Path $env:USERPROFILE '.local\bin'
+  New-Item -ItemType Directory -Force -Path $BinDst | Out-Null
+  Copy-Item (Join-Path $LaunchSrc '*.cmd') $BinDst -Force
+  $DirectDir = Join-Path $env:USERPROFILE '.claude-direct'
+  New-Item -ItemType Directory -Force -Path $DirectDir | Out-Null
+  Copy-Item (Join-Path $LaunchSrc 'force-direct.json') $DirectDir -Force
+  Write-Host "Installed launchers (clg/cld/clx) to $BinDst and force-direct.json to $DirectDir"
+  Write-Host 'NOTE: cld needs ~\.claude-direct populated (credentials copy + junctions) — see launchers\README.md.'
+}
+
 # Register the MCP server with Claude Code (user scope; idempotent).
 claude mcp remove agent-visibility -s user 2>$null | Out-Null
 claude mcp add agent-visibility -s user -- $Py (Join-Path $BridgeDir 'visible_agent_bridge.py')
@@ -50,3 +72,8 @@ Write-Host "Registered MCP server 'agent-visibility' (user scope) using $Py"
 
 & $Py -m py_compile (Join-Path $BridgeDir 'visible_agent_bridge.py') (Join-Path $BridgeDir 'claude_worker_runner.py')
 Write-Host 'Install complete. Restart Claude Code, then check with the check_worker_backends MCP tool.'
+Write-Host ''
+Write-Host 'MANUAL STEP — settings.json env block (required for grok as main model / accurate'
+Write-Host 'context windows / 1M typed aliases): merge the env block from docs\setup\env-vars.md'
+Write-Host 'into the "env" object of ~\.claude\settings.json (and ~\.claude-clx\settings.json'
+Write-Host 'if using clx). Not automated on purpose: settings.json is live user config.'

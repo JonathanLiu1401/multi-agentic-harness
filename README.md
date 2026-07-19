@@ -72,7 +72,8 @@ upgraded to SuperGrok Heavy on 2026-07-15); **Claude Sonnet is the fallback** wh
 or capped.
 
 Context windows for grok workers (verified 2026-07-19 on Claude Code 2.1.21x): Claude Code budgets
-unknown model IDs at 200k. Deployments should set `CLAUDE_CODE_MAX_CONTEXT_TOKENS=500000` in the
+unknown model IDs at 200k. Deployments should set `CLAUDE_CODE_MAX_CONTEXT_TOKENS=500000` (full
+required env block + rationale: `docs/setup/env-vars.md`) in the
 settings.json `env` block of proxy-backed worlds — it applies only to non-`claude-` model IDs and gives
 grok subagents/workers grok-4.5's real ~500k window with normal autocompaction (undocumented internal —
 re-verify after CLI version bumps). Do NOT use a `[1m]` suffix in agent frontmatter (stripped in subagent
