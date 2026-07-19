@@ -43,14 +43,15 @@ if (Test-Path $SkillSrc) {
   Write-Host 'Installed skill: claude-manages-codex'
 }
 
-# Native grok subagent definition (Agent tool, subagent_type "grok").
-$AgentSrc = Join-Path $Here 'plugin\agents\grok.md'
-if (Test-Path $AgentSrc) {
+# Native subagent definitions (Agent tool): grok + agy-* models.
+$AgentsSrc = Join-Path $Here 'plugin\agents'
+if (Test-Path $AgentsSrc) {
   $AgentDst = Join-Path $env:USERPROFILE '.claude\agents'
   New-Item -ItemType Directory -Force -Path $AgentDst | Out-Null
-  Copy-Item $AgentSrc $AgentDst -Force
-  Write-Host 'Installed agent: grok (native subagent, ~\.claude\agents\grok.md)'
+  Copy-Item (Join-Path $AgentsSrc '*.md') $AgentDst -Force
+  Write-Host 'Installed agents: grok + agy-* (native subagents, ~\.claude\agents\*.md)'
 }
+Write-Host 'NOTE: the agy native subagents also require the Antigravity channel authenticated in CLIProxyAPI (run: cli-proxy-api.exe -antigravity-login) and the oauth-model-alias.antigravity block in config.yaml — see docs\setup\agy-antigravity.md.'
 
 # World launchers (clg/cld/clx + force-direct.json) to ~\.local\bin.
 $LaunchSrc = Join-Path $Here 'launchers'

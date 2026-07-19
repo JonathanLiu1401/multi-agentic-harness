@@ -18,7 +18,12 @@ captain-help mailboxes.
 **`start_claude_worker`** (detached headless `claude -p` through the local **CLIProxyAPI** gateway on
 127.0.0.1:8317; the `model` arg honors any proxy model). **Claude Sonnet** subagents are the fallback;
 the **grok CLI** visible-window backend remains for its exclusive extras (Parallel Competition Mode,
-Mandatory Parallel Work-Checker); **Google Antigravity / Gemini 3.5 Flash** is available on request;
+Mandatory Parallel Work-Checker); **Google Antigravity (agy)** has a preferred **native subagent path**
+with 4 models — Antigravity Claude Opus 4.6 (Thinking), Claude Sonnet 4.6 (Thinking), Gemini 3.1 Pro
+(High), Gemini 3.5 Flash (High) — spawnable as `subagent_type: "agy-opus-4-6"` /
+`"agy-sonnet-4-6"` / `"agy-gemini-3-1-pro"` / `"agy-gemini-3-5-flash"` through CLIProxyAPI on the agy
+account's **separate quota** (not the real Claude/Anthropic subscription; definitions in
+`plugin/agents/agy-*.md`), preferred over the legacy visible-terminal `start_visible_agy_worker`;
 **Codex is disabled until further notice** (its ChatGPT login is revoked — the code is left intact but
 not used). Always `check_worker_backends` before delegating. Much of the older prose below is
 Codex-centric because Codex was the original backend — read "Codex" as "the worker backend."
@@ -66,7 +71,10 @@ proxy-backed sessions; definition in `plugin/agents/grok.md`), **claude_worker**
 `steer_claude_run` — detached headless `claude -p` via the local CLIProxyAPI gateway, any proxy model,
 implemented by `claude_worker_runner.py`), **Grok CLI** (`grok-4.5`, legacy visible-window, kept for
 Parallel Competition Mode + the Mandatory Parallel Work-Checker gate), **Claude Sonnet** (in-process
-`Agent` tool, always available), **Codex** (`gpt-5.6-sol`, disabled), and **Antigravity/Gemini** (`agy`).
+`Agent` tool, always available), **Codex** (`gpt-5.6-sol`, disabled), and **Antigravity/agy** (preferred
+native subagents: `agy-opus-4-6` / `agy-sonnet-4-6` / `agy-gemini-3-1-pro` / `agy-gemini-3-5-flash` via
+CLIProxyAPI on the agy account's separate quota — see `plugin/agents/agy-*.md`; legacy visible-terminal
+`start_visible_agy_worker` still available).
 **Grok-4.5 is the preferred worker model; the windowless paths are the preferred spawn paths** (owner
 upgraded to SuperGrok Heavy on 2026-07-15); **Claude Sonnet is the fallback** when grok is unavailable
 or capped.
@@ -115,7 +123,15 @@ uses.
 
 ### Antigravity (agy) backend
 
-New tools, mirroring their Codex/Grok counterparts: `start_visible_agy_worker`,
+**Preferred path (native subagents, 2026-07-19):** 4 models — Antigravity Claude Opus 4.6 (Thinking),
+Claude Sonnet 4.6 (Thinking), Gemini 3.1 Pro (High), Gemini 3.5 Flash (High) — spawnable as native
+Claude Code subagents (`subagent_type: "agy-opus-4-6"` / `"agy-sonnet-4-6"` / `"agy-gemini-3-1-pro"` /
+`"agy-gemini-3-5-flash"`, definitions in `plugin/agents/agy-*.md`) through CLIProxyAPI on the agy
+account's **separate quota** (not the real Claude/Anthropic subscription). Preferred over the legacy
+visible-terminal tools below. Requires Antigravity channel auth (`cli-proxy-api.exe -antigravity-login`)
+and the `oauth-model-alias.antigravity` block in `config.yaml` — see `docs/setup/agy-antigravity.md`.
+
+Legacy visible-terminal tools, mirroring their Codex/Grok counterparts: `start_visible_agy_worker`,
 `start_visible_haiku_composed_agy_worker`, `steer_visible_agy_run` (no first-mate pool tool for this
 backend). agy workers share the same backend-agnostic `get_visible_run_status` / `list_visible_runs` /
 `submit_captain_report` / `list_captain_reports` / `request_captain_help` / `list_captain_help_requests` /
