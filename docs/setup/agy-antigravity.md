@@ -2,21 +2,19 @@
 
 Verified 2026-07-19 on Claude Code 2.1.215 + CLIProxyAPI 7.2.88 (Windows).
 
-Four Google Antigravity models wired as **native Claude Code subagents** (Agent tool,
+Two Google Antigravity **Gemini** models wired as **native Claude Code subagents** (Agent tool,
 `subagent_type: agy-*`) served through the local CLIProxyAPI gateway — the non-terminal
 alternative to the legacy `start_visible_agy_worker`. Each draws the Antigravity
 account's **separate** quota, never the owner's real Claude/Anthropic subscription.
 
 | subagent_type | client model id (pinned `[1m]`) | Antigravity upstream id | display |
 |---|---|---|---|
-| `agy-opus-4-6` | `claude-opus-4-6-agy` | `claude-opus-4-6-thinking` | Claude Opus 4.6 (Thinking) |
-| `agy-sonnet-4-6` | `claude-sonnet-4-6-agy` | `claude-sonnet-4-6` | Claude Sonnet 4.6 (Thinking) |
 | `agy-gemini-3-1-pro` | `agy-gemini-3-1-pro` | `gemini-pro-agent` | Gemini 3.1 Pro (High) |
 | `agy-gemini-3-5-flash` | `agy-gemini-3-5-flash` | `gemini-3-flash-agent` | Gemini 3.5 Flash (High) |
 
 > "High" tier = the `-agent` upstream id, **not** `*-high` (those aren't in the live
-> catalog). GPT-OSS 120B (`gpt-oss-120b-medium`) is served by the channel but left
-> **unwired** by choice (it shares the Claude quota bucket and has a ~128k window).
+> catalog). GPT-OSS 120B (`gpt-oss-120b-medium`) **and the Claude 4.6 models** (Opus/Sonnet 4.6 Thinking) are served by the channel but left
+> **unwired** by choice: they share the Claude/GPT quota bucket, whose 5-hour limit exhausts fast (observed 0% while the Gemini bucket had ~96% free). Only the two Gemini subagents are wired.
 
 ## 1. Authenticate the Antigravity channel (one-time)
 
@@ -106,8 +104,8 @@ are capped. Opus can burn Google One AI credits after free-tier exhaustion
 (`quota-exceeded.antigravity-credits: true`); Gemini rides free quota.
 
 Routing: **grok-4.5 routes first**; **Claude Sonnet subagents are the fallback**; **Codex is DISABLED**;
-use the **agy ladder on grok-exhaustion or explicit request** (owner: grok-4.5 > agy Opus 4.6).
-Capability order opus > sonnet > gemini-3.1-pro > gemini-3.5-flash,
+use the **agy (Gemini) ladder on grok-exhaustion or explicit request** (owner: grok-4.5 > agy Gemini). Only the Gemini subagents are wired — the Claude/GPT bucket's limits are too low.
+Capability order gemini-3.1-pro > gemini-3.5-flash,
 with the owner's rule of thumb: gemini-3.5-flash = speedy ops, gemini-3.1-pro =
 slower/harder (Flash actually edges Pro on agentic-coding throughput benchmarks).
 

@@ -41,14 +41,13 @@ Note: bare model aliases like `grok-4.5` without `[1m]` re-trigger the 350-tool 
 
 ## Why no automatic alternative exists (researched + refuted 2026-07-19)
 
-- Gateway model discovery (`CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY`)
-  adds fetched models to the `/model` picker (`value=id`, `label=display_name`)
-  but carries NO context-length metadata — the `/v1/models` protocol has no
-  window field — so it cannot fix grok's window (that is what
-  `CLAUDE_CODE_MAX_CONTEXT_TOKENS` is for). **Correction 2026-07-19:** an earlier
-  version of this note claimed discovery DISCARDS non-`claude`/`anthropic` IDs —
-  verified FALSE against the 2.1.215 binary: `a$r()` maps ALL fetched models with
-  no prefix filter (see "Model selector / picker configuration" below).
+- Gateway model discovery (`CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY`) adds fetched
+  models to the `/model` picker but **filters to IDs matching `/^(claude|anthropic)/i`**
+  and carries NO context-length metadata (the `/v1/models` protocol has no window field).
+  So it surfaces `claude-*`/`anthropic-*` gateway models only — grok and `agy-gemini-*`
+  are dropped — and it cannot fix grok's window (that is `CLAUDE_CODE_MAX_CONTEXT_TOKENS`'s
+  job). The filter lives in the fetch/build fn that writes the cache; the cache *reader*
+  `a$r()` then maps that already-filtered set (see "Model selector / picker configuration").
 - `ANTHROPIC_DEFAULT_*_SUPPORTED_CAPABILITIES` /
   `ANTHROPIC_CUSTOM_MODEL_OPTION_SUPPORTED_CAPABILITIES` know only 8
   capability strings (thinking/effort/temperature families) — nothing
@@ -82,26 +81,39 @@ frontmatter, or the `clg` launcher. Three levers surface them IN the picker:
 2. **Add ONE custom entry** — `ANTHROPIC_CUSTOM_MODEL_OPTION` (+ `_NAME`, `_DESCRIPTION`,
    `_SUPPORTED_CAPABILITIES`) adds exactly one extra picker row (e.g. point it at
    `grok-4.5`). Singular — there is no indexed `_2` variant.
-3. **Gateway discovery — adds ALL served models** — `CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=true`
+3. **Gateway discovery (claude/anthropic-prefixed only)** — `CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=true`
    (add to the env block). At bootstrap Claude Code fetches `<base>/v1/models?limit=1000`,
-   caches `~/.claude(-clx)/cache/gateway-models.json`, and maps EVERY model to a picker row
-   (description "From gateway"). Binary gate `Jlc()`: flag truthy (accepts `"true"`) AND
-   `vn()==="firstParty"` (Anthropic OAuth / claude.ai auth — the merged proxy world qualifies;
-   Bedrock/Vertex do not) AND `ANTHROPIC_BASE_URL` set. **No claude/anthropic prefix filter**
-   — grok, `agy-gemini-*`, and every `claude-*` proxy model all appear. Read at bootstrap →
-   needs a session RESTART. It carries no window metadata (see the correction above).
+   validates, **filters to IDs matching `/^(claude|anthropic)/i`** (regex in the fetch/build
+   fn — verified 2.1.215; a second `ile()` tier filter also applies), maps them to picker rows
+   (description "From gateway"), and caches `~/.claude(-clx)/cache/gateway-models.json` (the
+   reader `a$r()` re-maps that already-filtered set). Gates (`Jlc()` + bootstrap):
+   flag truthy (`"true"`); `vn()==="firstParty"` (OAuth/claude.ai — NOT Bedrock/Vertex/Mantle);
+   `$d()` false = `ANTHROPIC_BASE_URL` is a CUSTOM gateway (not api.anthropic.com); and NOT
+   `ta()` (nonessential traffic on — i.e. `DO_NOT_TRACK`/`DISABLE_TELEMETRY`/
+   `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` all unset). Read at bootstrap → needs a full
+   session RESTART (`/reload-plugins` does NOT trigger it; and it's async, so a `-p` run exits
+   before it caches). **Result: only real `claude-*` proxy models appear** (opus-4-6/4-7/4-8,
+   sonnet-4-5/4-6/5, …); **grok-4.5 and the `agy-gemini-*` pair (non-claude prefixes) are
+   filtered OUT.** (The agy-Claude aliases were removed 2026-07-19 for quota reasons, so NO agy
+   model appears via discovery — the surviving agy Gemini pair is non-claude.) No window metadata.
 
-Because discovery dumps ALL served models (here ~38, incl. `grok-imagine-*` etc.), trim the
-picker with a whitelist (both are `settings.json` top-level keys, not env):
+Discovery still surfaces every `claude-*` proxy model (~15: opus-4-1/4-5/4-6/4-7/4-8,
+sonnet-4/4-5/4-6/5, haiku, 3-7, …), so trim the picker with a whitelist (`settings.json`
+top-level keys, not env):
 
 - **`availableModels`** (array of model-id strings) + **`enforceAvailableModels: true`**
-  restrict the picker to the listed ids (a managed-settings feature; non-string entries are
-  ignored; if the tier default isn't listed, Default resolves to the first allowed id).
+  restrict the picker to the listed ids (managed-settings feature; non-string entries ignored;
+  if the tier default isn't listed, Default resolves to the first allowed id). It only TRIMS
+  the built list — it cannot ADD grok/`agy-gemini-*` that the prefix filter already dropped.
 - **`modelOverrides`** remaps an Anthropic model id (e.g. `claude-opus-4-6`) to another.
 
-Example — show just grok + the 4 agy models + your Claude defaults:
+To surface grok/`agy-gemini-*` in the picker: `ANTHROPIC_CUSTOM_MODEL_OPTION` adds ONE
+(e.g. grok-4.5, which keeps its 500k window since the id stays non-claude); the rest use typed
+`/model <id>`. Do NOT alias grok/gemini to `claude-*` just to pass the filter — that would
+force them onto the ~200k catalog window.
+
+Example — keep grok (custom slot) + your Claude defaults (agy Gemini stays typed/subagent):
 ```json
-"availableModels": ["grok-4.5","claude-opus-4-6-agy","claude-sonnet-4-6-agy",
-  "agy-gemini-3-1-pro","agy-gemini-3-5-flash","claude-opus-4-8","claude-sonnet-5"],
+"availableModels": ["grok-4.5","claude-opus-4-8","claude-sonnet-5","claude-fable-5"],
 "enforceAvailableModels": true
 ```
