@@ -12,6 +12,8 @@ headless `claude -p` workers), or in visible PowerShell windows for the legacy C
 persisted under `.claude-codex/runs/<run-id>/` and structured captain steering, completion watchers, and
 captain-help mailboxes.
 
+**Live running code vs. this repo:** the authoritative running bridge is `C:/Users/jonny/.agent-bridge/visible_agent_bridge.py` + `claude_worker_runner.py` (NOT a git-tracked directory). This git repo is the source/reference; changes here must be synced into `~/.agent-bridge/` to take effect. The installed skill lives at the double-nested `~/.claude/skills/claude-manages-codex/skills/claude-manages-codex/SKILL.md`.
+
 **Worker backends (2026-07-15, windowless paths added 2026-07-18):** the preferred worker MODEL is
 **grok-4.5** (owner is on SuperGrok Heavy); the preferred SPAWN PATHS are the **native grok subagent**
 (Agent tool, `subagent_type: "grok"`, proxy-backed sessions — see `plugin/agents/grok.md`) and
@@ -30,10 +32,7 @@ Codex-centric because Codex was the original backend — read "Codex" as "the wo
 
 ## Tools exposed
 
-The tools below are the legacy visible-window Codex tools. For the preferred windowless tools
-(`start_claude_worker`, `steer_claude_run`, `check_worker_backends`) and the native grok subagent
-(`Agent` tool, `subagent_type: "grok"` — not an MCP tool), see "Windowless worker paths" above; for the
-Grok-CLI/Antigravity visible-window tools, see "Legacy visible-window worker backends" below.
+> ⚠️ **Codex is DISABLED (owner 2026-07-15, ChatGPT login revoked).** The Codex worker tools below remain documented for a possible future revival only — do not route to Codex. Preferred worker today is grok-4.5 (windowless native subagent or `start_claude_worker`).
 
 - `start_visible_codex_worker` - launch the default single-worker `codex exec --json` path from a final prompt in a visible window with saved structured logs.
 - `start_visible_haiku_composed_codex_worker` - let Claude pass a compact captain brief, have Claude Haiku expand the full Codex prompt, then launch the default non-interactive visible CLI worker.
@@ -79,21 +78,19 @@ CLIProxyAPI on the agy account's separate quota — see `plugin/agents/agy-*.md`
 upgraded to SuperGrok Heavy on 2026-07-15); **Claude Sonnet is the fallback** when grok is unavailable
 or capped.
 
+**Memory capture (claude-mem):** headless `claude_worker` runs execute under `~/.claude-clx` where claude-mem hooks are enabled, so their work is passively captured. The legacy grok-CLI and agy visible-window backends fire no hooks (no claude-mem). Native grok/agy subagents are covered only by the parent session's capture.
+
 Context windows for grok workers (verified 2026-07-19 on Claude Code 2.1.21x): Claude Code budgets
 unknown model IDs at 200k. Deployments should set `CLAUDE_CODE_MAX_CONTEXT_TOKENS=500000` (full
 required env block + rationale: `docs/setup/env-vars.md`) in the
 settings.json `env` block of proxy-backed worlds — it applies only to non-`claude-` model IDs and gives
 grok subagents/workers grok-4.5's real ~500k window with normal autocompaction (undocumented internal —
-re-verify after CLI version bumps). Do NOT use a `[1m]` suffix in agent frontmatter (stripped in subagent
-resolution; would overshoot the real window). `launchers/clg.cmd` starts a grok **main-model** session
+re-verify after CLI version bumps). Do NOT use a `[1m]` suffix in **grok** agent frontmatter (grok's real window is ~500k; `[1m]` would overshoot it and is stripped in subagent resolution). For Claude main-model launch profiles, `[1m]` IS correct — the canonical Claude model IDs in the launch configs (clx, cld) carry the `[1m]` suffix to request the 1M context window, and `autoCompactWindow` is set to `1000000`. `launchers/clg.cmd` starts a grok **main-model** session
 the same way. Related session-wide requirements: `ENABLE_TOOL_SEARCH=true` (grok rejects >350 tool
 definitions per request; deferred loading sends ~14), and Remote Control is mutually exclusive with any
 `ANTHROPIC_BASE_URL` gateway (use `launchers/cld.cmd` for a direct-Anthropic RC-capable world).
 
-Use Codex or Antigravity only when
-explicitly asked, and call `check_worker_backends(cwd=None, deep=False)` first to confirm the backend is
-actually usable (`deep=True` adds one short live `codex exec` probe, since Codex's local JWT can look
-valid while the ChatGPT session was revoked server-side — observed live on this dev machine).
+Codex is currently **DISABLED** (ChatGPT login revoked) — do not route to it. Use **Antigravity (agy)** as a fallback when grok-4.5 is exhausted/capped, or when explicitly requested — it is a documented fallback path, not last-resort-only. Always call `check_worker_backends` first to confirm a backend is usable.
 
 ### Grok backend
 
@@ -127,7 +124,7 @@ uses.
 Claude Sonnet 4.6 (Thinking), Gemini 3.1 Pro (High), Gemini 3.5 Flash (High) — spawnable as native
 Claude Code subagents (`subagent_type: "agy-opus-4-6"` / `"agy-sonnet-4-6"` / `"agy-gemini-3-1-pro"` /
 `"agy-gemini-3-5-flash"`, definitions in `plugin/agents/agy-*.md`) through CLIProxyAPI on the agy
-account's **separate quota** (not the real Claude/Anthropic subscription). Preferred over the legacy
+account's **separate quota** (not the real Claude/Anthropic subscription). The agy quota is split into TWO shared buckets — {opus-4-6, sonnet-4-6, gpt-oss-120B} and {gemini-3.1-pro, gemini-3.5-flash}; a fallback ladder must HOP buckets (e.g. sonnet-4-6 capped → hop to gemini-3.1-pro, not stay in the same bucket). GPT-OSS-120B is served by the proxy but currently unwired. Under load the buckets can cool down ('credentials cooling down') and large-context agy calls occasionally return a malformed HTTP 200 through the proxy — treat empty/malformed bodies as a retry/fallback signal, not success. Preferred over the legacy
 visible-terminal tools below. Requires Antigravity channel auth (`cli-proxy-api.exe -antigravity-login`)
 and the `oauth-model-alias.antigravity` block in `config.yaml` — see `docs/setup/agy-antigravity.md`.
 

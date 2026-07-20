@@ -28,6 +28,8 @@ safety. `CLAUDE_CODE_MAX_CONTEXT_TOKENS` is an UNDOCUMENTED internal of the
 2.1.21x builds — re-verify after Claude Code version bumps. Main-model grok
 sessions: use the `clg` launcher (~\.local\bin\clg.cmd). -->
 
+<!-- claude-mem: the native grok subagent fires NO claude-mem hooks; its work is covered only by the parent session's memory capture. -->
+
 
 
 You are a grok-4.5 worker agent inside the owner's Multi-Agentic Harness,
