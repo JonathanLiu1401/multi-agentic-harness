@@ -87,7 +87,12 @@ grok subagents/workers grok-4.5's real ~500k window with normal autocompaction (
 re-verify after CLI version bumps). Do NOT use a `[1m]` suffix in **grok** agent frontmatter (grok's real window is ~500k; `[1m]` would overshoot it and is stripped in subagent resolution). For Claude main-model launch profiles, `[1m]` IS correct — the canonical Claude model IDs in the launch configs (clx, cld) carry the `[1m]` suffix to request the 1M context window, and `autoCompactWindow` is set to `1000000`. `launchers/clg.cmd` starts a grok **main-model** session
 the same way. Related session-wide requirements: `ENABLE_TOOL_SEARCH=true` (grok rejects >350 tool
 definitions per request; deferred loading sends ~14), and Remote Control is mutually exclusive with any
-`ANTHROPIC_BASE_URL` gateway (use `launchers/cld.cmd` for a direct-Anthropic RC-capable world).
+`ANTHROPIC_BASE_URL` gateway (use `launchers/cld.cmd` for a direct-Anthropic RC-capable world). The
+interactive `/model` **picker** in a proxy+OAuth world holds exactly ONE non-Claude model (the single
+`ANTHROPIC_CUSTOM_MODEL_OPTION` slot; tier slots are Claude-only, and gateway discovery is dead there —
+its fetch needs a static auth token OAuth lacks, and it filters to `claude`/`anthropic` ids anyway).
+Reach the rest via typed `/model <id>` or `clg`; full detail in the "Model selector / picker
+configuration" section of `docs/setup/env-vars.md`.
 
 Codex is currently **DISABLED** (ChatGPT login revoked) — do not route to it. Use **Antigravity (agy)** as a fallback when grok-4.5 is exhausted/capped, or when explicitly requested — it is a documented fallback path, not last-resort-only. Always call `check_worker_backends` first to confirm a backend is usable.
 

@@ -30,23 +30,15 @@ quota. Auth files **hot-reload** (fsnotify on the auth dir); no restart needed f
 ## 2. Add the model aliases to `config.yaml`
 
 Append to `C:\Users\jonny\CLIProxyAPI\config.yaml` (back it up first). `fork` omitted =
-rename, so the upstream id is replaced by a unique client id; `force-mapping: true`
-echoes the alias back in the response `model` field. The claude- prefix on the two
-Claude models preserves Claude-native thinking-block handling; agy- marks the Gemini
-pair. Renaming `claude-sonnet-4-6` also resolves a live collision (that bare id was
-served by BOTH the anthropic and antigravity channels).
+rename, so the upstream id is replaced by a unique `agy-` client id; `force-mapping: true`
+echoes the alias back in the response `model` field. The two Antigravity **Claude** 4.6
+models (Opus/Sonnet) are EXCLUDED, not aliased — their quota bucket exhausts almost instantly
+(dropped 2026-07-19); excluding `claude-sonnet-4-6` also returns that bare id to anthropic-only
+(so there is no cross-provider collision).
 
 ```yaml
 oauth-model-alias:
   antigravity:
-    - name: "claude-opus-4-6-thinking"
-      alias: "claude-opus-4-6-agy"
-      display-name: "Antigravity Claude Opus 4.6 (Thinking)"
-      force-mapping: true
-    - name: "claude-sonnet-4-6"
-      alias: "claude-sonnet-4-6-agy"
-      display-name: "Antigravity Claude Sonnet 4.6 (Thinking)"
-      force-mapping: true
     - name: "gemini-pro-agent"
       alias: "agy-gemini-3-1-pro"
       display-name: "Antigravity Gemini 3.1 Pro (High)"
@@ -55,6 +47,12 @@ oauth-model-alias:
       alias: "agy-gemini-3-5-flash"
       display-name: "Antigravity Gemini 3.5 Flash (High)"
       force-mapping: true
+
+# Exclude the Antigravity Claude 4.6 models (quota bucket exhausts instantly).
+oauth-excluded-models:
+  antigravity:
+    - "claude-opus-4-6-thinking"
+    - "claude-sonnet-4-6"
 ```
 
 ## 3. RESTART the proxy — config does NOT hot-reload on Windows

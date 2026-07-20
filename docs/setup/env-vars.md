@@ -70,50 +70,48 @@ Additionally, `/autocompact` and auto-dream (the `/memory` toggle) are also gate
 
 ## Model selector / `/model` picker configuration
 
-Verified against the 2.1.215 `claude.exe` bundle. The interactive `/model` picker lists a
-fixed set of first-party **Claude slots** (Default, Opus, Fable, Sonnet, Sonnet-1M, Haiku).
-Proxy models (grok, `agy-*`) are otherwise used via typed `/model <id>`, `--model`, agent
-frontmatter, or the `clg` launcher. Three levers surface them IN the picker:
+Verified against the 2.1.215 `claude.exe` bundle in the plain **proxy + OAuth** world.
 
-1. **Remap a built-in slot** — `ANTHROPIC_DEFAULT_{OPUS,SONNET,FABLE,HAIKU}_MODEL`
-   (+ optional `_NAME` / `_DESCRIPTION` / `_SUPPORTED_CAPABILITIES`) points a slot at any
-   model id (this is why the Opus slot already shows `claude-opus-4-8[1m]`).
-2. **Add ONE custom entry** — `ANTHROPIC_CUSTOM_MODEL_OPTION` (+ `_NAME`, `_DESCRIPTION`,
-   `_SUPPORTED_CAPABILITIES`) adds exactly one extra picker row (e.g. point it at
-   `grok-4.5`). Singular — there is no indexed `_2` variant.
-3. **Gateway discovery (claude/anthropic-prefixed only)** — `CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=true`
-   (add to the env block). At bootstrap Claude Code fetches `<base>/v1/models?limit=1000`,
-   validates, **filters to IDs matching `/^(claude|anthropic)/i`** (regex in the fetch/build
-   fn — verified 2.1.215; a second `ile()` tier filter also applies), maps them to picker rows
-   (description "From gateway"), and caches `~/.claude(-clx)/cache/gateway-models.json` (the
-   reader `a$r()` re-maps that already-filtered set). Gates (`Jlc()` + bootstrap):
-   flag truthy (`"true"`); `vn()==="firstParty"` (OAuth/claude.ai — NOT Bedrock/Vertex/Mantle);
-   `$d()` false = `ANTHROPIC_BASE_URL` is a CUSTOM gateway (not api.anthropic.com); and NOT
-   `ta()` (nonessential traffic on — i.e. `DO_NOT_TRACK`/`DISABLE_TELEMETRY`/
-   `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` all unset). Read at bootstrap → needs a full
-   session RESTART (`/reload-plugins` does NOT trigger it; and it's async, so a `-p` run exits
-   before it caches). **Result: only real `claude-*` proxy models appear** (opus-4-6/4-7/4-8,
-   sonnet-4-5/4-6/5, …); **grok-4.5 and the `agy-gemini-*` pair (non-claude prefixes) are
-   filtered OUT.** (The agy-Claude aliases were removed 2026-07-19 for quota reasons, so NO agy
-   model appears via discovery — the surviving agy Gemini pair is non-claude.) No window metadata.
+**Hard ceiling: the picker holds exactly ONE non-Claude model.** The two mechanisms that would
+*append arbitrary models* to the picker are BOTH dead behind the proxy:
 
-Discovery still surfaces every `claude-*` proxy model (~15: opus-4-1/4-5/4-6/4-7/4-8,
-sonnet-4/4-5/4-6/5, haiku, 3-7, …), so trim the picker with a whitelist (`settings.json`
-top-level keys, not env):
+- **Gateway discovery** (`CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=true`) never even fetches: its
+  bootstrap runs `if(!ANTHROPIC_AUTH_TOKEN && !Hte()) return`, and `Hte()` returns the static API key
+  from `DM()` — **null in pure-OAuth mode** — so it aborts before calling `/v1/models` (the cache
+  `~/.claude/cache/gateway-models.json` is never written). Even if it ran, it filters results to
+  `/^(claude|anthropic)/i`, dropping grok and `agy-*`. It would only work in API-key mode (e.g.
+  `clx`, which sets `ANTHROPIC_AUTH_TOKEN`), and even then shows claude-prefixed ids only. The other
+  gates all pass here (`vn()==="firstParty"`; `$d()` false = base URL is a custom gateway; `ta()`
+  false = no `DO_NOT_TRACK`/`DISABLE_TELEMETRY`/`CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`) — the auth
+  guard is the blocker. Harmless left on; it just no-ops.
+- **Server bootstrap** `additional_model_options` (from `/api/claude_cli/bootstrap`) — the proxy
+  doesn't serve that endpoint (same reason `/rc` and `/autocompact` are gone in this world).
 
-- **`availableModels`** (array of model-id strings) + **`enforceAvailableModels: true`**
-  restrict the picker to the listed ids (managed-settings feature; non-string entries ignored;
-  if the tier default isn't listed, Default resolves to the first allowed id). It only TRIMS
-  the built list — it cannot ADD grok/`agy-gemini-*` that the prefix filter already dropped.
-- **`modelOverrides`** remaps an Anthropic model id (e.g. `claude-opus-4-6`) to another.
+So the picker is built ONLY from static, env-defined entries (no fetch, no auth):
 
-To surface grok/`agy-gemini-*` in the picker: `ANTHROPIC_CUSTOM_MODEL_OPTION` adds ONE
-(e.g. grok-4.5, which keeps its 500k window since the id stays non-claude); the rest use typed
-`/model <id>`. Do NOT alias grok/gemini to `claude-*` just to pass the filter — that would
-force them onto the ~200k catalog window.
+1. **Tier slots** — `ANTHROPIC_DEFAULT_{OPUS,SONNET,FABLE,HAIKU}_MODEL` (+ `_NAME`/`_DESCRIPTION`/
+   `_SUPPORTED_CAPABILITIES`). These accept **only real Claude models**; a non-Claude id is silently
+   rejected and the slot falls back to its default. **VERIFIED**: `ANTHROPIC_DEFAULT_HAIKU_MODEL=
+   agy-gemini-3-1-pro[1m]` still rendered "Haiku 4.5", not Gemini. (This is why the Opus slot can be
+   `claude-opus-4-8[1m]` but no tier slot can hold grok/gemini.)
+2. **One custom slot** — `ANTHROPIC_CUSTOM_MODEL_OPTION` (+ `_NAME`/`_DESCRIPTION`/
+   `_SUPPORTED_CAPABILITIES`). Accepts **any** model, no validation. **VERIFIED**: `grok-4.5`
+   rendered as a picker row. Singular — there is no `_2`.
+3. `availableModels`+`enforceAvailableModels` only TRIM the built list; `modelOverrides` remaps a
+   claude id. Neither can ADD a non-Claude model.
 
-Example — keep grok (custom slot) + your Claude defaults (agy Gemini stays typed/subagent):
-```json
-"availableModels": ["grok-4.5","claude-opus-4-8","claude-sonnet-5","claude-fable-5"],
-"enforceAvailableModels": true
-```
+**Net: exactly one non-Claude model can be a picker row — the custom slot. grok OR gemini, not
+both.** The other is reached via typed `/model <id>` or a launcher (`clg` for grok).
+
+**Window — the `[1m]` rule for non-Claude MAIN models:** a non-Claude id used as the main model
+(the custom slot, the `model` pin, or typed `/model`) needs the `[1m]` suffix for its 1M window; bare,
+it inherits the 500k global `CLAUDE_CODE_MAX_CONTEXT_TOKENS`. **VERIFIED**: bare `agy-gemini-3-5-flash`
+showed 500k in `/context`; `agy-gemini-3-5-flash[1m]` → 1M. So pin/select Gemini as
+`agy-gemini-3-5-flash[1m]`, and use the suffix when typing (`/model agy-gemini-3-5-flash[1m]`).
+**Grok stays BARE** — its real window is ~500k, so `[1m]` would over-budget it. (The agy Gemini
+subagents already bake `[1m]` into their frontmatter.)
+
+**Current setup (2026-07-19):** custom slot = `grok-4.5` ("Grok 4.5", ~500k); Gemini 3.5 Flash via
+`/model agy-gemini-3-5-flash[1m]` or the `model` pin at 1M; Opus/Sonnet slots = real Claude (1M),
+Fable = real Claude (**protected** — usage credits), Haiku = default. Env is read at bootstrap → a
+FULL session restart applies changes (`/reload-plugins` does not).
