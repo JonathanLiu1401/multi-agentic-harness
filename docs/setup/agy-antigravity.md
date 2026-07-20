@@ -105,8 +105,9 @@ quota-fallback ladder must **hop buckets** — dropping opus→sonnet buys nothi
 are capped. Opus can burn Google One AI credits after free-tier exhaustion
 (`quota-exceeded.antigravity-credits: true`); Gemini rides free quota.
 
-Routing: **grok-4.5 first** (owner: grok-4.5 > agy Opus 4.6); use agy on grok-exhaustion
-or explicit request. Capability order opus > sonnet > gemini-3.1-pro > gemini-3.5-flash,
+Routing: **grok-4.5 routes first**; **Claude Sonnet subagents are the fallback**; **Codex is DISABLED**;
+use the **agy ladder on grok-exhaustion or explicit request** (owner: grok-4.5 > agy Opus 4.6).
+Capability order opus > sonnet > gemini-3.1-pro > gemini-3.5-flash,
 with the owner's rule of thumb: gemini-3.5-flash = speedy ops, gemini-3.1-pro =
 slower/harder (Flash actually edges Pro on agentic-coding throughput benchmarks).
 
@@ -117,3 +118,7 @@ New agent files don't appear in an already-running interactive session until
 them up automatically. The agent `.md` files live in `~/.claude/agents/agy-*.md`
 (junction-shared into `~/.claude-clx`); `install-windows.ps1` deploys them from
 `plugin/agents/`.
+
+## Memory capture (claude-mem)
+
+Native agy subagents fire NO `claude-mem` hooks — they are covered only by the parent Claude Code session's memory capture. By contrast, headless `claude_worker` runs execute under `~/.claude-clx` (claude-mem enabled) and their hooks fire natively. The legacy visible-window agy CLI worker also fires no hooks.
