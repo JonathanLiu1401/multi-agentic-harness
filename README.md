@@ -21,9 +21,8 @@ captain-help mailboxes.
 127.0.0.1:8317; the `model` arg honors any proxy model). **Claude Sonnet** subagents are the fallback;
 the **grok CLI** visible-window backend remains for its exclusive extras (Parallel Competition Mode,
 Mandatory Parallel Work-Checker); **Google Antigravity (agy)** has a preferred **native subagent path**
-with 4 models — Antigravity Claude Opus 4.6 (Thinking), Claude Sonnet 4.6 (Thinking), Gemini 3.1 Pro
-(High), Gemini 3.5 Flash (High) — spawnable as `subagent_type: "agy-opus-4-6"` /
-`"agy-sonnet-4-6"` / `"agy-gemini-3-1-pro"` / `"agy-gemini-3-5-flash"` through CLIProxyAPI on the agy
+with 2 **Gemini** models — Gemini 3.1 Pro
+(High), Gemini 3.5 Flash (High) — spawnable as `subagent_type: "agy-gemini-3-1-pro"` / `"agy-gemini-3-5-flash"` through CLIProxyAPI on the agy
 account's **separate quota** (not the real Claude/Anthropic subscription; definitions in
 `plugin/agents/agy-*.md`), preferred over the legacy visible-terminal `start_visible_agy_worker`;
 **Codex is disabled until further notice** (its ChatGPT login is revoked — the code is left intact but
@@ -71,7 +70,7 @@ proxy-backed sessions; definition in `plugin/agents/grok.md`), **claude_worker**
 implemented by `claude_worker_runner.py`), **Grok CLI** (`grok-4.5`, legacy visible-window, kept for
 Parallel Competition Mode + the Mandatory Parallel Work-Checker gate), **Claude Sonnet** (in-process
 `Agent` tool, always available), **Codex** (`gpt-5.6-sol`, disabled), and **Antigravity/agy** (preferred
-native subagents: `agy-opus-4-6` / `agy-sonnet-4-6` / `agy-gemini-3-1-pro` / `agy-gemini-3-5-flash` via
+native Gemini subagents: `agy-gemini-3-1-pro` / `agy-gemini-3-5-flash` via
 CLIProxyAPI on the agy account's separate quota — see `plugin/agents/agy-*.md`; legacy visible-terminal
 `start_visible_agy_worker` still available).
 **Grok-4.5 is the preferred worker model; the windowless paths are the preferred spawn paths** (owner
@@ -120,11 +119,8 @@ uses.
 
 ### Antigravity (agy) backend
 
-**Preferred path (native subagents, 2026-07-19):** 4 models — Antigravity Claude Opus 4.6 (Thinking),
-Claude Sonnet 4.6 (Thinking), Gemini 3.1 Pro (High), Gemini 3.5 Flash (High) — spawnable as native
-Claude Code subagents (`subagent_type: "agy-opus-4-6"` / `"agy-sonnet-4-6"` / `"agy-gemini-3-1-pro"` /
-`"agy-gemini-3-5-flash"`, definitions in `plugin/agents/agy-*.md`) through CLIProxyAPI on the agy
-account's **separate quota** (not the real Claude/Anthropic subscription). The agy quota is split into TWO shared buckets — {opus-4-6, sonnet-4-6, gpt-oss-120B} and {gemini-3.1-pro, gemini-3.5-flash}; a fallback ladder must HOP buckets (e.g. sonnet-4-6 capped → hop to gemini-3.1-pro, not stay in the same bucket). GPT-OSS-120B is served by the proxy but currently unwired. Under load the buckets can cool down ('credentials cooling down') and large-context agy calls occasionally return a malformed HTTP 200 through the proxy — treat empty/malformed bodies as a retry/fallback signal, not success. Preferred over the legacy
+**Preferred path (native Gemini subagents, 2026-07-19):** 2 models — Gemini 3.1 Pro (High), Gemini 3.5 Flash (High) — spawnable as native Claude Code subagents (`subagent_type: "agy-gemini-3-1-pro"` / `"agy-gemini-3-5-flash"`, definitions in `plugin/agents/agy-*.md`) through CLIProxyAPI on the agy
+account's **separate quota** (not the real Claude/Anthropic subscription). The agy Gemini subagents draw the {gemini-3.1-pro, gemini-3.5-flash} quota bucket (ample). The other bucket {Claude opus-4-6, sonnet-4-6, gpt-oss-120B} has very low limits — its 5-hour window exhausts fast (observed at 0% while the Gemini bucket had ~96% free) — so the Claude 4.6 models (and GPT-OSS) are served but left UNWIRED as subagents. Large-context agy calls occasionally return a malformed HTTP 200 through the proxy — treat empty/malformed bodies as a retry/fallback signal, not success. Preferred over the legacy
 visible-terminal tools below. Requires Antigravity channel auth (`cli-proxy-api.exe -antigravity-login`)
 and the `oauth-model-alias.antigravity` block in `config.yaml` — see `docs/setup/agy-antigravity.md`.
 
