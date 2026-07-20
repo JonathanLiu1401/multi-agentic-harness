@@ -1,6 +1,6 @@
 # Antigravity (agy) native subagents
 
-Verified 2026-07-19 on Claude Code 2.1.215 + CLIProxyAPI 7.2.88 (Windows).
+Verified 2026-07-19 on Claude Code 2.1.215 + CLIProxyAPI 7.2.91 (Windows).
 
 Two Google Antigravity **Gemini** models wired as **native Claude Code subagents** (Agent tool,
 `subagent_type: agy-*`) served through the local CLIProxyAPI gateway — the non-terminal
@@ -114,6 +114,10 @@ New agent files don't appear in an already-running interactive session until
 them up automatically. The agent `.md` files live in `~/.claude/agents/agy-*.md`
 (junction-shared into `~/.claude-clx`); `install-windows.ps1` deploys them from
 `plugin/agents/`.
+
+## Minimum version / the malformed-HTTP-200 fix
+
+This doc requires CLIProxyAPI **v7.2.90 or newer** (we run **v7.2.91**). The earlier intermittent agy-Gemini failure (`API Error: API returned an empty or malformed response (HTTP 200)`) was CLIProxyAPI bug [GH#4431](https://github.com/router-for-me/CLIProxyAPI/issues/4431): Antigravity->Gemini sometimes returned HTTP 200 with an empty candidate (`parts:[{"text":""}]`, `finishReason STOP`), and the proxy's Claude-format translator then emitted a truncated/invalid stream (`message_start` with empty content, then no `message_stop`). Upstream 200 meant request-retry never fired. Fixed by commit `cd98e9d7`, first shipped in v7.2.90; local upgrade 7.2.88 -> 7.2.91 on 2026-07-19 dropped the malformed-200 rate on `agy-gemini-3-1-pro` from ~37% to 0 across 57 calls. Residual (separate, lower severity): an occasional upstream hang (request sits the full timeout), likely latency or quota-bucket strain; it is retryable and must not be conflated with the fixed bug.
 
 ## Memory capture (claude-mem)
 

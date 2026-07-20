@@ -1,6 +1,6 @@
 # Required settings.json env block (proxy-backed worlds)
 
-Verified 2026-07-19 on Claude Code 2.1.215 against CLIProxyAPI 7.2.88.
+Verified 2026-07-19 on Claude Code 2.1.215 against CLIProxyAPI 7.2.91.
 These go in the `"env"` object of `settings.json` in each **proxy-backed**
 world (`~/.claude` for the merged plain world, `~/.claude-clx` for clx).
 The direct world (`~/.claude-direct`) gets the same block minus the proxy

@@ -125,7 +125,7 @@ uses.
 ### Antigravity (agy) backend
 
 **Preferred path (native Gemini subagents, 2026-07-19):** 2 models — Gemini 3.1 Pro (High), Gemini 3.5 Flash (High) — spawnable as native Claude Code subagents (`subagent_type: "agy-gemini-3-1-pro"` / `"agy-gemini-3-5-flash"`, definitions in `plugin/agents/agy-*.md`) through CLIProxyAPI on the agy
-account's **separate quota** (not the real Claude/Anthropic subscription). The agy Gemini subagents draw the {gemini-3.1-pro, gemini-3.5-flash} quota bucket (ample). The other bucket {Claude opus-4-6, sonnet-4-6, gpt-oss-120B} has very low limits — its 5-hour window exhausts fast (observed at 0% while the Gemini bucket had ~96% free) — so the Claude 4.6 models (and GPT-OSS) are served but left UNWIRED as subagents. Large-context agy calls occasionally return a malformed HTTP 200 through the proxy — treat empty/malformed bodies as a retry/fallback signal, not success. Preferred over the legacy
+account's **separate quota** (not the real Claude/Anthropic subscription). The agy Gemini subagents draw the {gemini-3.1-pro, gemini-3.5-flash} quota bucket (ample). The other bucket {Claude opus-4-6, sonnet-4-6, gpt-oss-120B} has very low limits — its 5-hour window exhausts fast (observed at 0% while the Gemini bucket had ~96% free) — so the Claude 4.6 models (and GPT-OSS) are served but left UNWIRED as subagents. The agy-Gemini path requires CLIProxyAPI v7.2.90 or newer (the earlier "malformed HTTP 200" failures were GH#4431, fixed in v7.2.90+). Preferred over the legacy
 visible-terminal tools below. Requires Antigravity channel auth (`cli-proxy-api.exe -antigravity-login`)
 and the `oauth-model-alias.antigravity` block in `config.yaml` — see `docs/setup/agy-antigravity.md`.
 
