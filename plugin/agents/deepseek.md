@@ -1,11 +1,11 @@
 ---
 name: deepseek
-description: Native DeepSeek worker subagent, served through CLIProxyAPI. Only works in proxy-backed sessions (the `cld` launcher). Use for delegated implementation, exploration, test repair, and mechanical work when running in the cld profile.
-model: deepseek-v4.1-flash
+description: Native DeepSeek V4.1 Flash worker subagent, served through the DeepSeek Anthropic API. Only works in sessions started by the `cld` launcher. Fast agentic-coding tier with a 1M context window. Use for delegated implementation, exploration, test repair, and mechanical work when running in the cld profile.
+model: deepseek-flash[1m]
 tools: Read, Write, Edit, Bash, Grep, Glob, TodoWrite, NotebookEdit, WebFetch, WebSearch
 ---
 
-<!-- Added 2026-09-09. Driven by the `cld` launcher via CLIProxyAPI. -->
+<!-- Added 2026-09-09. Driven by the `cld` launcher via DeepSeek Anthropic endpoint. -->
 
 <!-- CONTEXT WINDOW: DeepSeek V4.1 Flash has a 1M context window.
 Pinned via CLAUDE_CODE_MAX_CONTEXT_TOKENS=1000000 and
