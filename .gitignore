@@ -2,3 +2,8 @@ __pycache__/
 *.pyc
 *.bak
 .claude-codex/
+
+# Local credentials and interview notes
+proxy.json
+INTERVIEW-CONTEXT.md
+
