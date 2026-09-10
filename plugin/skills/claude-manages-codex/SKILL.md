@@ -16,7 +16,8 @@ Use this session's model as captain (Claude on plain `claude`, grok on `clx`, Ge
 - A **plain Claude** session (`~/.claude`, api.anthropic.com) delegates through the `Agent` tool with a built-in `subagent_type` (`general-purpose`, `Explore`, `Plan`, `claude`, ...). Grok work uses `start_visible_grok_worker` (Grok Build CLI). Agy work uses `start_visible_agy_worker` (Antigravity CLI). Do not Bash those CLIs, and do not use `clx` / `clg` native Agent types from plain Claude.
 - A **`clx` session** (Claude Code on grok via CLIProxyAPI) uses Agent `subagent_type: "grok"` for grok work and `start_visible_agy_worker` for agy work. Never Agent `agy-gemini-*`.
 - A **`clg` session** (Claude Code on Gemini via CLIProxyAPI) uses Agent `subagent_type: "agy-gemini-3-8-flash"` for agy work and `start_visible_grok_worker` for grok work. Never Agent `grok`.
-  - Native `grok` / `agy-gemini-3-8-flash` Agent spawns are same-harness only inside their own profile. clx and clg are not cross-compatible. The forbidden thing is Bashing another CLI, or borrowing the other profile's Agent type.
+- A **`cld` session** (Claude Code on DeepSeek via CLIProxyAPI) uses Agent `subagent_type: "deepseek"` for DeepSeek work. Grok work uses `start_visible_grok_worker`, and agy work uses `start_visible_agy_worker`.
+  - Native `grok` / `agy-gemini-3-8-flash` / `deepseek` Agent spawns are same-harness only inside their own profile. clx, clg, and cld are not cross-compatible. The forbidden thing is Bashing another CLI, or borrowing another profile's Agent type.
 - A session inside the Cursor `cursor-agent` TUI spawns cursor-agent subagents, choosing the worker model per the cursor routing guidance.
 - A grok (Grok Build CLI) session spawns grok's own native subagents, default grok model.
 - **Only exception:** an explicit user instruction naming a different harness. "Delegate this" on its own means "spawn a subagent of your own kind," not "launch a different CLI."
@@ -34,9 +35,10 @@ clx reported `E2E_NATIVE_AGY=WRONG_MODEL` and ran as `grok-4.6(high)`.
 
 | Captain | Same-family workers (default) | Other-family workers |
 | --- | --- | --- |
-| **Plain Claude** (`~/.claude`, api.anthropic.com) | Agent built-in `subagent_type` (`general-purpose`, `Explore`, `Plan`, `claude`) | grok: `start_visible_grok_worker` (Grok Build CLI). agy: `start_visible_agy_worker` (Antigravity CLI). Never native `grok` / `agy-gemini-*`. Never `clx` / `clg`. |
-| **clx** (`~/.claude-clx`, grok 500k) | Agent `subagent_type: "grok"` | agy: `start_visible_agy_worker`. Never Agent `agy-gemini-*`. Never switch to clg. |
-| **clg** (`~/.claude-clg`, Gemini 1M) | Agent `subagent_type: "agy-gemini-3-8-flash"` | grok: `start_visible_grok_worker` (Grok Build CLI). Never Agent `grok`. Never switch to clx. |
+| **Plain Claude** (`~/.claude`, api.anthropic.com) | Agent built-in `subagent_type` (`general-purpose`, `Explore`, `Plan`, `claude`) | grok: `start_visible_grok_worker` (Grok Build CLI). agy: `start_visible_agy_worker` (Antigravity CLI). Never native `grok` / `agy-gemini-*` / `deepseek`. Never `clx` / `clg` / `cld`. |
+| **clx** (`~/.claude-clx`, grok 500k) | Agent `subagent_type: "grok"` | agy: `start_visible_agy_worker`. Never Agent `agy-gemini-*`. Never switch to clg or cld. |
+| **clg** (`~/.claude-clg`, Gemini 1M) | Agent `subagent_type: "agy-gemini-3-8-flash"` | grok: `start_visible_grok_worker` (Grok Build CLI). Never Agent `grok`. Never switch to clx or cld. |
+| **cld** (`~/.claude-cld`, DeepSeek 64k) | Agent `subagent_type: "deepseek"` | grok: `start_visible_grok_worker`. agy: `start_visible_agy_worker`. Never switch to clx or clg. |
 
 **Native subagents are same-family only.** In clx, native `grok` is the grok
 path (verified 2026-09-02: a clx subagent reported `grok-4.6(high)` and

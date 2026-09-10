@@ -56,16 +56,15 @@ Write-Host "Registered scheduled task '$TaskName' (at logon)."
 Start-ScheduledTask -TaskName $TaskName
 Write-Host "Started it now. Waiting for the port to come up..."
 
-$key = (Get-Content -Raw (Join-Path $HOME ".cc-bridge\secrets\clx-api.key")).Trim()
+$keyFile = Join-Path $HOME ".cc-bridge\secrets\clx-api.key"
+$key = if (Test-Path $keyFile) { (Get-Content -Raw $keyFile).Trim() } else { "" }
 $ok = $false
 foreach ($i in 1..20) {
     Start-Sleep -Seconds 1
-    try {
-        Invoke-RestMethod -Uri "http://127.0.0.1:8317/v1/models" -TimeoutSec 3 `
-            -Headers @{ "Authorization" = "Bearer $key" } | Out-Null
+    if (Get-NetTCPConnection -LocalPort 8317 -State Listen -ErrorAction SilentlyContinue) {
         $ok = $true
         break
-    } catch { }
+    }
 }
 
 if ($ok) {

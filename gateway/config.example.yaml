@@ -10,3 +10,21 @@ api-keys:
   - "ccp-your-local-client-api-key-here"
 
 debug: false
+
+# OpenAI compatibility providers (e.g. DeepSeek for cld launcher)
+openai-compatibility:
+  - name: "deepseek"
+    base-url: "https://api.deepseek.com"
+    api-key-entries:
+      - api-key: "your-deepseek-api-key-here"
+    models:
+      - name: "deepseek-chat"
+        alias: "deepseek-chat"
+        display-name: "DeepSeek V3"
+        max-context-length: 65536
+      - name: "deepseek-reasoner"
+        alias: "deepseek-reasoner"
+        display-name: "DeepSeek R1"
+        max-context-length: 65536
+        thinking:
+          levels: ["high", "medium", "low"]

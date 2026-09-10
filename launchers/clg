@@ -20,7 +20,7 @@ set -e
 GATEWAY="http://127.0.0.1:8317"
 KEYFILE="$HOME/.cc-bridge/secrets/clx-api.key"
 
-[ -r "$KEYFILE" ] || { echo "clg: missing $KEYFILE" >&2; exit 1; }
+[ -r "$KEYFILE" ] || { echo "clg: missing $KEYFILE - please save your local client API key from config.yaml to $KEYFILE" >&2; exit 1; }
 
 # Clear anything inherited so no Claude model id or credential leaks in.
 unset ANTHROPIC_API_KEY ANTHROPIC_MODEL ANTHROPIC_DEFAULT_MODEL

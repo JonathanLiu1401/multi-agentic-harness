@@ -1,8 +1,9 @@
-# clx / clg: provider models in the Claude Code TUI
+# clx / clg / cld: provider models in the Claude Code TUI
 
-Set up 2026-09-02. Runs Grok and Google Antigravity (Gemini) models inside the
-Claude Code TUI, via a stock local CLIProxyAPI gateway, with fully isolated
-config. The plain `claude` entry point and `~/.claude` are untouched.
+Set up 2026-09-02, extended 2026-09-09. Runs Grok, Google Antigravity (Gemini),
+and DeepSeek (V3/R1) models inside the Claude Code TUI, via a stock local
+CLIProxyAPI gateway, with fully isolated config. The plain `claude` entry point
+and `~/.claude` are untouched.
 
 Owner brief: "I think claude code is the best agent harness for long horizon
 reasoning tasks... this should not impact my current claude code configs."
@@ -11,28 +12,29 @@ after judging the 2026-08 attempt as "trying to do too much".
 
 ## What runs
 
-| Command | Provider | Config dir | Context | Autostart task |
-| --- | --- | --- | --- | --- |
-| `clx` | Grok 4.5 / 4.6 | `~/.claude-clx` | 500k | `CLIProxyAPI` |
-| `clg` | Gemini 3.6/3.7/3.8 Flash, 3.1 Pro | `~/.claude-clg` | 1M | `CLIProxyAPI` |
+| Command | Provider | Primary Models | Config dir | Context | Autostart task |
+| --- | --- | --- | --- | --- | --- |
+| `clx` | Grok | Grok 4.5 / 4.6 | `~/.claude-clx` | 500k | `CLIProxyAPI` |
+| `clg` | Gemini | Gemini 3.6/3.7/3.8 Flash, 3.1 Pro | `~/.claude-clg` | 1M | `CLIProxyAPI` |
+| `cld` | DeepSeek | DeepSeek V3, DeepSeek R1 | `~/.claude-cld` | 64k | `CLIProxyAPI` |
 
-One gateway serves both: CLIProxyAPI v7.2.147 at `~/cliproxyapi/`, bound to
+One gateway serves all three: CLIProxyAPI v7.2.147 at `~/cliproxyapi/`, bound to
 `127.0.0.1:8317`, started at logon by a per-user scheduled task.
 
 Shipped components in this repository:
-- **Launchers**: `launchers/` (`clx`, `clx.ps1`, `clx.cmd`, `clg`, `clg.ps1`, `clg.cmd`)
+- **Launchers**: `launchers/` (`clx`, `clg`, `cld` in Bash, PS1, and CMD)
 - **Gateway management**: `gateway/` (`start-gateway.ps1`, `stop-gateway.ps1`, `install-autostart.ps1`, `config.example.yaml`)
-- **Profile templates**: `templates/` (`templates/claude-clx/`, `templates/claude-clg/`)
+- **Profile templates**: `templates/` (`templates/claude-clx/`, `templates/claude-clg/`, `templates/claude-cld/`)
 - **Performance benchmarks & analysis**: [`docs/setup/clx-clg-perf.md`](clx-clg-perf.md)
 - **Interactive TUI test suite**: `tests/tui_test.py`
 
-Launchers live in `~/bin/{clx,clg}` (Git Bash) and `~/bin/{clx,clg}.ps1`, with
-`~/.local/bin/{clx,clg}.cmd` shims for PowerShell/cmd. Full operator detail is in
+Launchers live in `~/bin/{clx,clg,cld}` (Git Bash) and `~/bin/{clx,clg,cld}.ps1`, with
+`~/.local/bin/{clx,clg,cld}.cmd` shims for PowerShell/cmd. Full operator detail is in
 `gateway/README.md` and `launchers/README.md`; this file documents the harness-relevant parts.
 
 ## Native subagents (the harness change)
 
-`plugin/agents/grok.md` and `plugin/agents/agy-gemini-3-8-flash.md` are restored.
+`plugin/agents/grok.md`, `plugin/agents/agy-gemini-3-8-flash.md`, and `plugin/agents/deepseek.md` are available.
 They were deleted in `2df4291` when the gateway was decommissioned; the gateway
 is back, so they work again.
 

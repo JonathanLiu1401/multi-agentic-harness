@@ -10,7 +10,7 @@
 $Gateway = "http://127.0.0.1:8317"
 $KeyFile = Join-Path $HOME ".cc-bridge\secrets\clx-api.key"
 
-if (-not (Test-Path $KeyFile)) { Write-Error "clx: missing $KeyFile"; exit 1 }
+if (-not (Test-Path $KeyFile)) { Write-Error "clx: missing $KeyFile - please save your local client API key from config.yaml to $KeyFile"; exit 1 }
 
 foreach ($v in @(
     "ANTHROPIC_API_KEY", "ANTHROPIC_MODEL", "ANTHROPIC_DEFAULT_MODEL",

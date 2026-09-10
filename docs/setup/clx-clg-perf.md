@@ -38,13 +38,14 @@ same job - 9 Bash + 7 Glob + 16 Read + 2 Grep, against grok's 60 `read_file` +
 12 `grep` and zero bash/glob. One of clx's globs (`**/daily-memory/**` over all
 of `C:\Users\jonny`) costs 15.1s and returned 0 matches.
 
-### Fix
+### Fix (Implemented 2026-09-02)
 
-Make clx's approval posture match grok's. Blanket `bypassPermissions` in the
-launcher is the crude version; the targeted version is `permissions.allow` rules
-in `~/.claude-clx/settings.json` for read-only tools (`Read`, `Glob`, `Grep`, and
-the `sessions.py` Bash pattern), which keeps writes prompting. Owner's call -
-nothing was changed.
+On owner instruction ("make both clx and clg start by default with the --dangerously-bypass-permissions flag"), the launchers and profile configurations were updated:
+- Launchers (`~/bin/clx`, `~/bin/clg`, `~/bin/clx.ps1`, `~/bin/clg.ps1`) pass `--dangerously-skip-permissions` by default, while honoring explicit `--permission-mode` or `--dangerously-skip-permissions` command-line overrides.
+- In `~/.claude-clx/settings.json` and `~/.claude-clg/settings.json`: `"skipDangerousModePermissionPrompt": true`.
+- In `~/.claude-clx/.claude.json` and `~/.claude-clg/.claude.json`: `"bypassPermissionsModeAccepted": true` to pre-accept the bypass permissions mode dialog.
+
+After this change, the exact same task completed through `clx` in **92 seconds** (versus 10m59s previously and 2m34s in Grok Build CLI).
 
 ---
 

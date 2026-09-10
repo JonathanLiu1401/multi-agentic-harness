@@ -1,12 +1,13 @@
 # Profile Templates
 
-This directory contains configuration templates for the `clx` (Grok) and `clg` (Gemini) Claude Code profiles.
+This directory contains configuration templates for the `clx` (Grok), `clg` (Gemini), and `cld` (DeepSeek) Claude Code profiles.
 
 ## Setup Instructions
 
 1. Copy the profile directory to your user home:
    - For clx: `templates/claude-clx` -> `~/.claude-clx/`
    - For clg: `templates/claude-clg` -> `~/.claude-clg/`
+   - For cld: `templates/claude-cld` -> `~/.claude-cld/`
 2. Link the shared agents and skills:
    - On Windows PowerShell:
      ```powershell
@@ -14,6 +15,8 @@ This directory contains configuration templates for the `clx` (Grok) and `clg` (
      New-Item -ItemType Junction -Path "$HOME\.claude-clx\skills" -Target "$HOME\.claude\skills"
      New-Item -ItemType Junction -Path "$HOME\.claude-clg\agents" -Target "$HOME\.claude\agents"
      New-Item -ItemType Junction -Path "$HOME\.claude-clg\skills" -Target "$HOME\.claude\skills"
+     New-Item -ItemType Junction -Path "$HOME\.claude-cld\agents" -Target "$HOME\.claude\agents"
+     New-Item -ItemType Junction -Path "$HOME\.claude-cld\skills" -Target "$HOME\.claude\skills"
      ```
    - On Linux / macOS:
      ```bash
@@ -21,6 +24,8 @@ This directory contains configuration templates for the `clx` (Grok) and `clg` (
      ln -s "$HOME/.claude/skills" "$HOME/.claude-clx/skills"
      ln -s "$HOME/.claude/agents" "$HOME/.claude-clg/agents"
      ln -s "$HOME/.claude/skills" "$HOME/.claude-clg/skills"
+     ln -s "$HOME/.claude/agents" "$HOME/.claude-cld/agents"
+     ln -s "$HOME/.claude/skills" "$HOME/.claude-cld/skills"
      ```
 
 ## Key Configuration Details

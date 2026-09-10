@@ -12,36 +12,38 @@ and talk directly to `api.anthropic.com`.
 | --- | --- | --- | --- | --- |
 | `clx` | xAI Grok | Grok 4.6 (xhigh/high/medium/low), 4.5 | 500k tokens | `~/.claude-clx` |
 | `clg` | Antigravity (Gemini) | Gemini 3.8 Flash high, 3.1 Pro, 3.7/3.6 Flash | 1M tokens | `~/.claude-clg` |
+| `cld` | DeepSeek | DeepSeek V3 (`deepseek-chat`), DeepSeek R1 (`deepseek-reasoner`) | 64k tokens | `~/.claude-cld` |
 
 ## Files in this Directory
 
-- `clx` / `clg`: POSIX sh wrapper scripts for Git Bash (deployed to `~/bin/`).
-- `clx.ps1` / `clg.ps1`: PowerShell wrapper scripts (deployed to `~/bin/`).
-- `clx.cmd` / `clg.cmd`: Windows CMD shims on PATH (deployed to `~/.local/bin/`).
+- `clx` / `clg` / `cld`: POSIX sh wrapper scripts for Git Bash (deployed to `~/bin/`).
+- `clx.ps1` / `clg.ps1` / `cld.ps1`: PowerShell wrapper scripts (deployed to `~/bin/`).
+- `clx.cmd` / `clg.cmd` / `cld.cmd`: Windows CMD shims on PATH (deployed to `~/.local/bin/`).
 
-## Why Two Separate Launchers?
+## Why Separate Launchers?
 
 Context window sizing in Claude Code is process-wide:
 - Grok's real context window is 500k tokens.
 - Gemini's context window is 1M tokens.
+- DeepSeek's context window is 64k tokens.
 - `modelSettings` in `settings.json` accepts only `effortLevel` - there is no
   per-model context window key.
 - `CLAUDE_CODE_AUTO_COMPACT_WINDOW` overrides any model suffix such as `[1m]`.
-Therefore, grok (500k) and Gemini (1M) must run under separate profiles
-(`~/.claude-clx` and `~/.claude-clg`) to ensure correct auto-compaction and
+Therefore, each provider family runs under its own isolated profile
+(`~/.claude-clx`, `~/.claude-clg`, and `~/.claude-cld`) to ensure correct auto-compaction and
 token tracking.
 
 ## Dual-Shell Architecture on Windows
 
-On Windows, both shells can invoke `clx` or `clg` directly:
-- **Git Bash** resolves `~/bin/clx` and `~/bin/clg` (`~/bin` is in Git Bash PATH).
-- **PowerShell / CMD** resolve `~/.local/bin/clx.cmd` and `~/.local/bin/clg.cmd`
+On Windows, both shells can invoke `clx`, `clg`, or `cld` directly:
+- **Git Bash** resolves `~/bin/clx`, `~/bin/clg`, and `~/bin/cld` (`~/bin` is in Git Bash PATH).
+- **PowerShell / CMD** resolve `~/.local/bin/clx.cmd`, `~/.local/bin/clg.cmd`, and `~/.local/bin/cld.cmd`
   (`~/.local/bin` is in Windows system/user PATH). The `.cmd` shim executes
   the corresponding `.ps1` script via `powershell.exe -NoProfile -ExecutionPolicy Bypass`.
 
 ## Permission Posture and Speed
 
-By default, `clx` and `clg` run with `--dangerously-skip-permissions`.
+By default, `clx`, `clg`, and `cld` run with `--dangerously-skip-permissions`.
 Measured 2026-09-02:
 - On an identical multi-turn task with 35 tool calls, interactive prompting took
   **10m59s** (nearly 9 minutes stalled waiting for user approval clicks on tool calls).

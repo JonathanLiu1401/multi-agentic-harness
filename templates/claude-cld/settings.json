@@ -1,0 +1,26 @@
+{
+  "model": "deepseek-chat",
+  "availableModels": [
+    "deepseek-chat",
+    "deepseek-reasoner"
+  ],
+  "enforceAvailableModels": true,
+  "modelPicker": {
+    "options": [
+      {
+        "model": "deepseek-chat",
+        "label": "DeepSeek V3 (Chat)",
+        "description": "DeepSeek V3 - general purpose, 64k ctx"
+      },
+      {
+        "model": "deepseek-reasoner",
+        "label": "DeepSeek R1 (Reasoner)",
+        "description": "DeepSeek R1 - reasoning model, 64k ctx"
+      }
+    ],
+    "replaceBuiltInOptions": true
+  },
+  "effortLevel": "high",
+  "theme": "dark",
+  "skipDangerousModePermissionPrompt": true
+}

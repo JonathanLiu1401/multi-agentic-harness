@@ -28,19 +28,20 @@ if [ -d "$HERE/plugin/skills/claude-manages-codex" ]; then
   echo "Installed skill: claude-manages-codex"
 fi
 
-# Deploy subagent definitions (grok, agy-gemini-3-8-flash).
+# Deploy subagent definitions (grok, agy-gemini-3-8-flash, deepseek).
 if [ -d "$HERE/plugin/agents" ]; then
   mkdir -p "$HOME/.claude/agents"
   cp "$HERE/plugin/agents/"*.md "$HOME/.claude/agents/"
-  echo "Installed agent definitions: grok, agy-gemini-3-8-flash"
+  echo "Installed agent definitions: grok, agy-gemini-3-8-flash, deepseek"
 fi
 
-# Deploy launchers (clx, clg).
+# Deploy launchers (clx, clg, cld).
 if [ -d "$HERE/launchers" ]; then
   mkdir -p "$HOME/bin"
   [ -f "$HERE/launchers/clx" ] && cp "$HERE/launchers/clx" "$HOME/bin/clx" && chmod +x "$HOME/bin/clx"
   [ -f "$HERE/launchers/clg" ] && cp "$HERE/launchers/clg" "$HOME/bin/clg" && chmod +x "$HOME/bin/clg"
-  echo "Installed launchers: clx, clg (to ~/bin)"
+  [ -f "$HERE/launchers/cld" ] && cp "$HERE/launchers/cld" "$HOME/bin/cld" && chmod +x "$HOME/bin/cld"
+  echo "Installed launchers: clx, clg, cld (to ~/bin)"
 fi
 
 # Register the MCP server with Claude Code (user scope; idempotent).

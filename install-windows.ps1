@@ -31,16 +31,16 @@ if (Test-Path $SkillSrc) {
   Write-Host 'Installed skill: claude-manages-codex'
 }
 
-# Deploy subagent definitions (grok, agy-gemini-3-8-flash).
+# Deploy subagent definitions (grok, agy-gemini-3-8-flash, deepseek).
 $AgentsSrc = Join-Path $Here 'plugin\agents'
 if (Test-Path $AgentsSrc) {
   $AgentsDst = Join-Path $env:USERPROFILE '.claude\agents'
   New-Item -ItemType Directory -Force -Path $AgentsDst | Out-Null
   Copy-Item (Join-Path $AgentsSrc '*.md') $AgentsDst -Force
-  Write-Host 'Installed agent definitions: grok, agy-gemini-3-8-flash'
+  Write-Host 'Installed agent definitions: grok, agy-gemini-3-8-flash, deepseek'
 }
 
-# Deploy launchers (clx, clg).
+# Deploy launchers (clx, clg, cld).
 $LaunchersSrc = Join-Path $Here 'launchers'
 if (Test-Path $LaunchersSrc) {
   $BinDst = Join-Path $env:USERPROFILE 'bin'
@@ -49,20 +49,20 @@ if (Test-Path $LaunchersSrc) {
   New-Item -ItemType Directory -Force -Path $LocalBinDst | Out-Null
 
   # Git Bash scripts and PowerShell scripts to ~/bin
-  @('clx', 'clg', 'clx.ps1', 'clg.ps1') | ForEach-Object {
+  @('clx', 'clg', 'cld', 'clx.ps1', 'clg.ps1', 'cld.ps1') | ForEach-Object {
     $f = Join-Path $LaunchersSrc $_
     if (Test-Path $f) {
       Copy-Item $f (Join-Path $BinDst $_) -Force
     }
   }
   # Windows CMD entry points to ~/.local/bin
-  @('clx.cmd', 'clg.cmd') | ForEach-Object {
+  @('clx.cmd', 'clg.cmd', 'cld.cmd') | ForEach-Object {
     $f = Join-Path $LaunchersSrc $_
     if (Test-Path $f) {
       Copy-Item $f (Join-Path $LocalBinDst $_) -Force
     }
   }
-  Write-Host 'Installed launchers: clx, clg (to ~/bin and ~/.local/bin)'
+  Write-Host 'Installed launchers: clx, clg, cld (to ~/bin and ~/.local/bin)'
 }
 
 # Register the MCP server with Claude Code (user scope; idempotent).

@@ -16,25 +16,24 @@
 
 For a Claude captain this means: `Agent`-tool Claude subagents are the default, and the visible terminal-window workers (`start_visible_*`) documented throughout this README are the **explicit-request** path, used when the user asks for the multi-agentic harness by name or for visible windows. Delegation stays ONE level deep, and every worker result is treated as unverified until the captain re-runs the acceptance test.
 
-## Provider models in the Claude Code TUI: clx / clg (2026-09-02)
+## Provider models in the Claude Code TUI: clx / clg / cld (2026-09-02, updated 2026-09-09)
 
-`clx` and `clg` run Grok and Google Antigravity models inside the Claude Code TUI
+`clx`, `clg`, and `cld` run Grok, Google Antigravity, and DeepSeek models inside the Claude Code TUI
 through a stock local CLIProxyAPI gateway on `127.0.0.1:8317`, with isolated
-config dirs (`~/.claude-clx`, `~/.claude-clg`). Plain `claude` and `~/.claude`
-are untouched. Two commands because the context window is process-wide: clx is
-500k for grok, clg is 1M for gemini.
+config dirs (`~/.claude-clx`, `~/.claude-clg`, `~/.claude-cld`). Plain `claude` and `~/.claude`
+are untouched. Three commands because the context window is process-wide: clx is
+500k for grok, clg is 1M for gemini, and cld is 64k for DeepSeek (V3/R1).
 
-clx and clg are not cross-compatible. clx uses native Agent `grok` and the
-Antigravity CLI for agy work. clg uses native Agent `agy-gemini-3-8-flash` and
-the Grok Build CLI for grok work. A plain Claude captain never uses those
-native types: grok/agy work from `~/.claude` is `start_visible_grok_worker` /
-`start_visible_agy_worker`. Cursor was attempted and rejected (no working tool
-bridge); use `cursor-agent`'s own TUI for Cursor work.
+Profiles are not cross-compatible:
+- `clx` uses native Agent `grok` and the Antigravity CLI for agy work.
+- `clg` uses native Agent `agy-gemini-3-8-flash` and the Grok Build CLI for grok work.
+- `cld` uses native Agent `deepseek` (`deepseek-chat`, `deepseek-reasoner`).
+- A plain Claude captain never uses those native types: grok/agy work from `~/.claude` is `start_visible_grok_worker` / `start_visible_agy_worker`. Cursor was attempted and rejected (no working tool bridge); use `cursor-agent`'s own TUI for Cursor work.
 
 **Full documentation and resources:**
 - **Gateway setup and architecture**: [`docs/setup/clx-clg-gateway.md`](docs/setup/clx-clg-gateway.md)
 - **Measured speed and latency findings**: [`docs/setup/clx-clg-perf.md`](docs/setup/clx-clg-perf.md)
-- **Launchers (`clx`, `clg` in Bash, PS1, and CMD)**: [`launchers/`](launchers/)
+- **Launchers (`clx`, `clg`, `cld` in Bash, PS1, and CMD)**: [`launchers/`](launchers/)
 - **Gateway management scripts and config**: [`gateway/`](gateway/)
 - **Profile configuration templates**: [`templates/`](templates/)
 - **Interactive TUI test harness**: [`tests/tui_test.py`](tests/tui_test.py)
