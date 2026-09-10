@@ -35,9 +35,10 @@ This directory contains configuration templates for the `clx` (Grok), `clg` (Gem
 - `availableModels`: Whitelist of valid model IDs supported through the gateway.
 - `enforceAvailableModels`: Set to `true` so invalid/incompatible default models are filtered out.
 - `modelPicker`: Customizes the `/model` selector inside Claude Code. Note that this must be an object with an `options` array, not a top-level array.
+- `modelPricing`: Maps each model to its real API pricing rates (`input`, `output`, `cacheRead`, `cacheWrite` in USD per million tokens). Without this, Claude Code treats non-Anthropic models as unknown and falls back to default Opus list prices ($15 / $75 per MTok), massively inflating reported costs in `/cost` and `/usage`.
 - `effortLevel`: Set to `high` by default.
 - `skipDangerousModePermissionPrompt`: Set to `true` to avoid permission confirmation prompts that stall agent queues during automated runs.
 
 ### `CLAUDE.md`
-- Profile-specific instructions establishing identity (Grok for clx, Gemini for clg).
+- Profile-specific instructions establishing identity (Grok for clx, Gemini for clg, DeepSeek for cld).
 - Subagent locality rules: specifies which Agent subagents to spawn natively vs via visible CLI terminals.

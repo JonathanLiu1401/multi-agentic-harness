@@ -88,22 +88,59 @@ Every item here cost real debugging time. Re-verify after a Claude Code bump.
 
 ### Effort and context window
 
-- **Reasoning effort is a CLIProxyAPI `(level)` suffix on the model id** -
-  `grok-4.6(xhigh)`, `gemini-3.8-flash-high(medium)` - handled by the gateway,
-  not by Claude Code's `/effort`. So each level is its own picker row. Levels:
-  minimal, low, medium, high, xhigh, auto, none.
-- **Also set `CLAUDE_CODE_EFFORT_LEVEL`.** The settings.json `effortLevel` key
-  does not apply to non-Claude ids; without the env var the banner read
-  "Grok 4.6 high with **low** effort".
-- **`(level)` and `[1m]` cannot be combined** (the gateway 400s), and `[1m]` is
+- **Reasoning effort is a CLIProxyAPI `(level)` suffix on the model id for clx/clg** -
+  `grok-4.6(xhigh)`, `gemini-3.8-flash-high(medium)` - handled by the gateway.
+  For DeepSeek (`cld`), the native Anthropic compatibility endpoint accepts
+  Claude Code's `/effort` command directly via `output_config.effort`, so `CLAUDE_CODE_EFFORT_LEVEL`
+  is omitted in `cld` to permit runtime adjustment.
+- **Set `CLAUDE_CODE_EFFORT_LEVEL` in clx and clg.** The settings.json `effortLevel` key
+  does not apply to non-Claude ids without native Anthropic support; without the env var
+  the banner read "Grok 4.6 high with **low** effort".
+- **`(level)` and `[1m]` cannot be combined** on CLIProxyAPI (the gateway 400s), and `[1m]` is
   moot anyway: `CLAUDE_CODE_AUTO_COMPACT_WINDOW` is a hard pin
   ("tokens (from settings)") and overrides the suffix.
-- **The window forces two profiles.** Both window vars are process-wide and
+- **Profiles isolate context windows.** Both window vars are process-wide and
   `modelSettings` accepts ONLY `effortLevel` - there is no per-model window key -
-  so grok (500k) and gemini (1M) cannot share one process without one
-  mis-reporting. Set both `CLAUDE_CODE_MAX_CONTEXT_TOKENS` and
-  `CLAUDE_CODE_AUTO_COMPACT_WINDOW` per profile. Verified in the TUI: clx
-  `Auto-compact window: 500k tokens`, clg `1m tokens`.
+  so grok (500k), gemini (1M), and deepseek (1M) run in separate profiles.
+  Verified in the TUI: clx `Auto-compact window: 500k tokens`, clg `1m tokens`, cld `1m tokens`.
+
+### Real API cost tracking via `modelPricing`
+
+By default, Claude Code has no built-in list prices for third-party models
+(`gemini-*`, `grok-*`, `deepseek-*`). When an unrecognized model is used, Claude
+Code defaults to its standard Opus 5 rate ($15/MTok input, $75/MTok output, $1.50/MTok cache read).
+This artificially inflates reported spend in `/cost` and `/usage` by 20x to 150x,
+and causes large prompt-cache sessions (e.g. 10M+ tokens on Gemini Flash or DeepSeek)
+to show exorbitant costs.
+
+To fix this, each profile's `settings.json` specifies `modelPricing.overrides`:
+```json
+"modelPricing": {
+  "overrides": {
+    "gemini-3.8-flash-high(high)": {
+      "input": 0.10,
+      "output": 0.40,
+      "cacheRead": 0.025,
+      "cacheWrite": 0.10
+    },
+    "deepseek-flash[1m]": {
+      "input": 0.20,
+      "output": 0.80,
+      "cacheRead": 0.005,
+      "cacheWrite": 0.20
+    },
+    "grok-4.6(high)": {
+      "input": 2.00,
+      "output": 10.00,
+      "cacheRead": 0.20,
+      "cacheWrite": 2.00
+    }
+  }
+}
+```
+All four fields (`input`, `output`, `cacheRead`, `cacheWrite`) are denominated in
+USD per million tokens. With these overrides in place, `/cost` and the status line
+accurately report actual API spending at configured provider rates.
 
 ### Antigravity
 

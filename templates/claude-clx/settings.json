@@ -44,6 +44,64 @@
     ],
     "replaceBuiltInOptions": true
   },
+  "modelPricing": {
+    "overrides": {
+      "grok-4.6(xhigh)": {
+        "input": 2.00,
+        "output": 10.00,
+        "cacheRead": 0.20,
+        "cacheWrite": 2.00
+      },
+      "grok-4.6(high)": {
+        "input": 2.00,
+        "output": 10.00,
+        "cacheRead": 0.20,
+        "cacheWrite": 2.00
+      },
+      "grok-4.6(medium)": {
+        "input": 2.00,
+        "output": 10.00,
+        "cacheRead": 0.20,
+        "cacheWrite": 2.00
+      },
+      "grok-4.6(low)": {
+        "input": 2.00,
+        "output": 10.00,
+        "cacheRead": 0.20,
+        "cacheWrite": 2.00
+      },
+      "grok-4.6": {
+        "input": 2.00,
+        "output": 10.00,
+        "cacheRead": 0.20,
+        "cacheWrite": 2.00
+      },
+      "grok-4.5(high)": {
+        "input": 2.00,
+        "output": 10.00,
+        "cacheRead": 0.20,
+        "cacheWrite": 2.00
+      },
+      "grok-4.5(low)": {
+        "input": 2.00,
+        "output": 10.00,
+        "cacheRead": 0.20,
+        "cacheWrite": 2.00
+      },
+      "grok-4.5": {
+        "input": 2.00,
+        "output": 10.00,
+        "cacheRead": 0.20,
+        "cacheWrite": 2.00
+      },
+      "grok": {
+        "input": 2.00,
+        "output": 10.00,
+        "cacheRead": 0.20,
+        "cacheWrite": 2.00
+      }
+    }
+  },
   "effortLevel": "high",
   "theme": "dark",
   "skipDangerousModePermissionPrompt": true
