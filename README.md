@@ -22,12 +22,12 @@ For a Claude captain this means: `Agent`-tool Claude subagents are the default, 
 through a stock local CLIProxyAPI gateway on `127.0.0.1:8317`, with isolated
 config dirs (`~/.claude-clx`, `~/.claude-clg`, `~/.claude-cld`). Plain `claude` and `~/.claude`
 are untouched. Three commands because the context window is process-wide: clx is
-500k for grok, clg is 1M for gemini, and cld is 64k for DeepSeek (V3/R1).
+500k for grok, clg is 1M for gemini, and cld is 1M for DeepSeek (V4.1 Flash / V4 Pro).
 
 Profiles are not cross-compatible:
 - `clx` uses native Agent `grok` and the Antigravity CLI for agy work.
 - `clg` uses native Agent `agy-gemini-3-8-flash` and the Grok Build CLI for grok work.
-- `cld` uses native Agent `deepseek` (`deepseek-chat`, `deepseek-reasoner`).
+- `cld` uses native Agent `deepseek` (`deepseek-v4.1-flash`, `deepseek-v4-pro`).
 - A plain Claude captain never uses those native types: grok/agy work from `~/.claude` is `start_visible_grok_worker` / `start_visible_agy_worker`. Cursor was attempted and rejected (no working tool bridge); use `cursor-agent`'s own TUI for Cursor work.
 
 **Full documentation and resources:**

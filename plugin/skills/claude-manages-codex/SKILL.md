@@ -38,7 +38,7 @@ clx reported `E2E_NATIVE_AGY=WRONG_MODEL` and ran as `grok-4.6(high)`.
 | **Plain Claude** (`~/.claude`, api.anthropic.com) | Agent built-in `subagent_type` (`general-purpose`, `Explore`, `Plan`, `claude`) | grok: `start_visible_grok_worker` (Grok Build CLI). agy: `start_visible_agy_worker` (Antigravity CLI). Never native `grok` / `agy-gemini-*` / `deepseek`. Never `clx` / `clg` / `cld`. |
 | **clx** (`~/.claude-clx`, grok 500k) | Agent `subagent_type: "grok"` | agy: `start_visible_agy_worker`. Never Agent `agy-gemini-*`. Never switch to clg or cld. |
 | **clg** (`~/.claude-clg`, Gemini 1M) | Agent `subagent_type: "agy-gemini-3-8-flash"` | grok: `start_visible_grok_worker` (Grok Build CLI). Never Agent `grok`. Never switch to clx or cld. |
-| **cld** (`~/.claude-cld`, DeepSeek 64k) | Agent `subagent_type: "deepseek"` | grok: `start_visible_grok_worker`. agy: `start_visible_agy_worker`. Never switch to clx or clg. |
+| **cld** (`~/.claude-cld`, DeepSeek 1M) | Agent `subagent_type: "deepseek"` | grok: `start_visible_grok_worker`. agy: `start_visible_agy_worker`. Never switch to clx or clg. |
 
 **Native subagents are same-family only.** In clx, native `grok` is the grok
 path (verified 2026-09-02: a clx subagent reported `grok-4.6(high)` and
@@ -79,8 +79,10 @@ Read "Which session am I in?" first. Do not call Codex tools. Same-family native
 | **NEVER in a plain session** | Native `grok` / `agy-gemini-*` subagent types | unavailable, an `Agent` call naming them fails | - |
 | **1 (DEFAULT) in clx** | Ordinary grok-family delegation inside `clx` | `Agent` tool with `subagent_type: "grok"` | `SendMessage` / follow-up Agent |
 | **1 (DEFAULT) in clg** | Ordinary agy-family delegation inside `clg` | `Agent` tool with `subagent_type: "agy-gemini-3-8-flash"` | `SendMessage` / follow-up Agent |
+| **1 (DEFAULT) in cld** | Ordinary DeepSeek-family delegation inside `cld` | `Agent` tool with `subagent_type: "deepseek"` | `SendMessage` / follow-up Agent |
 | **2c from clx (agy family)** | clx captain needs Gemini/agy work | `start_visible_agy_worker` (Antigravity CLI). Never Agent `agy-gemini-*` | `steer_visible_agy_run` |
 | **2b from clg (grok family)** | clg captain needs grok work | `start_visible_grok_worker` (Grok Build CLI). Never Agent `grok` | `steer_visible_grok_run` |
+| **2b/2c from cld** | cld captain needs grok/agy work | `start_visible_grok_worker` / `start_visible_agy_worker` | `steer_visible_grok_run` / `steer_visible_agy_run` |
 
 The skill activating does **not** by itself count as the user asking for the harness: its trigger list is broad ("any coding task where Claude decides and a worker codes"), so priority 1 governs unless the user names the harness, asks for visible windows, or asks for grok agents / grok workers (including to edit).
 

@@ -16,7 +16,7 @@ after judging the 2026-08 attempt as "trying to do too much".
 | --- | --- | --- | --- | --- | --- |
 | `clx` | Grok | Grok 4.5 / 4.6 | `~/.claude-clx` | 500k | `CLIProxyAPI` |
 | `clg` | Gemini | Gemini 3.6/3.7/3.8 Flash, 3.1 Pro | `~/.claude-clg` | 1M | `CLIProxyAPI` |
-| `cld` | DeepSeek | DeepSeek V3, DeepSeek R1 | `~/.claude-cld` | 64k | `CLIProxyAPI` |
+| `cld` | DeepSeek | DeepSeek V4.1 Flash, DeepSeek V4 Pro | `~/.claude-cld` | 1M | `CLIProxyAPI` |
 
 One gateway serves all three: CLIProxyAPI v7.2.147 at `~/cliproxyapi/`, bound to
 `127.0.0.1:8317`, started at logon by a per-user scheduled task.

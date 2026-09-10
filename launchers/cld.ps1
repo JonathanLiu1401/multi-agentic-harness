@@ -1,7 +1,7 @@
 # cld - Claude Code TUI on DEEPSEEK models via the local CLIProxyAPI gateway.
 #
-# Context window: DeepSeek models (deepseek-chat, deepseek-reasoner) support 64k tokens.
-# Both CLAUDE_CODE_MAX_CONTEXT_TOKENS and CLAUDE_CODE_AUTO_COMPACT_WINDOW are pinned to 64000.
+# Context window: 1M context window (1000000 tokens) for all models.
+# Pinned via CLAUDE_CODE_MAX_CONTEXT_TOKENS and CLAUDE_CODE_AUTO_COMPACT_WINDOW.
 
 $Gateway = "http://127.0.0.1:8317"
 $KeyFile = Join-Path $HOME ".cc-bridge\secrets\clx-api.key"
@@ -26,18 +26,18 @@ $env:CLAUDE_CONFIG_DIR = Join-Path $HOME ".claude-cld"
 $env:ANTHROPIC_BASE_URL = $Gateway
 $env:ANTHROPIC_AUTH_TOKEN = $Key
 
-$env:ANTHROPIC_MODEL = "deepseek-chat"
-$env:ANTHROPIC_DEFAULT_MODEL = "deepseek-chat"
-$env:ANTHROPIC_CUSTOM_MODEL_OPTION = "deepseek-chat"
-$env:ANTHROPIC_CUSTOM_MODEL_OPTION_NAME = "DeepSeek V3 (Chat)"
-$env:ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION = "DeepSeek V3 via CLIProxyAPI"
-$env:ANTHROPIC_CUSTOM_MODEL_OPTION_SUPPORTED_CAPABILITIES = "thinking"
+$env:ANTHROPIC_MODEL = "deepseek-v4.1-flash"
+$env:ANTHROPIC_DEFAULT_MODEL = "deepseek-v4.1-flash"
+$env:ANTHROPIC_CUSTOM_MODEL_OPTION = "deepseek-v4.1-flash"
+$env:ANTHROPIC_CUSTOM_MODEL_OPTION_NAME = "DeepSeek V4.1 Flash"
+$env:ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION = "DeepSeek V4.1 Flash - 1M ctx"
+$env:ANTHROPIC_CUSTOM_MODEL_OPTION_SUPPORTED_CAPABILITIES = "effort,max_effort,thinking"
 
-$env:CLAUDE_CODE_MAX_CONTEXT_TOKENS = "64000"
-$env:CLAUDE_CODE_AUTO_COMPACT_WINDOW = "64000"
+$env:CLAUDE_CODE_MAX_CONTEXT_TOKENS = "1000000"
+$env:CLAUDE_CODE_AUTO_COMPACT_WINDOW = "1000000"
 $env:CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = "1"
 
-$env:CLAUDE_CODE_SUBAGENT_MODEL = "deepseek-chat"
+$env:CLAUDE_CODE_SUBAGENT_MODEL = "deepseek-v4.1-flash"
 
 if (-not (Test-Path $env:CLAUDE_CONFIG_DIR)) {
     New-Item -ItemType Directory -Path $env:CLAUDE_CONFIG_DIR | Out-Null

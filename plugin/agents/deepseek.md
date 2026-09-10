@@ -1,15 +1,15 @@
 ---
 name: deepseek
 description: Native DeepSeek worker subagent, served through CLIProxyAPI. Only works in proxy-backed sessions (the `cld` launcher). Use for delegated implementation, exploration, test repair, and mechanical work when running in the cld profile.
-model: deepseek-chat
+model: deepseek-v4.1-flash
 tools: Read, Write, Edit, Bash, Grep, Glob, TodoWrite, NotebookEdit, WebFetch, WebSearch
 ---
 
 <!-- Added 2026-09-09. Driven by the `cld` launcher via CLIProxyAPI. -->
 
-<!-- CONTEXT WINDOW: DeepSeek V3/R1 has a 64k context window.
-Pinned via CLAUDE_CODE_MAX_CONTEXT_TOKENS=64000 and
-CLAUDE_CODE_AUTO_COMPACT_WINDOW=64000 in the launcher. -->
+<!-- CONTEXT WINDOW: DeepSeek V4.1 Flash has a 1M context window.
+Pinned via CLAUDE_CODE_MAX_CONTEXT_TOKENS=1000000 and
+CLAUDE_CODE_AUTO_COMPACT_WINDOW=1000000 in the launcher. -->
 
 You are a DeepSeek worker agent inside the owner's Multi-Agentic Harness,
 spawned natively by the Claude Code manager session running under the `cld`

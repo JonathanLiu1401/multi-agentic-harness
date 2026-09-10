@@ -12,7 +12,7 @@ and talk directly to `api.anthropic.com`.
 | --- | --- | --- | --- | --- |
 | `clx` | xAI Grok | Grok 4.6 (xhigh/high/medium/low), 4.5 | 500k tokens | `~/.claude-clx` |
 | `clg` | Antigravity (Gemini) | Gemini 3.8 Flash high, 3.1 Pro, 3.7/3.6 Flash | 1M tokens | `~/.claude-clg` |
-| `cld` | DeepSeek | DeepSeek V3 (`deepseek-chat`), DeepSeek R1 (`deepseek-reasoner`) | 64k tokens | `~/.claude-cld` |
+| `cld` | DeepSeek | DeepSeek V4.1 Flash, DeepSeek V4 Pro | 1M tokens | `~/.claude-cld` |
 
 ## Files in this Directory
 
@@ -25,7 +25,7 @@ and talk directly to `api.anthropic.com`.
 Context window sizing in Claude Code is process-wide:
 - Grok's real context window is 500k tokens.
 - Gemini's context window is 1M tokens.
-- DeepSeek's context window is 64k tokens.
+- DeepSeek's context window is 1M tokens.
 - `modelSettings` in `settings.json` accepts only `effortLevel` - there is no
   per-model context window key.
 - `CLAUDE_CODE_AUTO_COMPACT_WINDOW` overrides any model suffix such as `[1m]`.

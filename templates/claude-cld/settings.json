@@ -1,26 +1,25 @@
 {
-  "model": "deepseek-chat",
+  "model": "deepseek-v4.1-flash",
   "availableModels": [
-    "deepseek-chat",
-    "deepseek-reasoner"
+    "deepseek-v4.1-flash",
+    "deepseek-v4-pro"
   ],
   "enforceAvailableModels": true,
   "modelPicker": {
     "options": [
       {
-        "model": "deepseek-chat",
-        "label": "DeepSeek V3 (Chat)",
-        "description": "DeepSeek V3 - general purpose, 64k ctx"
+        "model": "deepseek-v4.1-flash",
+        "label": "DeepSeek V4.1 Flash",
+        "description": "DeepSeek V4.1 Flash - 1M ctx"
       },
       {
-        "model": "deepseek-reasoner",
-        "label": "DeepSeek R1 (Reasoner)",
-        "description": "DeepSeek R1 - reasoning model, 64k ctx"
+        "model": "deepseek-v4-pro",
+        "label": "DeepSeek V4 Pro",
+        "description": "DeepSeek V4 Pro - 1M ctx"
       }
     ],
     "replaceBuiltInOptions": true
   },
-  "effortLevel": "high",
-  "theme": "dark",
-  "skipDangerousModePermissionPrompt": true
+  "skipDangerousModePermissionPrompt": true,
+  "theme": "dark"
 }
