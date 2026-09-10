@@ -1,13 +1,20 @@
 #!/bin/sh
-# cld - Claude Code TUI on DEEPSEEK models via CLIProxyAPI.
-# See clx for Grok and clg for Antigravity (Gemini).
+# cld - Claude Code TUI on DeepSeek models (DeepSeek V4.1 Flash & V4 Pro, 1M context).
+# Direct Anthropic compatibility via https://api.deepseek.com/anthropic.
 # Isolated profile in ~/.claude-cld.
 set -e
 
-GATEWAY="http://127.0.0.1:8317"
-KEYFILE="$HOME/.cc-bridge/secrets/clx-api.key"
+ENDPOINT="https://api.deepseek.com/anthropic"
+KEYFILE="$HOME/.cc-bridge/secrets/deepseek-api.key"
 
-[ -r "$KEYFILE" ] || { echo "cld: missing $KEYFILE - please save your local client API key from config.yaml to $KEYFILE" >&2; exit 1; }
+if [ -r "$KEYFILE" ]; then
+  KEY=$(cat "$KEYFILE")
+elif [ -n "$DEEPSEEK_API_KEY" ]; then
+  KEY="$DEEPSEEK_API_KEY"
+else
+  echo "cld: missing $KEYFILE and DEEPSEEK_API_KEY env var - please save your DeepSeek API key to $KEYFILE" >&2
+  exit 1
+fi
 
 # Clear anything inherited so no Claude model id or credential leaks in.
 unset ANTHROPIC_API_KEY ANTHROPIC_MODEL ANTHROPIC_DEFAULT_MODEL
@@ -16,44 +23,38 @@ unset ANTHROPIC_DEFAULT_HAIKU_MODEL ANTHROPIC_DEFAULT_FABLE_MODEL
 unset ANTHROPIC_SMALL_FAST_MODEL ANTHROPIC_CUSTOM_MODEL_OPTION
 unset CLAUDE_CODE_SUBAGENT_MODEL CLAUDE_CODE_SUBAGENT_MODEL_FORCE
 unset CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY
+unset CLAUDE_CODE_EFFORT_LEVEL
 
 CLAUDE_CONFIG_DIR="$HOME/.claude-cld"
-ANTHROPIC_BASE_URL="$GATEWAY"
-ANTHROPIC_AUTH_TOKEN=$(cat "$KEYFILE")
+ANTHROPIC_BASE_URL="$ENDPOINT"
+ANTHROPIC_AUTH_TOKEN="$KEY"
 
-ANTHROPIC_MODEL="deepseek-v4.1-flash"
-ANTHROPIC_DEFAULT_MODEL="deepseek-v4.1-flash"
-ANTHROPIC_CUSTOM_MODEL_OPTION="deepseek-v4.1-flash"
+ANTHROPIC_MODEL="deepseek-flash[1m]"
+ANTHROPIC_DEFAULT_MODEL="deepseek-flash[1m]"
+ANTHROPIC_DEFAULT_OPUS_MODEL="deepseek-v4-pro[1m]"
+ANTHROPIC_DEFAULT_SONNET_MODEL="deepseek-flash[1m]"
+ANTHROPIC_DEFAULT_HAIKU_MODEL="deepseek-flash"
+ANTHROPIC_CUSTOM_MODEL_OPTION="deepseek-flash[1m]"
 ANTHROPIC_CUSTOM_MODEL_OPTION_NAME="DeepSeek V4.1 Flash"
-ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION="DeepSeek V4.1 Flash - 1M ctx"
+ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION="DeepSeek V4.1 Flash (1M context)"
 ANTHROPIC_CUSTOM_MODEL_OPTION_SUPPORTED_CAPABILITIES="effort,max_effort,thinking"
 
-# DeepSeek context window: 1M tokens.
+# DeepSeek 1M context window
 CLAUDE_CODE_MAX_CONTEXT_TOKENS=1000000
 CLAUDE_CODE_AUTO_COMPACT_WINDOW=1000000
-
 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
-CLAUDE_CODE_EFFORT_LEVEL=high
-CLAUDE_CODE_SUBAGENT_MODEL="deepseek-v4.1-flash"
+CLAUDE_CODE_SUBAGENT_MODEL="deepseek-flash[1m]"
 
 export CLAUDE_CONFIG_DIR ANTHROPIC_BASE_URL ANTHROPIC_AUTH_TOKEN ANTHROPIC_MODEL
-export ANTHROPIC_DEFAULT_MODEL
+export ANTHROPIC_DEFAULT_MODEL ANTHROPIC_DEFAULT_OPUS_MODEL
+export ANTHROPIC_DEFAULT_SONNET_MODEL ANTHROPIC_DEFAULT_HAIKU_MODEL
 export ANTHROPIC_CUSTOM_MODEL_OPTION ANTHROPIC_CUSTOM_MODEL_OPTION_NAME
 export ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION
 export ANTHROPIC_CUSTOM_MODEL_OPTION_SUPPORTED_CAPABILITIES
 export CLAUDE_CODE_MAX_CONTEXT_TOKENS CLAUDE_CODE_AUTO_COMPACT_WINDOW
 export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC CLAUDE_CODE_SUBAGENT_MODEL
-export CLAUDE_CODE_EFFORT_LEVEL
 
 mkdir -p "$CLAUDE_CONFIG_DIR"
-
-if ! curl -fsS -m 3 -o /dev/null "$GATEWAY/v1/models" \
-     -H "Authorization: Bearer $ANTHROPIC_AUTH_TOKEN" 2>/dev/null; then
-  echo "cld: gateway not responding at $GATEWAY" >&2
-  echo "cld: start it with:  powershell -NoProfile -Command \"Start-ScheduledTask -TaskName CLIProxyAPI\"" >&2
-  echo "cld: (or run ~/cliproxyapi/start-gateway.ps1 directly)" >&2
-  exit 1
-fi
 
 # Bypass permission prompts by default (matching clx/clg posture).
 # An explicit permission flag on the command line still wins.
