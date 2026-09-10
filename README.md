@@ -31,8 +31,13 @@ native types: grok/agy work from `~/.claude` is `start_visible_grok_worker` /
 `start_visible_agy_worker`. Cursor was attempted and rejected (no working tool
 bridge); use `cursor-agent`'s own TUI for Cursor work.
 
-**Full documentation, including every measured gotcha:
-[`docs/setup/clx-clg-gateway.md`](docs/setup/clx-clg-gateway.md).**
+**Full documentation and resources:**
+- **Gateway setup and architecture**: [`docs/setup/clx-clg-gateway.md`](docs/setup/clx-clg-gateway.md)
+- **Measured speed and latency findings**: [`docs/setup/clx-clg-perf.md`](docs/setup/clx-clg-perf.md)
+- **Launchers (`clx`, `clg` in Bash, PS1, and CMD)**: [`launchers/`](launchers/)
+- **Gateway management scripts and config**: [`gateway/`](gateway/)
+- **Profile configuration templates**: [`templates/`](templates/)
+- **Interactive TUI test harness**: [`tests/tui_test.py`](tests/tui_test.py)
 
 ## What this is
 

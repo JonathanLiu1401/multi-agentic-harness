@@ -19,9 +19,16 @@ after judging the 2026-08 attempt as "trying to do too much".
 One gateway serves both: CLIProxyAPI v7.2.147 at `~/cliproxyapi/`, bound to
 `127.0.0.1:8317`, started at logon by a per-user scheduled task.
 
+Shipped components in this repository:
+- **Launchers**: `launchers/` (`clx`, `clx.ps1`, `clx.cmd`, `clg`, `clg.ps1`, `clg.cmd`)
+- **Gateway management**: `gateway/` (`start-gateway.ps1`, `stop-gateway.ps1`, `install-autostart.ps1`, `config.example.yaml`)
+- **Profile templates**: `templates/` (`templates/claude-clx/`, `templates/claude-clg/`)
+- **Performance benchmarks & analysis**: [`docs/setup/clx-clg-perf.md`](clx-clg-perf.md)
+- **Interactive TUI test suite**: `tests/tui_test.py`
+
 Launchers live in `~/bin/{clx,clg}` (Git Bash) and `~/bin/{clx,clg}.ps1`, with
 `~/.local/bin/{clx,clg}.cmd` shims for PowerShell/cmd. Full operator detail is in
-`~/.cc-bridge/SETUP.md`; this file documents the harness-relevant parts.
+`gateway/README.md` and `launchers/README.md`; this file documents the harness-relevant parts.
 
 ## Native subagents (the harness change)
 
@@ -115,21 +122,38 @@ Every item here cost real debugging time. Re-verify after a Claude Code bump.
 bug in this setup was invisible to it. It is also the one mode Antigravity
 rejects, so it actively misreports which Gemini models work.
 
-Use the interactive harness at `~/.cc-bridge/tui_test.py` (pywinpty + pyte drive
+Use the interactive harness at `tests/tui_test.py` (pywinpty + pyte drive
 a real PTY and render the screen):
 
-    python ~/.cc-bridge/tui_test.py screen      # banner + settings warnings
-    python ~/.cc-bridge/tui_test.py picker      # dump the /model picker
-    python ~/.cc-bridge/tui_test.py ctx         # read the real context window
-    python ~/.cc-bridge/tui_test.py ask "..."   # ask interactively
-    CLX_CMD=clg python ~/.cc-bridge/tui_test.py screen   # target clg
+    python tests/tui_test.py screen      # banner + settings warnings
+    python tests/tui_test.py picker      # dump the /model picker
+    python tests/tui_test.py ctx         # read the real context window
+    python tests/tui_test.py ask "..."   # ask interactively
+    CLX_CMD=clg python tests/tui_test.py screen   # target clg
 
 Known harness gap: it cannot reliably get a prompt past the composer's
 manual-mode queueing, so drive subagent checks by hand.
 
+### Speed and Permissions Posture
+
+A common initial impression was that clx/clg felt slow compared to native CLIs.
+Rigorous instrumentation and A/B benchmarking on 2026-09-02 proved:
+- **API inference is fast**: Median API call latency was 8.2s for clx and 4.7s for clg.
+- **The actual bottleneck was permission prompting**: An identical 35-tool-call task took
+  **10m59s** while prompting for permissions, but only **1m54s** with permissions
+  bypassed (faster than Grok Build CLI at 2m34s). Nearly 9 minutes was the tool queue
+  blocked waiting for user approval clicks.
+- **Default posture**: The launchers now invoke Claude Code with
+  `--dangerously-skip-permissions` by default, matching Grok Build CLI's `always-approve`
+  behavior. `settings.json` also sets `"skipDangerousModePermissionPrompt": true`.
+  Passing explicit permission flags on the command line (e.g. `clx --permission-mode plan`)
+  still overrides this default.
+- Full benchmarks, calls-per-turn analysis, caching, and cooldown measurements are
+  detailed in [`docs/setup/clx-clg-perf.md`](clx-clg-perf.md).
+
 ### Gateway operations
 
-Two traps, both fixed in `~/cliproxyapi/start-gateway.ps1`:
+Two traps, both fixed in `gateway/start-gateway.ps1`:
 
 - **Start it detached.** A foreground child shares a console with the task's
   PowerShell wrapper, so any Ctrl+C or console close kills the gateway - seen as
@@ -137,7 +161,7 @@ Two traps, both fixed in `~/cliproxyapi/start-gateway.ps1`:
   error-free log tail. `Start-Process -PassThru` parents it outside any console.
 - **`Stop-ScheduledTask` orphans the process**, which keeps port 8317 and makes
   the next start die on `bind: Only one usage of each socket address`. Use
-  `~/cliproxyapi/stop-gateway.ps1`; the start script also clears survivors.
+  `gateway/stop-gateway.ps1`; the start script also clears survivors.
 
 PowerShell 5.1 `*>>` redirection writes UTF-16LE, which turns a log into a binary
 blob that `grep`/`tail` cannot read. Use `Add-Content -Encoding utf8`.

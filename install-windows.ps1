@@ -31,6 +31,40 @@ if (Test-Path $SkillSrc) {
   Write-Host 'Installed skill: claude-manages-codex'
 }
 
+# Deploy subagent definitions (grok, agy-gemini-3-8-flash).
+$AgentsSrc = Join-Path $Here 'plugin\agents'
+if (Test-Path $AgentsSrc) {
+  $AgentsDst = Join-Path $env:USERPROFILE '.claude\agents'
+  New-Item -ItemType Directory -Force -Path $AgentsDst | Out-Null
+  Copy-Item (Join-Path $AgentsSrc '*.md') $AgentsDst -Force
+  Write-Host 'Installed agent definitions: grok, agy-gemini-3-8-flash'
+}
+
+# Deploy launchers (clx, clg).
+$LaunchersSrc = Join-Path $Here 'launchers'
+if (Test-Path $LaunchersSrc) {
+  $BinDst = Join-Path $env:USERPROFILE 'bin'
+  $LocalBinDst = Join-Path $env:USERPROFILE '.local\bin'
+  New-Item -ItemType Directory -Force -Path $BinDst | Out-Null
+  New-Item -ItemType Directory -Force -Path $LocalBinDst | Out-Null
+
+  # Git Bash scripts and PowerShell scripts to ~/bin
+  @('clx', 'clg', 'clx.ps1', 'clg.ps1') | ForEach-Object {
+    $f = Join-Path $LaunchersSrc $_
+    if (Test-Path $f) {
+      Copy-Item $f (Join-Path $BinDst $_) -Force
+    }
+  }
+  # Windows CMD entry points to ~/.local/bin
+  @('clx.cmd', 'clg.cmd') | ForEach-Object {
+    $f = Join-Path $LaunchersSrc $_
+    if (Test-Path $f) {
+      Copy-Item $f (Join-Path $LocalBinDst $_) -Force
+    }
+  }
+  Write-Host 'Installed launchers: clx, clg (to ~/bin and ~/.local/bin)'
+}
+
 # Register the MCP server with Claude Code (user scope; idempotent).
 claude mcp remove agent-visibility -s user 2>$null | Out-Null
 claude mcp add agent-visibility -s user -- $Py (Join-Path $BridgeDir 'visible_agent_bridge.py')

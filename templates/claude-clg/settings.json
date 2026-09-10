@@ -1,0 +1,56 @@
+{
+  "model": "gemini-3.8-flash-high(high)",
+  "availableModels": [
+    "gemini-3.8-flash-high(high)",
+    "gemini-3.8-flash-high(medium)",
+    "gemini-3.8-flash-high(low)",
+    "gemini-3.1-pro-low(high)",
+    "gemini-3.1-pro-low(low)",
+    "gemini-3.7-flash-high(high)",
+    "gemini-3.6-flash-high(high)"
+  ],
+  "enforceAvailableModels": true,
+  "modelPicker": {
+    "options": [
+      {
+        "model": "gemini-3.8-flash-high(high)",
+        "label": "Gemini 3.8 Flash high",
+        "description": "Antigravity - 1M ctx"
+      },
+      {
+        "model": "gemini-3.8-flash-high(medium)",
+        "label": "Gemini 3.8 Flash medium",
+        "description": "Antigravity - 1M ctx"
+      },
+      {
+        "model": "gemini-3.8-flash-high(low)",
+        "label": "Gemini 3.8 Flash low",
+        "description": "Antigravity - 1M ctx"
+      },
+      {
+        "model": "gemini-3.1-pro-low(high)",
+        "label": "Gemini 3.1 Pro high",
+        "description": "Antigravity - 1M ctx"
+      },
+      {
+        "model": "gemini-3.1-pro-low(low)",
+        "label": "Gemini 3.1 Pro low",
+        "description": "Antigravity - 1M ctx"
+      },
+      {
+        "model": "gemini-3.7-flash-high(high)",
+        "label": "Gemini 3.7 Flash high",
+        "description": "Antigravity - 1M ctx"
+      },
+      {
+        "model": "gemini-3.6-flash-high(high)",
+        "label": "Gemini 3.6 Flash high",
+        "description": "Antigravity - 1M ctx"
+      }
+    ],
+    "replaceBuiltInOptions": true
+  },
+  "effortLevel": "high",
+  "theme": "dark",
+  "skipDangerousModePermissionPrompt": true
+}

@@ -1,0 +1,40 @@
+# CLIProxyAPI Gateway
+
+This directory provides scripts and templates for running CLIProxyAPI (v7.2.147+)
+as the local gateway on `http://127.0.0.1:8317` for `clx` (Grok) and `clg` (Gemini).
+
+## Architecture
+
+- CLIProxyAPI runs locally, listening on `127.0.0.1:8317`.
+- Bound to loopback only (`host: "127.0.0.1"`), preventing unauthorized access from other network interfaces.
+- Uses a local client API key configured in `config.yaml` and sent by `clx`/`clg` as `ANTHROPIC_AUTH_TOKEN`.
+- Providers are authenticated via OAuth (`--xai-login` for Grok, `--antigravity-login` for Gemini/Antigravity). Tokens are saved in `~/.cli-proxy-api/`.
+
+## Scripts
+
+### 1. `start-gateway.ps1`
+Starts the gateway detached:
+- Clears any orphaned `cli-proxy-api` processes holding port 8317 first.
+- Starts `cli-proxy-api.exe` with `-WindowStyle Hidden` and `-PassThru`, detaching it from the calling console so closing the terminal or pressing Ctrl+C does not kill the gateway (avoiding Windows `STATUS_CONTROL_C_EXIT` / `0xC000013A`).
+- Waits up to 20 seconds and checks `Get-NetTCPConnection` to verify port 8317 is actively listening before returning.
+- Logs events to `~/.cc-bridge/gateway.log` (encoded as UTF-8) with automatic 10 MB rotation.
+
+### 2. `stop-gateway.ps1`
+Stops both the scheduled task (if running) and kills all running `cli-proxy-api` processes:
+- Using `Stop-ScheduledTask` alone is insufficient because it terminates only the task's PowerShell wrapper while leaving the gateway executable running, which blocks port 8317.
+- This script verifies that port 8317 is free before completing.
+
+### 3. `install-autostart.ps1`
+Installs a per-user scheduled task named `CLIProxyAPI`:
+- Starts at user logon (`-AtLogOn`).
+- Runs with normal user privileges (no Administrator elevation required).
+- Safe to re-run: removes any previous registration, cleans up running processes, creates the task, starts it, and verifies connectivity.
+
+To inspect or remove the task:
+```powershell
+Get-ScheduledTask -TaskName CLIProxyAPI
+Unregister-ScheduledTask -TaskName CLIProxyAPI -Confirm:$false
+```
+
+### 4. `config.example.yaml`
+Template configuration for CLIProxyAPI. Copy to `~/cliproxyapi/config.yaml` and replace the placeholder API key with your own generated local client key. Store the corresponding key in `~/.cc-bridge/secrets/clx-api.key` (mode 600).

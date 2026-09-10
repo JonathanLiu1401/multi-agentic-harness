@@ -1,0 +1,50 @@
+{
+  "model": "grok-4.6(high)",
+  "availableModels": [
+    "grok-4.6(high)",
+    "grok-4.6(xhigh)",
+    "grok-4.6(medium)",
+    "grok-4.6(low)",
+    "grok-4.5(high)",
+    "grok-4.5(low)"
+  ],
+  "enforceAvailableModels": true,
+  "modelPicker": {
+    "options": [
+      {
+        "model": "grok-4.6(xhigh)",
+        "label": "Grok 4.6 xhigh",
+        "description": "xAI Grok 4.6 - max reasoning, 500k ctx"
+      },
+      {
+        "model": "grok-4.6(high)",
+        "label": "Grok 4.6 high",
+        "description": "xAI Grok 4.6 - 500k ctx"
+      },
+      {
+        "model": "grok-4.6(medium)",
+        "label": "Grok 4.6 medium",
+        "description": "xAI Grok 4.6 - 500k ctx"
+      },
+      {
+        "model": "grok-4.6(low)",
+        "label": "Grok 4.6 low",
+        "description": "xAI Grok 4.6 - fastest, 500k ctx"
+      },
+      {
+        "model": "grok-4.5(high)",
+        "label": "Grok 4.5 high",
+        "description": "xAI Grok 4.5 - 500k ctx"
+      },
+      {
+        "model": "grok-4.5(low)",
+        "label": "Grok 4.5 low",
+        "description": "xAI Grok 4.5 - 500k ctx"
+      }
+    ],
+    "replaceBuiltInOptions": true
+  },
+  "effortLevel": "high",
+  "theme": "dark",
+  "skipDangerousModePermissionPrompt": true
+}

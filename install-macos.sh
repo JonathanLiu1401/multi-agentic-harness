@@ -28,6 +28,21 @@ if [ -d "$HERE/plugin/skills/claude-manages-codex" ]; then
   echo "Installed skill: claude-manages-codex"
 fi
 
+# Deploy subagent definitions (grok, agy-gemini-3-8-flash).
+if [ -d "$HERE/plugin/agents" ]; then
+  mkdir -p "$HOME/.claude/agents"
+  cp "$HERE/plugin/agents/"*.md "$HOME/.claude/agents/"
+  echo "Installed agent definitions: grok, agy-gemini-3-8-flash"
+fi
+
+# Deploy launchers (clx, clg).
+if [ -d "$HERE/launchers" ]; then
+  mkdir -p "$HOME/bin"
+  [ -f "$HERE/launchers/clx" ] && cp "$HERE/launchers/clx" "$HOME/bin/clx" && chmod +x "$HOME/bin/clx"
+  [ -f "$HERE/launchers/clg" ] && cp "$HERE/launchers/clg" "$HOME/bin/clg" && chmod +x "$HOME/bin/clg"
+  echo "Installed launchers: clx, clg (to ~/bin)"
+fi
+
 # Register the MCP server with Claude Code (user scope; idempotent).
 claude mcp remove agent-visibility -s user >/dev/null 2>&1 || true
 claude mcp add agent-visibility -s user -- "$PY" "$BRIDGE_DIR/visible_agent_bridge.py"

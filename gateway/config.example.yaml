@@ -1,0 +1,12 @@
+# CLIProxyAPI - minimal config (defaults per upstream config.example.yaml)
+# Bound to loopback only; upstream default of "" would bind all interfaces.
+host: "127.0.0.1"
+port: 8317
+
+auth-dir: "~/.cli-proxy-api"
+
+# Local client key. Claude Code sends this as ANTHROPIC_AUTH_TOKEN.
+api-keys:
+  - "ccp-your-local-client-api-key-here"
+
+debug: false

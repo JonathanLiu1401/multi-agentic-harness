@@ -1,0 +1,109 @@
+#!/bin/sh
+# clg - Claude Code TUI on ANTIGRAVITY (Gemini) models via CLIProxyAPI.
+# See clx for the Grok profile. Isolated from the normal `claude`.
+#
+# Picker facts (verified against the claude.exe binary in an earlier session,
+# see memory model-picker-proxy-world):
+#   - CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY is DEAD under OAuth-less
+#     gateway use: the fetch is guarded, and it filters ids to /^(claude|anthropic)/i.
+#     Setting it just fills the picker with Claude aliases that 400 here.
+#   - The tier slots ANTHROPIC_DEFAULT_{OPUS,SONNET,HAIKU,FABLE}_MODEL accept
+#     ONLY real Claude model ids.
+#   - The picker is built from availableModels + enforceAvailableModels +
+#     modelPicker in settings.json. modelPicker must be an OBJECT
+#     {replaceBuiltInOptions, options:[{model,label,description}]} - a bare
+#     array is silently ignored with a settings warning.
+#   - Window is pinned to 1M below. A [1m] suffix on the model id does NOT
+#     change it: CLAUDE_CODE_AUTO_COMPACT_WINDOW wins.
+set -e
+
+GATEWAY="http://127.0.0.1:8317"
+KEYFILE="$HOME/.cc-bridge/secrets/clx-api.key"
+
+[ -r "$KEYFILE" ] || { echo "clg: missing $KEYFILE" >&2; exit 1; }
+
+# Clear anything inherited so no Claude model id or credential leaks in.
+unset ANTHROPIC_API_KEY ANTHROPIC_MODEL ANTHROPIC_DEFAULT_MODEL
+unset ANTHROPIC_DEFAULT_OPUS_MODEL ANTHROPIC_DEFAULT_SONNET_MODEL
+unset ANTHROPIC_DEFAULT_HAIKU_MODEL ANTHROPIC_DEFAULT_FABLE_MODEL
+unset ANTHROPIC_SMALL_FAST_MODEL ANTHROPIC_CUSTOM_MODEL_OPTION
+unset CLAUDE_CODE_SUBAGENT_MODEL CLAUDE_CODE_SUBAGENT_MODEL_FORCE
+unset CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY
+
+CLAUDE_CONFIG_DIR="$HOME/.claude-clg"
+ANTHROPIC_BASE_URL="$GATEWAY"
+ANTHROPIC_AUTH_TOKEN=$(cat "$KEYFILE")
+
+# Reasoning effort is a CLIProxyAPI "(level)" suffix on the model id, NOT
+# Claude Code's /effort. So each effort level is its own picker entry, listed in
+# settings.json (availableModels + modelPicker). Note (level) and [1m] are
+# mutually exclusive - the gateway 400s on both together.
+#
+# ANTHROPIC_MODEL must stay set: it overrides the `model` key from ANY settings
+# file. Sessions often run with cwd = the home directory, which makes your main
+# ~/.claude/settings.json load as PROJECT settings - and its "model": "opus"
+# would otherwise pin Opus 5 here ("that applies on restart" in the picker).
+ANTHROPIC_MODEL="gemini-3.8-flash-high(high)"
+# The picker's "Default (recommended)" row is structural and cannot be removed
+# (replaceBuiltInOptions keeps it). It resolves from availableModels[0] and is
+# always shown with a bogus "claude-" prefix, so keep the pinned model first in
+# that array. Cosmetic only - the labelled rows below it are what work.
+ANTHROPIC_DEFAULT_MODEL="gemini-3.8-flash-high(high)"
+ANTHROPIC_CUSTOM_MODEL_OPTION="gemini-3.8-flash-high(high)"
+ANTHROPIC_CUSTOM_MODEL_OPTION_NAME="Gemini 3.8 Flash high"
+ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION="Antigravity Gemini 3.8 Flash via CLIProxyAPI"
+ANTHROPIC_CUSTOM_MODEL_OPTION_SUPPORTED_CAPABILITIES="effort,thinking"
+
+# NOTE: the tier slots are deliberately NOT set. Tested 2026-09-02: pointing
+# ANTHROPIC_DEFAULT_OPUS_MODEL at a gateway-served Claude id does NOT take -
+# `--model opus` still resolved to claude-opus-5 and 400'd. Claude Code accepts
+# only its own known Claude ids there. The broken aliases are removed from the
+# picker via availableModels + enforceAvailableModels in settings.json instead.
+
+# Gemini/Antigravity models really do have a 1M window. Both vars must be set:
+# CLAUDE_CODE_AUTO_COMPACT_WINDOW is a hard pin ("tokens (from settings)") and
+# overrides everything else, including a [1m] suffix on the model id.
+CLAUDE_CODE_MAX_CONTEXT_TOKENS=1000000
+CLAUDE_CODE_AUTO_COMPACT_WINDOW=1000000
+
+# Background/telemetry calls hit endpoints the proxy does not serve.
+CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+
+# Effort: the settings.json effortLevel key was NOT applying to these
+# non-Claude ids (TUI showed "high with low effort"). The env var is
+# authoritative for the session, so set it here.
+CLAUDE_CODE_EFFORT_LEVEL=high
+
+# Subagents inherit the session model unless told otherwise; keep them on gemini.
+CLAUDE_CODE_SUBAGENT_MODEL="gemini-3.8-flash-high(high)"
+
+export CLAUDE_CONFIG_DIR ANTHROPIC_BASE_URL ANTHROPIC_AUTH_TOKEN ANTHROPIC_MODEL
+export ANTHROPIC_DEFAULT_MODEL
+export ANTHROPIC_CUSTOM_MODEL_OPTION ANTHROPIC_CUSTOM_MODEL_OPTION_NAME
+export ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION
+export ANTHROPIC_CUSTOM_MODEL_OPTION_SUPPORTED_CAPABILITIES
+export CLAUDE_CODE_MAX_CONTEXT_TOKENS CLAUDE_CODE_AUTO_COMPACT_WINDOW
+export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC CLAUDE_CODE_SUBAGENT_MODEL
+export CLAUDE_CODE_EFFORT_LEVEL
+
+mkdir -p "$CLAUDE_CONFIG_DIR"
+
+if ! curl -fsS -m 3 -o /dev/null "$GATEWAY/v1/models" \
+     -H "Authorization: Bearer $ANTHROPIC_AUTH_TOKEN" 2>/dev/null; then
+  echo "clg: gateway not responding at $GATEWAY" >&2
+  echo "clg: start it with:  powershell -NoProfile -Command \"Start-ScheduledTask -TaskName CLIProxyAPI\"" >&2
+  echo "clg: (or run ~/cliproxyapi/start-gateway.ps1 directly)" >&2
+  exit 1
+fi
+
+# Bypass permission prompts by default (owner request 2026-09-02).
+# Prompting, not inference, was the dominant wall-clock cost: an identical
+# /read-past-sessions run took 10m59s while prompting vs 1m54s with prompts
+# off. See ~/.cc-bridge/PERF-FINDINGS.md. An explicit permission flag on the
+# command line still wins.
+case "$*" in
+  *--permission-mode*|*--dangerously-skip-permissions*)
+    exec claude "$@" ;;
+  *)
+    exec claude --dangerously-skip-permissions "$@" ;;
+esac
