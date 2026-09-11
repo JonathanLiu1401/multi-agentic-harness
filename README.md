@@ -38,13 +38,16 @@ Run from the repository root:
 
 ---
 
-## Subagent Locality Matrix
+## Subagent Locality & Invocations
 
-The foundational operating rule of the harness is **Subagent Locality (owner rule 2026-08-15)**: whatever harness you are running in, spawn subagents of that same harness first.
+**MANDATORY RULE FOR `/claude-manages-codex` (owner directive 2026-09-11):**
+When the user invokes `/claude-manages-codex`, mentions `claude-manages-codex`, or asks to use the multi-agentic harness (such as running parallel `/work-checker`, schematic review, code review, or implementation), **YOU MUST ALWAYS FAN OUT TO GROK WORKERS (`start_visible_first_mate_grok_pool` or `start_visible_grok_worker`). NEVER spawn native Claude `Agent` subagents when `/claude-manages-codex` is invoked!** Spawning native Claude subagents exhausts Anthropic session limits and burns token quotas, directly violating the purpose of invoking the harness.
 
-| Current Session | Default Same-Family Workers | Cross-Family Worker Routing |
+When the user has NOT invoked `/claude-manages-codex` or requested the harness, routine internal delegation follows **Subagent Locality (owner rule 2026-08-15)**:
+
+| Current Session | Default Same-Family Workers | Cross-Family / Harness Worker Routing |
 | --- | --- | --- |
-| **Plain Claude** (`~/.claude`, api.anthropic.com) | `Agent` tool with built-in `subagent_type` (`general-purpose`, `Explore`, `Plan`, `claude`) | Grok: `start_visible_grok_worker`<br>Agy: `start_visible_agy_worker`<br>Never use native `clx`/`clg`/`cld` types. |
+| **Plain Claude** (`~/.claude`, api.anthropic.com) | Routine unprompted tasks: `Agent` tool with built-in `subagent_type` (`general-purpose`, `Explore`, `Plan`, `claude`) | On `/claude-manages-codex`: ALWAYS `start_visible_first_mate_grok_pool` or `start_visible_grok_worker`<br>Grok CLI: `start_visible_grok_worker`<br>Agy: `start_visible_agy_worker`<br>Never use native `clx`/`clg`/`cld` types. |
 | **clx** (`~/.claude-clx`, Grok 500k) | `Agent` tool with `subagent_type: "grok"` | Agy: `start_visible_agy_worker`<br>Grok CLI extras: `start_visible_grok_worker`<br>Never switch to clg or cld. |
 | **clg** (`~/.claude-clg`, Gemini 1M) | `Agent` tool with `subagent_type: "agy-gemini-3-8-flash"` | Grok: `start_visible_grok_worker`<br>Agy CLI: `start_visible_agy_worker`<br>Never switch to clx or cld. |
 | **cld** (`~/.claude-cld`, DeepSeek 1M) | `Agent` tool with `subagent_type: "deepseek"` | Grok: `start_visible_grok_worker`<br>Agy: `start_visible_agy_worker`<br>Never switch to clx or clg. |
