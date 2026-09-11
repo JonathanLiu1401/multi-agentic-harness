@@ -107,10 +107,10 @@ Claude Code context windows are governed by process-wide environment variables (
 
 #### 3. Real API Cost Tracking (`modelPricing.overrides`)
 When Claude Code encounters third-party model IDs, it defaults to Opus 5 list pricing ($15 input / $75 output / $1.50 cache read per MTok), creating 60x to 187x artificial cost inflation in `/cost` and `/usage`.
-We resolved this by adding exact `modelPricing.overrides` and caching them in `additionalModelCostsCache`:
-- **Gemini Flash (`clg`)**: $0.10 input / $0.40 output / $0.025 cache read (75% cache discount).
-- **DeepSeek V4.1 Flash (`cld`)**: $0.20 input / $0.80 output / $0.005 cache read (97% cache discount).
-- **Grok 4.6 (`clx`)**: $2.00 input / $10.00 output / $0.20 cache read (90% cache discount).
+We resolved this by adding exact `modelPricing.overrides` and caching them in `additionalModelCostsCache` using official published rates (September 2026):
+- **Google Gemini Flash (`clg`)**: $0.75 input / $3.75 output / $0.075 cache read (90% cache discount) per [Google AI pricing](https://ai.google.dev/pricing). Pro models: $2.00 input / $12.00 output / $0.20 cache read.
+- **DeepSeek V4.1 Flash (`cld`)**: $0.30 input ($0.15 off-peak) / $1.20 output ($0.60 off-peak) / $0.006 cache read ($0.003 off-peak, 98% cache discount) per [DeepSeek pricing](https://api-docs.deepseek.com/quick_start/pricing). V4 Pro: $1.32 input / $3.96 output / $0.044 cache read.
+- **xAI Grok 4.6 (`clx`)**: $2.00 input / $6.00 output / $0.50 cache read (75% cache discount) for prompts under 200k tokens per [xAI developer pricing](https://docs.x.ai/developers/pricing).
 All session spending calculations reflect accurate real-world API costs.
 
 #### 4. Dynamic Reasoning Effort

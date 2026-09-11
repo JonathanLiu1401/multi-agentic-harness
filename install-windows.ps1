@@ -187,41 +187,45 @@ if (Test-Path $GatewaySrc) {
 }
 
 # 6. Inject accurate model pricing into .claude.json state caches
+# Official published rates (September 2026):
+#   Google Gemini (https://ai.google.dev/pricing): Flash $0.75 in / $3.75 out / $0.075 cache read; Pro $2.00 in / $12.00 out / $0.20 cache read
+#   xAI Grok (https://docs.x.ai/developers/pricing): Grok 4.6 $2.00 in / $6.00 out / $0.50 cache read (<200k tokens); Grok 4.5 $2.00 in / $6.00 out / $0.30 cache read
+#   DeepSeek (https://api-docs.deepseek.com/quick_start/pricing): Flash $0.30 in / $1.20 out / $0.006 cache read (peak); V4 Pro $1.32 in / $3.96 out / $0.044 cache read (peak)
 $modelCosts = @{
-    "gemini-3.8-flash-high(high)" = @{ inputTokens = 0.10; outputTokens = 0.40; promptCacheWriteTokens = 0.10; promptCacheReadTokens = 0.025; webSearchRequests = 0.01 }
-    "gemini-3.8-flash-high(medium)" = @{ inputTokens = 0.10; outputTokens = 0.40; promptCacheWriteTokens = 0.10; promptCacheReadTokens = 0.025; webSearchRequests = 0.01 }
-    "gemini-3.8-flash-high(low)" = @{ inputTokens = 0.10; outputTokens = 0.40; promptCacheWriteTokens = 0.10; promptCacheReadTokens = 0.025; webSearchRequests = 0.01 }
-    "gemini-3.8-flash-high" = @{ inputTokens = 0.10; outputTokens = 0.40; promptCacheWriteTokens = 0.10; promptCacheReadTokens = 0.025; webSearchRequests = 0.01 }
-    "gemini-3.8-flash" = @{ inputTokens = 0.10; outputTokens = 0.40; promptCacheWriteTokens = 0.10; promptCacheReadTokens = 0.025; webSearchRequests = 0.01 }
-    "gemini-3.7-flash-high(high)" = @{ inputTokens = 0.10; outputTokens = 0.40; promptCacheWriteTokens = 0.10; promptCacheReadTokens = 0.025; webSearchRequests = 0.01 }
-    "gemini-3.7-flash" = @{ inputTokens = 0.10; outputTokens = 0.40; promptCacheWriteTokens = 0.10; promptCacheReadTokens = 0.025; webSearchRequests = 0.01 }
-    "gemini-3.6-flash-high(high)" = @{ inputTokens = 0.10; outputTokens = 0.40; promptCacheWriteTokens = 0.10; promptCacheReadTokens = 0.025; webSearchRequests = 0.01 }
-    "gemini-3.6-flash" = @{ inputTokens = 0.10; outputTokens = 0.40; promptCacheWriteTokens = 0.10; promptCacheReadTokens = 0.025; webSearchRequests = 0.01 }
-    "gemini-2.5-flash" = @{ inputTokens = 0.10; outputTokens = 0.40; promptCacheWriteTokens = 0.10; promptCacheReadTokens = 0.025; webSearchRequests = 0.01 }
-    "gemini-3.1-pro-low(high)" = @{ inputTokens = 1.25; outputTokens = 5.00; promptCacheWriteTokens = 1.25; promptCacheReadTokens = 0.3125; webSearchRequests = 0.01 }
-    "gemini-3.1-pro-low(low)" = @{ inputTokens = 1.25; outputTokens = 5.00; promptCacheWriteTokens = 1.25; promptCacheReadTokens = 0.3125; webSearchRequests = 0.01 }
-    "gemini-3.1-pro" = @{ inputTokens = 1.25; outputTokens = 5.00; promptCacheWriteTokens = 1.25; promptCacheReadTokens = 0.3125; webSearchRequests = 0.01 }
-    "gemini-2.5-pro" = @{ inputTokens = 1.25; outputTokens = 5.00; promptCacheWriteTokens = 1.25; promptCacheReadTokens = 0.3125; webSearchRequests = 0.01 }
-    "agy-gemini-3-8-flash" = @{ inputTokens = 0.10; outputTokens = 0.40; promptCacheWriteTokens = 0.10; promptCacheReadTokens = 0.025; webSearchRequests = 0.01 }
+    "gemini-3.8-flash-high(high)" = @{ inputTokens = 0.75; outputTokens = 3.75; promptCacheWriteTokens = 0.75; promptCacheReadTokens = 0.075; webSearchRequests = 0.01 }
+    "gemini-3.8-flash-high(medium)" = @{ inputTokens = 0.75; outputTokens = 3.75; promptCacheWriteTokens = 0.75; promptCacheReadTokens = 0.075; webSearchRequests = 0.01 }
+    "gemini-3.8-flash-high(low)" = @{ inputTokens = 0.75; outputTokens = 3.75; promptCacheWriteTokens = 0.75; promptCacheReadTokens = 0.075; webSearchRequests = 0.01 }
+    "gemini-3.8-flash-high" = @{ inputTokens = 0.75; outputTokens = 3.75; promptCacheWriteTokens = 0.75; promptCacheReadTokens = 0.075; webSearchRequests = 0.01 }
+    "gemini-3.8-flash" = @{ inputTokens = 0.75; outputTokens = 3.75; promptCacheWriteTokens = 0.75; promptCacheReadTokens = 0.075; webSearchRequests = 0.01 }
+    "gemini-3.7-flash-high(high)" = @{ inputTokens = 0.75; outputTokens = 3.75; promptCacheWriteTokens = 0.75; promptCacheReadTokens = 0.075; webSearchRequests = 0.01 }
+    "gemini-3.7-flash" = @{ inputTokens = 0.75; outputTokens = 3.75; promptCacheWriteTokens = 0.75; promptCacheReadTokens = 0.075; webSearchRequests = 0.01 }
+    "gemini-3.6-flash-high(high)" = @{ inputTokens = 0.75; outputTokens = 3.75; promptCacheWriteTokens = 0.75; promptCacheReadTokens = 0.075; webSearchRequests = 0.01 }
+    "gemini-3.6-flash" = @{ inputTokens = 0.75; outputTokens = 3.75; promptCacheWriteTokens = 0.75; promptCacheReadTokens = 0.075; webSearchRequests = 0.01 }
+    "gemini-2.5-flash" = @{ inputTokens = 0.30; outputTokens = 2.50; promptCacheWriteTokens = 0.30; promptCacheReadTokens = 0.03; webSearchRequests = 0.01 }
+    "gemini-3.1-pro-low(high)" = @{ inputTokens = 2.00; outputTokens = 12.00; promptCacheWriteTokens = 2.00; promptCacheReadTokens = 0.20; webSearchRequests = 0.01 }
+    "gemini-3.1-pro-low(low)" = @{ inputTokens = 2.00; outputTokens = 12.00; promptCacheWriteTokens = 2.00; promptCacheReadTokens = 0.20; webSearchRequests = 0.01 }
+    "gemini-3.1-pro" = @{ inputTokens = 2.00; outputTokens = 12.00; promptCacheWriteTokens = 2.00; promptCacheReadTokens = 0.20; webSearchRequests = 0.01 }
+    "gemini-2.5-pro" = @{ inputTokens = 1.25; outputTokens = 10.00; promptCacheWriteTokens = 1.25; promptCacheReadTokens = 0.125; webSearchRequests = 0.01 }
+    "agy-gemini-3-8-flash" = @{ inputTokens = 0.75; outputTokens = 3.75; promptCacheWriteTokens = 0.75; promptCacheReadTokens = 0.075; webSearchRequests = 0.01 }
 
-    "grok-4.6(xhigh)" = @{ inputTokens = 2.00; outputTokens = 10.00; promptCacheWriteTokens = 2.00; promptCacheReadTokens = 0.20; webSearchRequests = 0.01 }
-    "grok-4.6(high)" = @{ inputTokens = 2.00; outputTokens = 10.00; promptCacheWriteTokens = 2.00; promptCacheReadTokens = 0.20; webSearchRequests = 0.01 }
-    "grok-4.6(medium)" = @{ inputTokens = 2.00; outputTokens = 10.00; promptCacheWriteTokens = 2.00; promptCacheReadTokens = 0.20; webSearchRequests = 0.01 }
-    "grok-4.6(low)" = @{ inputTokens = 2.00; outputTokens = 10.00; promptCacheWriteTokens = 2.00; promptCacheReadTokens = 0.20; webSearchRequests = 0.01 }
-    "grok-4.6" = @{ inputTokens = 2.00; outputTokens = 10.00; promptCacheWriteTokens = 2.00; promptCacheReadTokens = 0.20; webSearchRequests = 0.01 }
-    "grok-4.5(high)" = @{ inputTokens = 2.00; outputTokens = 10.00; promptCacheWriteTokens = 2.00; promptCacheReadTokens = 0.20; webSearchRequests = 0.01 }
-    "grok-4.5(low)" = @{ inputTokens = 2.00; outputTokens = 10.00; promptCacheWriteTokens = 2.00; promptCacheReadTokens = 0.20; webSearchRequests = 0.01 }
-    "grok-4.5" = @{ inputTokens = 2.00; outputTokens = 10.00; promptCacheWriteTokens = 2.00; promptCacheReadTokens = 0.20; webSearchRequests = 0.01 }
-    "grok" = @{ inputTokens = 2.00; outputTokens = 10.00; promptCacheWriteTokens = 2.00; promptCacheReadTokens = 0.20; webSearchRequests = 0.01 }
+    "grok-4.6(xhigh)" = @{ inputTokens = 2.00; outputTokens = 6.00; promptCacheWriteTokens = 2.00; promptCacheReadTokens = 0.50; webSearchRequests = 0.01 }
+    "grok-4.6(high)" = @{ inputTokens = 2.00; outputTokens = 6.00; promptCacheWriteTokens = 2.00; promptCacheReadTokens = 0.50; webSearchRequests = 0.01 }
+    "grok-4.6(medium)" = @{ inputTokens = 2.00; outputTokens = 6.00; promptCacheWriteTokens = 2.00; promptCacheReadTokens = 0.50; webSearchRequests = 0.01 }
+    "grok-4.6(low)" = @{ inputTokens = 2.00; outputTokens = 6.00; promptCacheWriteTokens = 2.00; promptCacheReadTokens = 0.50; webSearchRequests = 0.01 }
+    "grok-4.6" = @{ inputTokens = 2.00; outputTokens = 6.00; promptCacheWriteTokens = 2.00; promptCacheReadTokens = 0.50; webSearchRequests = 0.01 }
+    "grok-4.5(high)" = @{ inputTokens = 2.00; outputTokens = 6.00; promptCacheWriteTokens = 2.00; promptCacheReadTokens = 0.30; webSearchRequests = 0.01 }
+    "grok-4.5(low)" = @{ inputTokens = 2.00; outputTokens = 6.00; promptCacheWriteTokens = 2.00; promptCacheReadTokens = 0.30; webSearchRequests = 0.01 }
+    "grok-4.5" = @{ inputTokens = 2.00; outputTokens = 6.00; promptCacheWriteTokens = 2.00; promptCacheReadTokens = 0.30; webSearchRequests = 0.01 }
+    "grok" = @{ inputTokens = 2.00; outputTokens = 6.00; promptCacheWriteTokens = 2.00; promptCacheReadTokens = 0.50; webSearchRequests = 0.01 }
 
-    "deepseek-flash[1m]" = @{ inputTokens = 0.20; outputTokens = 0.80; promptCacheWriteTokens = 0.20; promptCacheReadTokens = 0.005; webSearchRequests = 0.01 }
-    "deepseek-flash" = @{ inputTokens = 0.20; outputTokens = 0.80; promptCacheWriteTokens = 0.20; promptCacheReadTokens = 0.005; webSearchRequests = 0.01 }
-    "deepseek-v4.1-flash" = @{ inputTokens = 0.20; outputTokens = 0.80; promptCacheWriteTokens = 0.20; promptCacheReadTokens = 0.005; webSearchRequests = 0.01 }
-    "deepseek-v4-pro[1m]" = @{ inputTokens = 0.99; outputTokens = 2.97; promptCacheWriteTokens = 0.99; promptCacheReadTokens = 0.033; webSearchRequests = 0.01 }
-    "deepseek-v4-pro" = @{ inputTokens = 0.99; outputTokens = 2.97; promptCacheWriteTokens = 0.99; promptCacheReadTokens = 0.033; webSearchRequests = 0.01 }
-    "deepseek-chat" = @{ inputTokens = 0.20; outputTokens = 0.80; promptCacheWriteTokens = 0.20; promptCacheReadTokens = 0.005; webSearchRequests = 0.01 }
-    "deepseek-reasoner" = @{ inputTokens = 0.99; outputTokens = 2.97; promptCacheWriteTokens = 0.99; promptCacheReadTokens = 0.033; webSearchRequests = 0.01 }
-    "deepseek" = @{ inputTokens = 0.20; outputTokens = 0.80; promptCacheWriteTokens = 0.20; promptCacheReadTokens = 0.005; webSearchRequests = 0.01 }
+    "deepseek-flash[1m]" = @{ inputTokens = 0.30; outputTokens = 1.20; promptCacheWriteTokens = 0.30; promptCacheReadTokens = 0.006; webSearchRequests = 0.01 }
+    "deepseek-flash" = @{ inputTokens = 0.30; outputTokens = 1.20; promptCacheWriteTokens = 0.30; promptCacheReadTokens = 0.006; webSearchRequests = 0.01 }
+    "deepseek-v4.1-flash" = @{ inputTokens = 0.30; outputTokens = 1.20; promptCacheWriteTokens = 0.30; promptCacheReadTokens = 0.006; webSearchRequests = 0.01 }
+    "deepseek-v4-pro[1m]" = @{ inputTokens = 1.32; outputTokens = 3.96; promptCacheWriteTokens = 1.32; promptCacheReadTokens = 0.044; webSearchRequests = 0.01 }
+    "deepseek-v4-pro" = @{ inputTokens = 1.32; outputTokens = 3.96; promptCacheWriteTokens = 1.32; promptCacheReadTokens = 0.044; webSearchRequests = 0.01 }
+    "deepseek-chat" = @{ inputTokens = 0.30; outputTokens = 1.20; promptCacheWriteTokens = 0.30; promptCacheReadTokens = 0.006; webSearchRequests = 0.01 }
+    "deepseek-reasoner" = @{ inputTokens = 1.32; outputTokens = 3.96; promptCacheWriteTokens = 1.32; promptCacheReadTokens = 0.044; webSearchRequests = 0.01 }
+    "deepseek" = @{ inputTokens = 0.30; outputTokens = 1.20; promptCacheWriteTokens = 0.30; promptCacheReadTokens = 0.006; webSearchRequests = 0.01 }
 }
 
 $ConfigFiles = @(

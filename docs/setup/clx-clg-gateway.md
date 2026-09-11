@@ -113,34 +113,37 @@ This artificially inflates reported spend in `/cost` and `/usage` by 20x to 150x
 and causes large prompt-cache sessions (e.g. 10M+ tokens on Gemini Flash or DeepSeek)
 to show exorbitant costs.
 
-To fix this, each profile's `settings.json` specifies `modelPricing.overrides`:
+To fix this, each profile's `settings.json` specifies `modelPricing.overrides` with official published provider rates (September 2026):
 ```json
 "modelPricing": {
   "overrides": {
     "gemini-3.8-flash-high(high)": {
-      "input": 0.10,
-      "output": 0.40,
-      "cacheRead": 0.025,
-      "cacheWrite": 0.10
+      "input": 0.75,
+      "output": 3.75,
+      "cacheRead": 0.075,
+      "cacheWrite": 0.75
     },
     "deepseek-flash[1m]": {
-      "input": 0.20,
-      "output": 0.80,
-      "cacheRead": 0.005,
-      "cacheWrite": 0.20
+      "input": 0.30,
+      "output": 1.20,
+      "cacheRead": 0.006,
+      "cacheWrite": 0.30
     },
     "grok-4.6(high)": {
       "input": 2.00,
-      "output": 10.00,
-      "cacheRead": 0.20,
+      "output": 6.00,
+      "cacheRead": 0.50,
       "cacheWrite": 2.00
     }
   }
 }
 ```
 All four fields (`input`, `output`, `cacheRead`, `cacheWrite`) are denominated in
-USD per million tokens. With these overrides in place, `/cost` and the status line
-accurately report actual API spending at configured provider rates.
+USD per million tokens:
+- **Google Gemini** (ai.google.dev/pricing): Flash models at $0.75 in / $3.75 out / $0.075 cache read; Pro models at $2.00 in / $12.00 out / $0.20 cache read.
+- **DeepSeek** (api-docs.deepseek.com/quick_start/pricing): Flash at $0.30 in ($0.15 off-peak) / $1.20 out ($0.60 off-peak) / $0.006 cache read ($0.003 off-peak); V4 Pro at $1.32 in / $3.96 out / $0.044 cache read.
+- **xAI Grok** (docs.x.ai/developers/pricing): Grok 4.6 at $2.00 in / $6.00 out / $0.50 cache read (<200k tokens).
+With these overrides in place, `/cost` and the status line accurately report actual API spending at configured provider rates.
 
 ### Antigravity
 

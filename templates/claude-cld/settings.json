@@ -23,28 +23,40 @@
   "modelPricing": {
     "overrides": {
       "deepseek-flash[1m]": {
-        "input": 0.20,
-        "output": 0.80,
-        "cacheRead": 0.005,
-        "cacheWrite": 0.20
+        "input": 0.30,
+        "output": 1.20,
+        "cacheRead": 0.006,
+        "cacheWrite": 0.30
       },
       "deepseek-flash": {
-        "input": 0.20,
-        "output": 0.80,
-        "cacheRead": 0.005,
-        "cacheWrite": 0.20
+        "input": 0.30,
+        "output": 1.20,
+        "cacheRead": 0.006,
+        "cacheWrite": 0.30
+      },
+      "deepseek-v4.1-flash": {
+        "input": 0.30,
+        "output": 1.20,
+        "cacheRead": 0.006,
+        "cacheWrite": 0.30
       },
       "deepseek-v4-pro[1m]": {
-        "input": 0.99,
-        "output": 2.97,
-        "cacheRead": 0.033,
-        "cacheWrite": 0.99
+        "input": 1.32,
+        "output": 3.96,
+        "cacheRead": 0.044,
+        "cacheWrite": 1.32
       },
       "deepseek-v4-pro": {
-        "input": 0.99,
-        "output": 2.97,
-        "cacheRead": 0.033,
-        "cacheWrite": 0.99
+        "input": 1.32,
+        "output": 3.96,
+        "cacheRead": 0.044,
+        "cacheWrite": 1.32
+      },
+      "deepseek": {
+        "input": 0.30,
+        "output": 1.20,
+        "cacheRead": 0.006,
+        "cacheWrite": 0.30
       }
     }
   },
