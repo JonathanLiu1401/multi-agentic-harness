@@ -1,9 +1,9 @@
-# clx / clg / cld: provider models in the Claude Code TUI
+# clx / clg / cld / clc: provider models in the Claude Code TUI
 
-Set up 2026-09-02, extended 2026-09-09. Runs Grok, Google Antigravity (Gemini),
-and DeepSeek (V3/R1) models inside the Claude Code TUI, via a stock local
-CLIProxyAPI gateway, with fully isolated config. The plain `claude` entry point
-and `~/.claude` are untouched.
+Set up 2026-09-02, extended 2026-09-09, Cursor dialect `clc` added 2026-09-12.
+Runs Grok, Google Antigravity (Gemini), DeepSeek, and Cursor-hosted models
+inside the Claude Code TUI with fully isolated config. The plain `claude`
+entry point and `~/.claude` are untouched.
 
 Owner brief: "I think claude code is the best agent harness for long horizon
 reasoning tasks... this should not impact my current claude code configs."
@@ -17,16 +17,17 @@ after judging the 2026-08 attempt as "trying to do too much".
 | `clx` | Grok | Grok 4.5 / 4.6 | `~/.claude-clx` | 500k | `CLIProxyAPI` |
 | `clg` | Gemini | Gemini 3.6/3.7/3.8 Flash, 3.1 Pro | `~/.claude-clg` | 1M | `CLIProxyAPI` |
 | `cld` | DeepSeek | DeepSeek V4.1 Flash, DeepSeek V4 Pro | `~/.claude-cld` | 1M | `CLIProxyAPI` |
-| `clc` | Cursor | Cursor Grok 4.6 xhigh fast (local TUI) + Cloud Agents API | n/a (native cursor-agent, not Claude Code) | 1M Max Mode | Cursor `crsr_` key |
+| `clc` | Cursor | Live Cursor catalog (Grok 4.6 Fast default, plus Fast rows) | `~/.claude-clc` | 1M (process-wide) | `CLCCursorGateway` |
 
-One gateway serves clx/clg/cld: CLIProxyAPI v7.2.147 at `~/cliproxyapi/`, bound to
-`127.0.0.1:8317`, started at logon by a per-user scheduled task. `clc` does **not**
-use that gateway: it talks to `cursor-agent` and `https://api.cursor.com`.
+One gateway serves clx/clg: CLIProxyAPI v7.2.147 at `~/cliproxyapi/`, bound to
+`127.0.0.1:8317`, started at logon by `CLIProxyAPI`. `cld` talks to DeepSeek
+directly. `clc` talks to a separate translator on `127.0.0.1:8318` (scheduled
+task `CLCCursorGateway`). Operator detail: [`clc-cursor-gateway.md`](clc-cursor-gateway.md).
 
 Shipped components in this repository:
-- **Launchers**: `launchers/` (`clx`, `clg`, `cld` in Bash, PS1, and CMD)
-- **Gateway management**: `gateway/` (`start-gateway.ps1`, `stop-gateway.ps1`, `install-autostart.ps1`, `config.example.yaml`)
-- **Profile templates**: `templates/` (`templates/claude-clx/`, `templates/claude-clg/`, `templates/claude-cld/`)
+- **Launchers**: `launchers/` (`clx`, `clg`, `cld`, `clc` in Bash, PS1, and CMD)
+- **Gateway management**: `gateway/` (`start-gateway.ps1`, `stop-gateway.ps1`, `install-autostart.ps1`, `start-clc-gateway.ps1`, `install-clc-autostart.ps1`, `cursor_anthropic_gateway.py`)
+- **Profile templates**: `templates/` (`templates/claude-clx/`, `templates/claude-clg/`, `templates/claude-cld/`, `templates/claude-clc/`)
 - **Performance benchmarks & analysis**: [`docs/setup/clx-clg-perf.md`](clx-clg-perf.md)
 - **Interactive TUI test suite**: `tests/tui_test.py`
 
@@ -47,6 +48,7 @@ is back, so they work again.
 | Plain Claude (`~/.claude`) | Agent built-in `subagent_type` | grok: `start_visible_grok_worker` (Grok Build CLI). agy: `start_visible_agy_worker` (Antigravity CLI). Never native `grok` / `agy-gemini-*`. |
 | clx (grok 500k) | Agent `grok` | agy: `start_visible_agy_worker`. Never Agent `agy-gemini-*`. |
 | clg (Gemini 1M) | Agent `agy-gemini-3-8-flash` | grok: `start_visible_grok_worker`. Never Agent `grok`. |
+| clc (Cursor 1M) | no native Agent type | Cursor: `start_visible_cursor_worker`. Cloud: `start_cursor_cloud_agent`. Never Agent `grok` / `agy-gemini-*`. |
 
 Native Agent types run inside Claude Code's own runtime (tools, permissions,
 diffs, steering, no detached console). They are same-family only. Verified
@@ -210,35 +212,28 @@ Two traps, both fixed in `gateway/start-gateway.ps1`:
 PowerShell 5.1 `*>>` redirection writes UTF-16LE, which turns a log into a binary
 blob that `grep`/`tail` cannot read. Use `Add-Content -Encoding utf8`.
 
-## Cursor: `clc` is a peer launcher, not a Claude Code dialect
+## Cursor: `clc` is a Claude Code dialect via a local translator
 
-The 2026-09-02 attempt to put Cursor models **inside Claude Code's TUI**
-(`ANTHROPIC_BASE_URL` + a proxy) was correctly abandoned: Cursor never emits
-Anthropic `tool_use` blocks through that path, and CLIProxyAPI still has no
-Cursor provider. Re-verified 2026-09-12: `POST https://api.cursor.com/v1/messages`
-and `/v1/chat/completions` both **404** with a valid `crsr_` key named `clc`.
+Cursor still has no public `/v1/messages` (404). CLIProxyAPI still has no
+Cursor provider. The working path is **not** wrapping `cursor-agent`'s TUI
+and **not** stuffing CLI bracket ids into the model field.
 
-What **does** work, and what `clc` is:
+`clc` launches Claude Code with `CLAUDE_CONFIG_DIR=~/.claude-clc` and
+`ANTHROPIC_BASE_URL=http://127.0.0.1:8318`. `gateway/cursor_anthropic_gateway.py`
+implements Anthropic messages, maps Claude Code tools to Cursor SDK
+`custom_tools`, and maps `/effort` plus `-fast` onto each model's catalog
+params. Full operator notes: [`clc-cursor-gateway.md`](clc-cursor-gateway.md).
 
-1. **Local TUI** - `clc` execs the native `cursor-agent` CLI
-   (`%LOCALAPPDATA%\cursor-agent\versions\<latest>\node.exe index.js`) with
-   `CURSOR_API_KEY` / `--api-key`, `--trust --approve-mcps --force`, default
-   model `cursor-grok-4.6-xhigh-fast`, Max Mode on. Same binary the harness
-   already uses via `start_visible_cursor_worker`.
-2. **Cloud Agents API** - `clc --cloud`, `clc --list-agents`, `clc --me`, and
-   MCP tools `start_cursor_cloud_agent` / `list_cursor_cloud_agents` /
-   `get_cursor_cloud_agent` / `followup_cursor_cloud_agent` against
-   `https://api.cursor.com/v1/agents`. Basic auth (`crsr_:` ) or Bearer.
-   Fire-and-forget VM coding agents, not a token stream for Claude Code.
-3. **Key file** - `~/.cc-bridge/secrets/cursor-api.key` (or `CURSOR_API_KEY`).
-   Do not commit it.
+Verified 2026-09-12:
 
-PowerShell ships a ReadOnly AllScope alias `clc` -> `Clear-Content`. The
-installer removes it in the user profile and defines `function global:clc`.
-If `clc` still clears a file, run `Remove-Item Alias:clc -Force` then
-`. $PROFILE`. `clc.cmd` always works.
+- Gemini 3.8 Flash + high -> dashboard `gemini-3.8-flash-high` (that model has
+  no Fast param).
+- Pinning `CLAUDE_CODE_EFFORT_LEVEL=high` blocks `/effort` and overrode a
+  saved **low**. The launcher must not set that env var.
+- Bracket model ids (`gemini-3.8-flash[reasoning_effort=high]`) 500
+  `invalid_argument`. Use `ModelSelection` id + params.
 
-Do **not** point `ANTHROPIC_BASE_URL` at Cursor. That is the path that failed.
+Cloud Agents and visible `cursor-agent` workers stay on the Part 1 MCP tools.
 
 ## Relationship to the 2026-08-15 decommission
 

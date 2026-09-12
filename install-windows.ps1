@@ -174,7 +174,8 @@ if ($UserPath -notlike "*$LocalBin*") {
 $Profiles = @(
     @{ Name = "claude-clx"; Provider = "Grok" },
     @{ Name = "claude-clg"; Provider = "Gemini/Antigravity" },
-    @{ Name = "claude-cld"; Provider = "DeepSeek" }
+    @{ Name = "claude-cld"; Provider = "DeepSeek" },
+    @{ Name = "claude-clc"; Provider = "Cursor" }
 )
 
 foreach ($p in $Profiles) {
@@ -221,7 +222,7 @@ if (-not (Test-Path $CursorKeyFile)) {
 
 # PowerShell ships `clc` as a ReadOnly AllScope alias for Clear-Content.
 # Without this, typing `clc` in PowerShell never reaches clc.cmd.
-$ClcMarker = "# clc launcher (Cursor Agent) - shadows PowerShell Clear-Content alias"
+$ClcMarker = "# clc launcher (Cursor Claude Code dialect) - shadows PowerShell Clear-Content alias"
 $ClcSnippet = @"
 $ClcMarker
 if (Test-Path Alias:clc) { Remove-Item Alias:clc -Force -ErrorAction SilentlyContinue }
@@ -264,6 +265,13 @@ if (Test-Path $GatewaySrc) {
         }
     }
     Write-Host "Deployed gateway management scripts to $GatewayDir"
+}
+
+# Cursor translator (clc): hidden logon task on 127.0.0.1:8318
+$ClcAutostart = Join-Path $Here "gateway\install-clc-autostart.ps1"
+if (Test-Path $ClcAutostart) {
+    Write-Host "Installing CLCCursorGateway scheduled task..."
+    & $ClcAutostart
 }
 
 # 6. Inject accurate model pricing into .claude.json state caches
@@ -377,5 +385,6 @@ Write-Host "`nTo start a custom session:"
 Write-Host "  clx   -> Grok 4.6 (500k context, Claude Code TUI)"
 Write-Host "  clg   -> Gemini 3.8 Flash / 3.1 Pro (1M context, Claude Code TUI)"
 Write-Host "  cld   -> DeepSeek V4.1 Flash / V4 Pro (1M context, Claude Code TUI)"
-Write-Host "  clc   -> Cursor Agent TUI + Cloud Agents API (not a Claude Code profile)"
+Write-Host "  clc   -> Cursor catalog in Claude Code TUI (1M, translator on 127.0.0.1:8318)"
 Write-Host "         Save crsr_ key to ~/.cc-bridge/secrets/cursor-api.key"
+Write-Host "         If clc still clears a file: Remove-Item Alias:clc -Force; . `$PROFILE"

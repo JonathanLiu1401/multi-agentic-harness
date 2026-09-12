@@ -7,7 +7,7 @@ description: Multi-Agentic Harness - Claude is captain (architect/QA/reviewer); 
 
 > **Rename note (2026-07-15, updated 2026-08-15):** this skill is branded the **Multi-Agentic Harness**. Its internal id / MCP tool prefix / install directory remain `claude-manages-codex` for compatibility. Much of the older prose further down still mentions Codex because it was the original backend - **IGNORE those defaults**. The authoritative spawn policy is **Subagent Locality** plus the **Mandatory Spawn Path** section immediately below. Codex is DISABLED.
 
-Use this session's model as captain (Claude on plain `claude`, grok on `clx`, Gemini/agy on `clg`, DeepSeek on `cld`).
+Use this session's model as captain (Claude on plain `claude`, grok on `clx`, Gemini/agy on `clg`, DeepSeek on `cld`, Cursor-hosted model on `clc`).
 
 ## MANDATORY INVOCATION RULE (owner directive 2026-09-11 - OVERRIDES ALL DEFAULTS)
 
@@ -27,8 +27,9 @@ Use this session's model as captain (Claude on plain `claude`, grok on `clx`, Ge
 - A **`clx` session** (Claude Code on grok via CLIProxyAPI) uses Agent `subagent_type: "grok"` for grok work and `start_visible_agy_worker` for agy work. Never Agent `agy-gemini-*`.
 - A **`clg` session** (Claude Code on Gemini via CLIProxyAPI) uses Agent `subagent_type: "agy-gemini-3-8-flash"` for agy work and `start_visible_grok_worker` for grok work. Never Agent `grok`.
 - A **`cld` session** (Claude Code on DeepSeek via api.deepseek.com) uses Agent `subagent_type: "deepseek"` for DeepSeek work. Grok work uses `start_visible_grok_worker`, and agy work uses `start_visible_agy_worker`.
-  - Native `grok` / `agy-gemini-3-8-flash` / `deepseek` Agent spawns are same-harness only inside their own profile. clx, clg, and cld are not cross-compatible. The forbidden thing is Bashing another CLI, or borrowing another profile's Agent type.
-- A session inside the Cursor `cursor-agent` TUI spawns cursor-agent subagents, choosing the worker model per the cursor routing guidance.
+  - Native `grok` / `agy-gemini-3-8-flash` / `deepseek` Agent spawns are same-harness only inside their own profile. clx, clg, cld, and clc are not cross-compatible. The forbidden thing is Bashing another CLI, or borrowing another profile's Agent type.
+- A **`clc` session** (Claude Code on Cursor via the local translator on `127.0.0.1:8318`) has no native Agent types. Cursor-family workers use `start_visible_cursor_worker`; Cloud Agents use `start_cursor_cloud_agent`. Never Agent `grok` / `agy-gemini-*` / `deepseek`. Do not Bash `cursor-agent`.
+- A session inside the Cursor `cursor-agent` TUI (not `clc`) spawns cursor-agent subagents, choosing the worker model per the cursor routing guidance.
 - A grok (Grok Build CLI) session spawns grok's own native subagents, default grok model.
 - **Explicit Harness Exception:** Invoking `/claude-manages-codex`, or asking for "use grok", "grok agents", "grok workers", or "have grok edit/implement/fix" is the mandatory exception. Call `start_visible_first_mate_grok_pool` or `start_visible_grok_worker`. Do **not** substitute Claude `Agent` subagents. Still do not Bash `grok`; use the MCP tool. If grok is actually unavailable, tell the owner; do not silently swap.
 
@@ -48,7 +49,7 @@ clx reported `E2E_NATIVE_AGY=WRONG_MODEL` and ran as `grok-4.6(high)`.
 | **clx** (`~/.claude-clx`, grok 500k) | Agent `subagent_type: "grok"` | agy: `start_visible_agy_worker`. Never Agent `agy-gemini-*`. Never switch to clg or cld. |
 | **clg** (`~/.claude-clg`, Gemini 1M) | Agent `subagent_type: "agy-gemini-3-8-flash"` | grok: `start_visible_grok_worker` (Grok Build CLI). Never Agent `grok`. Never switch to clx or cld. |
 | **cld** (`~/.claude-cld`, DeepSeek 1M) | Agent `subagent_type: "deepseek"` | grok: `start_visible_grok_worker`. agy: `start_visible_agy_worker`. Never switch to clx or clg. |
-| **clc** (`cursor-agent` TUI + Cloud Agents API) | Native cursor-agent subagents (`cursor-grok-4.6-xhigh-fast`) | Cloud: `start_cursor_cloud_agent` / `followup_cursor_cloud_agent`. Never Claude Code `ANTHROPIC_BASE_URL`. |
+| **clc** (`~/.claude-clc`, Cursor 1M via `127.0.0.1:8318`) | No native Agent types on this profile | Cursor workers: `start_visible_cursor_worker`. Cloud: `start_cursor_cloud_agent` / `followup_cursor_cloud_agent`. Never Agent `grok` / `agy-gemini-*` / `deepseek`. |
 
 **Native subagents are same-family only.** In clx, native `grok` is the grok
 path (verified 2026-09-02: a clx subagent reported `grok-4.6(high)` and
@@ -91,6 +92,7 @@ Read "Which session am I in?" first. Do not call Codex tools. Same-family native
 | **1 in clx** | Ordinary grok-family delegation inside `clx` | `Agent` tool with `subagent_type: "grok"` | `SendMessage` / follow-up Agent |
 | **1 in clg** | Ordinary agy-family delegation inside `clg` | `Agent` tool with `subagent_type: "agy-gemini-3-8-flash"` | `SendMessage` / follow-up Agent |
 | **1 in cld** | Ordinary DeepSeek-family delegation inside `cld` | `Agent` tool with `subagent_type: "deepseek"` | `SendMessage` / follow-up Agent |
+| **1 in clc** | Ordinary Cursor-family delegation inside `clc` | `start_visible_cursor_worker` (or Cloud `start_cursor_cloud_agent`). No native Agent type. | `steer_visible_cursor_run` / `followup_cursor_cloud_agent` |
 | **2c from clx (agy family)** | clx captain needs Gemini/agy work | `start_visible_agy_worker` (Antigravity CLI). Never Agent `agy-gemini-*` | `steer_visible_agy_run` |
 | **2b from clg (grok family)** | clg captain needs grok work | `start_visible_grok_worker` (Grok Build CLI). Never Agent `grok` | `steer_visible_grok_run` |
 | **2b/2c from cld** | cld captain needs grok/agy work | `start_visible_grok_worker` / `start_visible_agy_worker` | `steer_visible_grok_run` / `steer_visible_agy_run` |

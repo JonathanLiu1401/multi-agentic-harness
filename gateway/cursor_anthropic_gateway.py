@@ -119,7 +119,7 @@ def refresh_catalog() -> None:
         log(f"catalog load failed: {exc}")
 
 
-def extract_effort(body: dict[str, Any]) -> str | None:
+def extract_effort(body: dict[str, Any], model: str | None = None) -> str | None:
     oc = body.get("output_config")
     if isinstance(oc, dict):
         for key in ("effort", "reasoning_effort", "reasoning"):
@@ -130,6 +130,18 @@ def extract_effort(body: dict[str, Any]) -> str | None:
         val = body.get(key)
         if val:
             return str(val).lower()
+    try:
+        settings = json.loads((Path.home() / ".claude-clc" / "settings.json").read_text(encoding="utf-8"))
+        ms = settings.get("modelSettings") or {}
+        if model and isinstance(ms.get(model), dict):
+            saved = str(ms[model].get("effortLevel") or "").strip().lower()
+            if saved in ("low", "medium", "high", "xhigh", "max"):
+                return saved
+        saved = str(settings.get("effortLevel") or "").strip().lower()
+        if saved in ("low", "medium", "high", "xhigh", "max"):
+            return saved
+    except Exception:
+        pass
     env = (os.environ.get("CLAUDE_CODE_EFFORT_LEVEL") or "").strip().lower()
     if env in ("low", "medium", "high", "xhigh", "max"):
         return env
@@ -186,10 +198,10 @@ def parse_model(raw: str, effort_override: str | None = None) -> ModelSelection:
     if fast and (not spec or "fast" in spec):
         params.append(ModelParameterValue(id="fast", value="true"))
     if not effort:
+        # Do not invent high. User /effort (or settings.json effortLevel) wins.
+        # Grok still defaults to xhigh when nothing is set, matching clx.
         if cursor_id.startswith("grok-4."):
             effort = "xhigh"
-        elif spec:
-            effort = "high"
     if effort:
         for pname in ("reasoning", "effort", "reasoning_effort"):
             if spec and pname not in spec:
@@ -207,6 +219,10 @@ def parse_model(raw: str, effort_override: str | None = None) -> ModelSelection:
             if val:
                 params.append(ModelParameterValue(id=pname, value=val))
                 break
+    # Prefer 1m when the catalog lists it. Some SKUs (gpt-5.5, gpt-5.4)
+    # only allow 1m with fast=false; Fast + 1m is not a real Cursor variant
+    # and the dashboard may bill gpt-5.5-medium instead. See
+    # docs/setup/clc-cursor-gateway.md.
     if "context" in spec:
         allowed = spec.get("context") or []
         chosen = None
@@ -331,6 +347,7 @@ class Session:
         self.turn_lock = threading.Lock()
         self.run_in_flight = False
         self.model_key = ""
+        self.selection: ModelSelection | None = None
 
     def emit(self, event: dict[str, Any]) -> None:
         self.events.put(event)
@@ -347,6 +364,14 @@ class Session:
             return self.events.get(timeout=timeout)
         except queue.Empty:
             return None
+
+
+def wire_model(selection: ModelSelection) -> str:
+    """Cursor CLI parameterized id: gpt-5.5[reasoning=high,fast=true]."""
+    if not selection.params:
+        return selection.id
+    inner = ",".join(f"{p.id}={p.value}" for p in selection.params)
+    return f"{selection.id}[{inner}]"
 
 
 class Gateway:
@@ -430,6 +455,7 @@ class Gateway:
                 input_schema=schema if isinstance(schema, dict) else {"type": "object"},
                 execute=lambda args, ctx, san=san, sess=sess: self._execute(sess, san, args, ctx),
             )
+        wire = wire_model(selection)
         agent = await AsyncAgent.create(
             AgentOptions(
                 model=selection,
@@ -446,7 +472,8 @@ class Gateway:
         sess.agent = agent
         sess.tool_map = orig_map
         sess.model_key = model_key
-        log(f"session {sess.session_id} model={model_key} tools={list(orig_map)}")
+        sess.selection = selection
+        log(f"session {sess.session_id} model={model_key} wire={wire} tools={list(orig_map)}")
 
     def _execute(
         self, sess: Session, san: str, args: Any, ctx: CustomToolContext
@@ -480,11 +507,21 @@ class Gateway:
                 pass
 
         try:
-            run = await sess.agent.send(text, SendOptions(on_delta=on_delta))
+            send_opts = SendOptions(on_delta=on_delta)
+            if sess.selection is not None:
+                send_opts = SendOptions(model=sess.selection, on_delta=on_delta)
+            run = await sess.agent.send(text, send_opts)
             result = await run.wait()
             status = str(getattr(result, "status", "") or "")
+            echoed = getattr(result, "model", None)
+            echo_txt = ""
+            if echoed is not None:
+                try:
+                    echo_txt = json.dumps(echoed.to_json() if hasattr(echoed, "to_json") else str(echoed))
+                except Exception:
+                    echo_txt = str(echoed)
             sess.emit({"kind": "done", "status": status, "text": getattr(result, "result", None)})
-            log(f"send done session={sess.session_id} status={status}")
+            log(f"send done session={sess.session_id} status={status} echoed={echo_txt}")
         except Exception as exc:
             sess.emit({"kind": "error", "error": str(exc)})
             log(f"send failed: {exc}\n{traceback.format_exc()}")
@@ -538,7 +575,7 @@ def handle_messages(handler: BaseHTTPRequestHandler, body: dict[str, Any]) -> No
     )
     sess = GATEWAY.get_session(session_id)
     tool_results, user_text = extract_last_turn(messages)
-    effort = extract_effort(body)
+    effort = extract_effort(body, model=model)
     log(
         f"turn session={session_id} model={model} effort={effort} "
         f"tools={len(tools)} chars={len(user_text)} "

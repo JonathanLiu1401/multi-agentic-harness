@@ -4,7 +4,7 @@ A unified agentic ecosystem that combines multi-agent orchestration with multi-p
 
 The repository is structured into two distinct, complementary parts:
 - **Part 1: The Multi-Agent Worker Bridge (`claude-manages-xxx`)**: Orchestration engine where Claude (or your manager model) serves as executive captain, architect, and reviewer while delegating implementation to visible terminal-window or headless workers across Cursor Agent, Grok Build CLI, Google Antigravity, or Claude Code runners.
-- **Part 2: Provider Profiles & Gateway Launchers (`clx`, `clg`, `cld`, `clc`)**: Run alternate frontier models (xAI Grok, Google Gemini / Antigravity, DeepSeek V4.1 Flash / V4 Pro) directly inside the real Claude Code TUI with isolated profiles, dedicated context windows (500k to 1M), custom model selectors, dynamic reasoning effort, and real API cost tracking. `clc` is the Cursor peer: it launches the native `cursor-agent` TUI (Cursor has no Anthropic `/v1/messages` endpoint) and the Cloud Agents API.
+- **Part 2: Provider Profiles & Gateway Launchers (`clx`, `clg`, `cld`, `clc`)**: Run alternate frontier models (xAI Grok, Google Gemini / Antigravity, DeepSeek V4.1 Flash / V4 Pro, Cursor-hosted catalog) directly inside the real Claude Code TUI with isolated profiles, dedicated context windows (500k to 1M), custom model selectors, dynamic reasoning effort, and real API cost tracking. `clc` is the Cursor dialect: Claude Code TUI on `~/.claude-clc` talking to a local Anthropic translator on `127.0.0.1:8318`. Cursor still has no public `/v1/messages`; the translator drives `cursor-sdk` so Claude Code owns tools and Cursor owns inference. Cloud Agents and visible `cursor-agent` windows remain Part 1 MCP tools. Operator notes: [`docs/setup/clc-cursor-gateway.md`](docs/setup/clc-cursor-gateway.md).
 
 ---
 
@@ -31,7 +31,7 @@ Run from the repository root:
 2. **Part 2 (Launchers & Profiles)**:
    - Installs dual-shell launchers (`clx`, `clg`, `cld`, `clc`) to `~/bin/` (Git Bash) and `~/.local/bin/` (Windows system PATH).
    - Automatically ensures `~/.local/bin` is added to your Windows user `PATH`.
-   - Creates isolated profile directories (`~/.claude-clx`, `~/.claude-clg`, `~/.claude-cld`) and establishes directory junctions to share agents and skills.
+   - Creates isolated profile directories (`~/.claude-clx`, `~/.claude-clg`, `~/.claude-cld`, `~/.claude-clc`) and establishes directory junctions to share agents and skills.
    - Installs native subagent definitions (`grok.md`, `agy-gemini-3-8-flash.md`, `deepseek.md`) into `~/.claude/agents/`.
    - Deploys gateway management scripts to `~/cliproxyapi/` and initializes local security keys in `~/.cc-bridge/secrets/`.
    - Injects penny-accurate API pricing into `.claude.json` caches to eliminate Opus fallback cost inflation.
@@ -51,7 +51,7 @@ When the user has NOT invoked `/claude-manages-codex` or requested the harness, 
 | **clx** (`~/.claude-clx`, Grok 500k) | `Agent` tool with `subagent_type: "grok"` | Agy: `start_visible_agy_worker`<br>Grok CLI extras: `start_visible_grok_worker`<br>Never switch to clg or cld. |
 | **clg** (`~/.claude-clg`, Gemini 1M) | `Agent` tool with `subagent_type: "agy-gemini-3-8-flash"` | Grok: `start_visible_grok_worker`<br>Agy CLI: `start_visible_agy_worker`<br>Never switch to clx or cld. |
 | **cld** (`~/.claude-cld`, DeepSeek 1M) | `Agent` tool with `subagent_type: "deepseek"` | Grok: `start_visible_grok_worker`<br>Agy: `start_visible_agy_worker`<br>Never switch to clx or clg. |
-| **clc** (`cursor-agent` TUI) | Native cursor-agent subagents (`cursor-grok-4.6-xhigh-fast`) | Cloud Agents: `start_cursor_cloud_agent`. Never shell out to Claude or Grok from Cursor. |
+| **clc** (`~/.claude-clc`, Cursor 1M via `127.0.0.1:8318`) | No native Agent types on this profile | Cursor workers: `start_visible_cursor_worker`. Cloud: `start_cursor_cloud_agent`. Never Agent `grok` / `agy-gemini-*` / `deepseek`. |
 | **Cursor TUI** (`cursor-agent` without clc) | Native cursor-agent subagents (`cursor-grok-4.6-xhigh-fast`) | Never shell out to Claude or Grok from Cursor. |
 | **Grok Build CLI** (`grok`) | Native Grok subagents | Never shell out to Claude or Cursor. |
 
@@ -99,7 +99,7 @@ Part 2 allows you to run third-party frontier models inside the official Claude 
 | `clx` | xAI Grok | Grok 4.6 (xhigh/high/med/low), Grok 4.5 | 500k tokens | Local CLIProxyAPI gateway (`127.0.0.1:8317`) | `~/.claude-clx` |
 | `clg` | Antigravity (Gemini) | Gemini 3.8 Flash, 3.1 Pro, 3.7/3.6 Flash | 1M tokens | Local CLIProxyAPI gateway (`127.0.0.1:8317`) | `~/.claude-clg` |
 | `cld` | DeepSeek | DeepSeek V4.1 Flash, DeepSeek V4 Pro | 1M tokens | Direct Anthropic API (`https://api.deepseek.com/anthropic`) | `~/.claude-cld` |
-| `clc` | Cursor | Cursor Grok 4.6 xhigh fast, Composer 2.5, Cloud Agents | 1M Max Mode | Native `cursor-agent` CLI + `https://api.cursor.com/v1/agents` | `~/.cursor` (not a Claude Code profile) |
+| `clc` | Cursor | Live Cursor catalog (Grok 4.6 Fast default, plus Fast rows) | 1M (process-wide) | Local Anthropic translator (`127.0.0.1:8318`) + `cursor-sdk` | `~/.claude-clc` |
 
 ### Architectural Highlights
 
@@ -107,8 +107,8 @@ Part 2 allows you to run third-party frontier models inside the official Claude 
 Claude Code context windows are governed by process-wide environment variables (`CLAUDE_CODE_MAX_CONTEXT_TOKENS` and `CLAUDE_CODE_AUTO_COMPACT_WINDOW`). Furthermore, `modelSettings` in `settings.json` only accepts `effortLevel` (there is no per-model context window key). Running Grok (500k), Gemini (1M), and DeepSeek (1M) under separate profiles ensures autocompaction and context tracking are accurate for each provider.
 
 #### 2. Dual-Shell Support on Windows
-- **Git Bash**: Resolves `~/bin/clx`, `~/bin/clg`, and `~/bin/cld` directly from the user's `~/bin` directory.
-- **PowerShell / CMD**: Resolves `~/.local/bin/clx.cmd`, `~/.local/bin/clg.cmd`, and `~/.local/bin/cld.cmd` from the Windows system user `PATH`.
+- **Git Bash**: Resolves `~/bin/clx`, `~/bin/clg`, `~/bin/cld`, and `~/bin/clc` directly from the user's `~/bin` directory.
+- **PowerShell / CMD**: Resolves `~/.local/bin/clx.cmd` (and `clg`/`cld`/`clc`) from the Windows system user `PATH`. PowerShell's built-in `clc` alias is `Clear-Content`; the installer shadows it.
 
 #### 3. Real API Cost Tracking (`modelPricing.overrides`)
 When Claude Code encounters third-party model IDs, it defaults to Opus 5 list pricing ($15 input / $75 output / $1.50 cache read per MTok), creating 60x to 187x artificial cost inflation in `/cost` and `/usage`.
@@ -121,6 +121,7 @@ All session spending calculations reflect accurate real-world API costs.
 #### 4. Dynamic Reasoning Effort
 - **DeepSeek (`cld`)**: Connects directly to DeepSeek's native Anthropic Messages API, which dynamically honors Claude Code's `/effort` command and status bar effort slider.
 - **Grok & Gemini (`clx` / `clg`)**: CLIProxyAPI binds reasoning effort as a model ID suffix (e.g. `grok-4.6(high)`, `gemini-3.8-flash-high(medium)`), exposed as distinct entries in the `/model` selector.
+- **Cursor (`clc`)**: `/effort` maps onto each catalog param (`reasoning` / `effort` / `reasoning_effort`) plus optional `fast`. Do **not** set `CLAUDE_CODE_EFFORT_LEVEL` in the launcher: that env pins the TUI and makes `/effort` a no-op. Do **not** send CLI bracket ids (`gemini-3.8-flash[reasoning_effort=high]`); Cursor 500s those. Details: [`docs/setup/clc-cursor-gateway.md`](docs/setup/clc-cursor-gateway.md).
 
 #### 5. Permission Posture and Speed
 On complex agentic workflows, waiting for interactive user permission approvals was measured to cause 80% to 90% of total wall-clock time. Launchers default to `--dangerously-skip-permissions` with `"skipDangerousModePermissionPrompt": true` to match native CLI speed (e.g. completing 35 tool calls in 92 seconds instead of 11 minutes), while preserving command-line permission flag overrides (such as `clx --permission-mode plan`).
@@ -140,16 +141,21 @@ multi-agentic-harness/
 ├── launchers/                   # Part 2: Launcher scripts (Bash, PS1, CMD)
 │   ├── clx, clx.ps1, clx.cmd    # Grok launchers
 │   ├── clg, clg.ps1, clg.cmd    # Gemini/Antigravity launchers
-│   └── cld, cld.ps1, cld.cmd    # DeepSeek launchers
-├── gateway/                     # Part 2: CLIProxyAPI management scripts
+│   ├── cld, cld.ps1, cld.cmd    # DeepSeek launchers
+│   └── clc, clc.ps1, clc.cmd    # Cursor dialect launchers
+├── gateway/                     # Part 2: CLIProxyAPI + Cursor translator
 │   ├── start-gateway.ps1        # Detached gateway start with port verification
 │   ├── stop-gateway.ps1         # Process and scheduled task terminator
 │   ├── install-autostart.ps1    # Non-elevated logon scheduled task installer
+│   ├── cursor_anthropic_gateway.py # Cursor Anthropic translator (:8318)
+│   ├── start-clc-gateway.ps1    # Hidden start for CLCCursorGateway
+│   ├── install-clc-autostart.ps1 # Logon task for the Cursor translator
 │   └── config.example.yaml      # Loopback-only CLIProxyAPI configuration template
 ├── templates/                   # Part 2: Claude Code profile configurations
 │   ├── claude-clx/              # Grok profile (settings.json, CLAUDE.md)
 │   ├── claude-clg/              # Gemini profile (settings.json, CLAUDE.md)
-│   └── claude-cld/              # DeepSeek profile (settings.json, CLAUDE.md)
+│   ├── claude-cld/              # DeepSeek profile (settings.json, CLAUDE.md)
+│   └── claude-clc/              # Cursor profile (settings.json, CLAUDE.md)
 ├── plugin/
 │   ├── agents/                  # Native subagent definitions
 │   │   ├── grok.md              # grok-4.6 subagent
@@ -159,6 +165,7 @@ multi-agentic-harness/
 │       └── claude-manages-codex # Captain doctrine and spawn policies
 ├── docs/setup/                  # Technical deep dives and performance benchmarks
 │   ├── clx-clg-gateway.md       # Gateway architecture and model picker gotchas
+│   ├── clc-cursor-gateway.md    # Cursor translator, /effort, Fast, pricing
 │   ├── clx-clg-perf.md          # 11-minute stall root-cause and benchmark logs
 │   └── env-vars.md              # Settings.json environment documentation
 ├── tests/
@@ -180,6 +187,7 @@ Verify that worker backends are ready:
    python tests/tui_test.py screen             # Grok (clx)
    $env:CLX_CMD="clg"; python tests/tui_test.py screen  # Gemini (clg)
    $env:CLX_CMD="cld"; python tests/tui_test.py screen  # DeepSeek (cld)
+   python tests/test_clc.py                            # Cursor translator health + Cloud API
    ```
 4. Verify the interactive model picker:
    ```powershell

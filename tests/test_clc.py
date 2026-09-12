@@ -1,16 +1,16 @@
-"""E2E for clc / Cursor Cloud Agents API.
+"""E2E for clc: Cursor Anthropic translator + Cloud Agents API.
 
 Run from the repo root:
   python tests/test_clc.py
 
 Requires ~/.cc-bridge/secrets/cursor-api.key or CURSOR_API_KEY.
-Does not create a new cloud agent unless --create-cloud is passed.
+Does not launch the Claude Code TUI. Does not create a new cloud agent
+unless --create-cloud is passed.
 """
 from __future__ import annotations
 
 import json
 import os
-import subprocess
 import sys
 import urllib.error
 import urllib.request
@@ -19,6 +19,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 import cursor_cloud_api as api  # noqa: E402
+
+GATEWAY = os.environ.get("CLC_GATEWAY", "http://127.0.0.1:8318")
+LAUNCHER = Path.home() / "bin" / "clc.ps1"
+REPO_LAUNCHER = ROOT / "launchers" / "clc.ps1"
 
 
 def _ok(name: str, cond: bool, detail: str = "") -> None:
@@ -40,7 +44,7 @@ def test_messages_still_404() -> None:
     req.add_header("Content-Type", "application/json")
     try:
         urllib.request.urlopen(req, timeout=20)
-        _ok("POST /v1/messages 404", False, "unexpected success (Claude Code dialect would work)")
+        _ok("POST /v1/messages 404", False, "unexpected success (Cursor still has no Anthropic API)")
     except urllib.error.HTTPError as exc:
         _ok("POST /v1/messages 404", exc.code == 404, f"status={exc.code}")
 
@@ -55,57 +59,27 @@ def test_me_and_list() -> None:
     _ok("GET /v1/agents", "items" in agents, f"n={len(agents.get('items') or [])}")
 
 
-def test_launcher_help() -> None:
-    ps1 = Path.home() / "bin" / "clc.ps1"
-    _ok("deployed ~/bin/clc.ps1", ps1.is_file(), str(ps1))
-    cmd = [
-        "powershell.exe",
-        "-NoProfile",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-File",
-        str(ps1),
-        "--help",
-    ]
-    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-    out = (proc.stdout or "") + (proc.stderr or "")
-    _ok("clc --help mentions Cloud Agents", "Cloud Agent" in out or "api.cursor.com" in out, f"exit={proc.returncode}")
-    _ok("clc --help exit 0", proc.returncode == 0, out[-300:])
-
-
-def test_clc_me() -> None:
-    ps1 = Path.home() / "bin" / "clc.ps1"
-    proc = subprocess.run(
-        ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(ps1), "--me"],
-        capture_output=True,
-        text=True,
-        timeout=40,
+def test_launcher_is_claude_code_dialect() -> None:
+    src = REPO_LAUNCHER.read_text(encoding="utf-8")
+    _ok("clc.ps1 points at :8318", "127.0.0.1:8318" in src)
+    _ok("clc.ps1 sets CLAUDE_CONFIG_DIR", ".claude-clc" in src)
+    _ok(
+        "clc.ps1 does not pin CLAUDE_CODE_EFFORT_LEVEL",
+        "CLAUDE_CODE_EFFORT_LEVEL =" not in src
+        and "Remove-Item -Path Env:CLAUDE_CODE_EFFORT_LEVEL" in src,
     )
-    _ok("clc --me exit 0", proc.returncode == 0, (proc.stderr or "")[-200:])
-    data = json.loads(proc.stdout)
-    _ok("clc --me has apiKeyName", bool(data.get("apiKeyName")), json.dumps(data)[:200])
+    _ok("clc.ps1 does not exec cursor-agent", "cursor-agent" not in src.lower())
+    _ok("deployed ~/bin/clc.ps1", LAUNCHER.is_file(), str(LAUNCHER))
 
 
-def test_local_print(prompt: str = "Reply with only the token E2E_CLC_LOCAL_OK and nothing else.") -> None:
-    ps1 = Path.home() / "bin" / "clc.ps1"
-    proc = subprocess.run(
-        [
-            "powershell.exe",
-            "-NoProfile",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-File",
-            str(ps1),
-            "-p",
-            prompt,
-        ],
-        capture_output=True,
-        text=True,
-        timeout=180,
-    )
-    out = (proc.stdout or "") + (proc.stderr or "")
-    _ok("clc -p exit 0", proc.returncode == 0, out[-400:])
-    _ok("clc -p contains E2E_CLC_LOCAL_OK", "E2E_CLC_LOCAL_OK" in out, out[-400:])
+def test_translator_health() -> None:
+    req = urllib.request.Request(f"{GATEWAY}/health", method="GET")
+    try:
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            body = resp.read().decode("utf-8", errors="replace")
+            _ok("GET :8318/health", resp.status == 200, body[:200])
+    except Exception as exc:
+        _ok("GET :8318/health", False, str(exc))
 
 
 def test_cloud_followup() -> None:
@@ -133,16 +107,15 @@ def test_cloud_followup() -> None:
 
 def main() -> int:
     create_cloud = "--create-cloud" in sys.argv
-    skip_local = "--skip-local" in sys.argv
+    skip_health = "--skip-health" in sys.argv
     print("clc e2e")
     test_messages_still_404()
     test_me_and_list()
-    test_launcher_help()
-    test_clc_me()
-    if not skip_local:
-        test_local_print()
+    test_launcher_is_claude_code_dialect()
+    if skip_health:
+        print("SKIP  translator health ( --skip-health )")
     else:
-        print("SKIP  clc -p ( --skip-local )")
+        test_translator_health()
     if create_cloud:
         test_cloud_followup()
     else:

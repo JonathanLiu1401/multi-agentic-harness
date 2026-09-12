@@ -5530,7 +5530,8 @@ def _dispatch_visible_steer(
 # ============================================================================
 # Fire-and-forget coding agents at https://api.cursor.com/v1/agents.
 # This is NOT an inference endpoint: POST /v1/messages 404s. Use the `clc`
-# launcher for the local TUI, and these tools to dispatch cloud VMs.
+# launcher (Claude Code TUI -> 127.0.0.1:8318 translator) for local Cursor
+# models, and these tools to dispatch cloud VMs.
 
 _BRIDGE_DIR = Path(__file__).resolve().parent
 if str(_BRIDGE_DIR) not in sys.path:

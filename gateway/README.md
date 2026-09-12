@@ -1,7 +1,11 @@
-# CLIProxyAPI Gateway
+# Local gateways (CLIProxyAPI + Cursor translator)
 
-This directory provides scripts and templates for running CLIProxyAPI (v7.2.147+)
-as the local gateway on `http://127.0.0.1:8317` for `clx` (Grok) and `clg` (Gemini).
+This directory provides scripts and templates for:
+
+- CLIProxyAPI (v7.2.147+) on `http://127.0.0.1:8317` for `clx` (Grok) and `clg` (Gemini)
+- `cursor_anthropic_gateway.py` on `http://127.0.0.1:8318` for `clc` (Cursor)
+
+`cld` does not use either of these; it talks to DeepSeek directly.
 
 ## Architecture
 
@@ -38,3 +42,24 @@ Unregister-ScheduledTask -TaskName CLIProxyAPI -Confirm:$false
 
 ### 4. `config.example.yaml`
 Template configuration for CLIProxyAPI. Copy to `~/cliproxyapi/config.yaml` and replace the placeholder API key with your own generated local client key. Store the corresponding key in `~/.cc-bridge/secrets/clx-api.key` (mode 600).
+
+## Cursor translator (`clc`)
+
+Cursor has no public Anthropic `/v1/messages`. `cursor_anthropic_gateway.py`
+implements that contract and drives `cursor-sdk` (`AsyncClient.launch_bridge`,
+`tools=["mcp"]`, Claude Code tools as `custom_tools`). Hidden logon task
+`CLCCursorGateway`, same shape as `CLIProxyAPI`.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File "$HOME\github-tools\multi-agentic-harness\gateway\install-clc-autostart.ps1"
+Start-ScheduledTask -TaskName CLCCursorGateway
+```
+
+- Translator: `cursor_anthropic_gateway.py` (deployed to `~/.agent-bridge/`)
+- Start wrapper: `start-clc-gateway.ps1`
+- Task installer: `install-clc-autostart.ps1`
+- Key: `~/.cc-bridge/secrets/cursor-api.key`
+- Logs: `~/.cc-bridge/clc-gateway.log`
+
+Do not send CLI bracket model ids. Do not set `CLAUDE_CODE_EFFORT_LEVEL` in
+`clc.ps1`. Full operator notes: [`docs/setup/clc-cursor-gateway.md`](../docs/setup/clc-cursor-gateway.md).

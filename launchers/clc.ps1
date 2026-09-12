@@ -42,7 +42,11 @@ $env:ANTHROPIC_CUSTOM_MODEL_OPTION_SUPPORTED_CAPABILITIES = "effort,thinking"
 # models are 1m; grok-4.6 is 500k natively but /context will still show 1m.
 $env:CLAUDE_CODE_MAX_CONTEXT_TOKENS = "1000000"
 $env:CLAUDE_CODE_AUTO_COMPACT_WINDOW = "1000000"
-$env:CLAUDE_CODE_EFFORT_LEVEL = "high"
+# Do not set CLAUDE_CODE_EFFORT_LEVEL. That env blocks /effort in the TUI
+# and forced every Cursor model to high (dashboard gemini-3.8-flash-high
+# when the user had saved low). The gateway reads effort from the request
+# body and from ~/.claude-clc/settings.json effortLevel.
+Remove-Item -Path Env:CLAUDE_CODE_EFFORT_LEVEL -ErrorAction SilentlyContinue
 $env:CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = "1"
 $env:CLAUDE_CODE_SUBAGENT_MODEL = "grok-4.6-fast"
 
