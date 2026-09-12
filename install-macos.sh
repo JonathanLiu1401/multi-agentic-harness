@@ -19,9 +19,34 @@ if [ -x "$HOME/.claude/skills-venv/bin/python" ]; then
   PY="$HOME/.claude/skills-venv/bin/python"
 else
   PY="$(command -v python3.12 || command -v python3.11 || command -v python3)"
-  "$PY" -c "import mcp" 2>/dev/null || "$PY" -m pip install --user mcp
 fi
 echo "Using Python: $PY"
+
+# Check for FastMCP or MCPServer capability (supports both mcp 1.x and mcp 2.x+)
+MCP_CHECK_CODE='
+import sys
+try:
+    from mcp.server.fastmcp import FastMCP
+    sys.exit(0)
+except (ImportError, ModuleNotFoundError):
+    try:
+        from mcp.server.mcpserver import MCPServer
+        sys.exit(0)
+    except (ImportError, ModuleNotFoundError):
+        try:
+            from fastmcp import FastMCP
+            sys.exit(0)
+        except (ImportError, ModuleNotFoundError):
+            sys.exit(1)
+'
+
+if ! "$PY" -c "$MCP_CHECK_CODE" 2>/dev/null; then
+  echo "Installing python mcp package..."
+  "$PY" -m pip install --user mcp
+  if ! "$PY" -c "$MCP_CHECK_CODE" 2>/dev/null; then
+    "$PY" -m pip install --user fastmcp
+  fi
+fi
 
 # ---------------------------------------------------------------------------
 # PART 1: Multi-Agent Worker Bridge (claude-manages-xxx)
@@ -31,7 +56,7 @@ echo "--- Part 1: Multi-Agent Worker Bridge ---"
 
 BRIDGE_DIR="$USER_HOME/.agent-bridge"
 mkdir -p "$BRIDGE_DIR"
-cp "$HERE/visible_agent_bridge.py" "$HERE/claude_worker_runner.py" "$HERE/cursor_worker_runner.py" "$HERE/captain_checkup.py" "$BRIDGE_DIR/"
+cp "$HERE/visible_agent_bridge.py" "$HERE/claude_worker_runner.py" "$HERE/cursor_worker_runner.py" "$HERE/captain_checkup.py" "$HERE/cursor_cloud_api.py" "$BRIDGE_DIR/"
 echo "Deployed bridge runners to $BRIDGE_DIR"
 
 # Captain doctrine skill for the manager session
@@ -46,7 +71,7 @@ claude mcp remove agent-visibility -s user >/dev/null 2>&1 || true
 claude mcp add agent-visibility -s user -- "$PY" "$BRIDGE_DIR/visible_agent_bridge.py"
 echo "Registered MCP server 'agent-visibility' (user scope)"
 
-"$PY" -m py_compile "$BRIDGE_DIR/visible_agent_bridge.py" "$BRIDGE_DIR/claude_worker_runner.py" "$BRIDGE_DIR/cursor_worker_runner.py" "$BRIDGE_DIR/captain_checkup.py"
+"$PY" -m py_compile "$BRIDGE_DIR/visible_agent_bridge.py" "$BRIDGE_DIR/claude_worker_runner.py" "$BRIDGE_DIR/cursor_worker_runner.py" "$BRIDGE_DIR/captain_checkup.py" "$BRIDGE_DIR/cursor_cloud_api.py"
 echo "Python bridge syntax validated successfully."
 
 # ---------------------------------------------------------------------------
@@ -103,7 +128,7 @@ fi
 #   xAI Grok (https://docs.x.ai/developers/pricing): Grok 4.6 $2.00 in / $6.00 out / $0.50 cache read (<200k tokens); Grok 4.5 $2.00 in / $6.00 out / $0.30 cache read
 #   DeepSeek (https://api-docs.deepseek.com/quick_start/pricing): Flash $0.30 in / $1.20 out / $0.006 cache read (peak); V4 Pro $1.32 in / $3.96 out / $0.044 cache read (peak)
 "$PY" - << 'EOF'
-import json, os
+import json, os, shutil
 
 model_costs = {
     "gemini-3.8-flash-high(high)": {"inputTokens": 0.75, "outputTokens": 3.75, "promptCacheWriteTokens": 0.75, "promptCacheReadTokens": 0.075, "webSearchRequests": 0.01},
@@ -150,22 +175,49 @@ paths = [
 ]
 
 for p in paths:
-    d = {}
+    d = None
     if os.path.exists(p):
         try:
             with open(p, "r", encoding="utf-8") as f:
                 d = json.load(f)
-        except:
-            d = {}
+        except Exception as exc:
+            print(f"WARNING: Could not parse {p} as valid JSON ({exc}). Skipping to protect file from data loss.")
+            continue
+        try:
+            shutil.copy2(p, p + ".bak")
+        except Exception:
+            pass
+    else:
+        d = {
+            "hasCompletedOnboarding": True,
+            "bypassPermissionsModeAccepted": True
+        }
+
+    if not isinstance(d, dict):
+        print(f"WARNING: {p} root is not a JSON object. Skipping to protect file.")
+        continue
+
     d["hasCompletedOnboarding"] = True
     d["bypassPermissionsModeAccepted"] = True
-    current = d.get("additionalModelCostsCache", {})
-    current.update(model_costs)
-    d["additionalModelCostsCache"] = current
-    with open(p, "w", encoding="utf-8") as f:
-        json.dump(d, f, indent=2)
+    cache = d.setdefault("additionalModelCostsCache", {})
+    if isinstance(cache, dict):
+        cache.update(model_costs)
+    else:
+        d["additionalModelCostsCache"] = model_costs
+
+    tmp = f"{p}.tmp.{os.getpid()}"
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(d, f, indent=2, ensure_ascii=False)
+            f.write("\n")
+        os.replace(tmp, p)
+    except Exception as exc:
+        print(f"ERROR: Failed to write {p}: {exc}")
+        if os.path.exists(tmp):
+            try: os.remove(tmp)
+            except Exception: pass
 EOF
-echo "Injected real API pricing into .claude.json config caches."
+echo "Injected real API pricing into .claude.json config caches safely via Python."
 
 echo ""
 echo "============================================================"

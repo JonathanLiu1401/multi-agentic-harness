@@ -17,9 +17,11 @@ after judging the 2026-08 attempt as "trying to do too much".
 | `clx` | Grok | Grok 4.5 / 4.6 | `~/.claude-clx` | 500k | `CLIProxyAPI` |
 | `clg` | Gemini | Gemini 3.6/3.7/3.8 Flash, 3.1 Pro | `~/.claude-clg` | 1M | `CLIProxyAPI` |
 | `cld` | DeepSeek | DeepSeek V4.1 Flash, DeepSeek V4 Pro | `~/.claude-cld` | 1M | `CLIProxyAPI` |
+| `clc` | Cursor | Cursor Grok 4.6 xhigh fast (local TUI) + Cloud Agents API | n/a (native cursor-agent, not Claude Code) | 1M Max Mode | Cursor `crsr_` key |
 
-One gateway serves all three: CLIProxyAPI v7.2.147 at `~/cliproxyapi/`, bound to
-`127.0.0.1:8317`, started at logon by a per-user scheduled task.
+One gateway serves clx/clg/cld: CLIProxyAPI v7.2.147 at `~/cliproxyapi/`, bound to
+`127.0.0.1:8317`, started at logon by a per-user scheduled task. `clc` does **not**
+use that gateway: it talks to `cursor-agent` and `https://api.cursor.com`.
 
 Shipped components in this repository:
 - **Launchers**: `launchers/` (`clx`, `clg`, `cld` in Bash, PS1, and CMD)
@@ -28,8 +30,8 @@ Shipped components in this repository:
 - **Performance benchmarks & analysis**: [`docs/setup/clx-clg-perf.md`](clx-clg-perf.md)
 - **Interactive TUI test suite**: `tests/tui_test.py`
 
-Launchers live in `~/bin/{clx,clg,cld}` (Git Bash) and `~/bin/{clx,clg,cld}.ps1`, with
-`~/.local/bin/{clx,clg,cld}.cmd` shims for PowerShell/cmd. Full operator detail is in
+Launchers live in `~/bin/{clx,clg,cld,clc}` (Git Bash) and `~/bin/{clx,clg,cld,clc}.ps1`, with
+`~/.local/bin/{clx,clg,cld,clc}.cmd` shims for PowerShell/cmd. Full operator detail is in
 `gateway/README.md` and `launchers/README.md`; this file documents the harness-relevant parts.
 
 ## Native subagents (the harness change)
@@ -208,30 +210,35 @@ Two traps, both fixed in `gateway/start-gateway.ps1`:
 PowerShell 5.1 `*>>` redirection writes UTF-16LE, which turns a log into a binary
 blob that `grep`/`tail` cannot read. Use `Add-Content -Encoding utf8`.
 
-## Cursor: attempted and rejected
+## Cursor: `clc` is a peer launcher, not a Claude Code dialect
 
-`cursor-agent` was tried on 2026-09-02 and removed. Do not rebuild it.
+The 2026-09-02 attempt to put Cursor models **inside Claude Code's TUI**
+(`ANTHROPIC_BASE_URL` + a proxy) was correctly abandoned: Cursor never emits
+Anthropic `tool_use` blocks through that path, and CLIProxyAPI still has no
+Cursor provider. Re-verified 2026-09-12: `POST https://api.cursor.com/v1/messages`
+and `/v1/chat/completions` both **404** with a valid `crsr_` key named `clc`.
 
-1. CLIProxyAPI has **no Cursor provider** (Cursor PRs #5252 / #3651 / #4055 all
-   still open; `/v1/models` serves only `xai` + `antigravity`), so it needed a
-   second gateway - raine/claude-code-proxy on :18765.
-2. Through that proxy **no tools worked, not even `Read`**, which its own docs
-   list as bridged. Cursor attempts the call but the proxy emits it as plain
-   text: the raw stream carried
-   `text_delta: "call-<uuid>-0\nfc_<id>_0"` (Cursor's internal tool-call ids)
-   with `stop_reason: end_turn`, never a `tool_use` block. Tested with
-   `stream: true`, matching function names and a stable
-   `x-claude-code-session-id` - the documented bridge conditions. Read, Bash,
-   Grep, Edit and Task all behaved identically.
+What **does** work, and what `clc` is:
 
-A session that cannot read, edit, search or spawn subagents is not a coding
-agent, so the whole thing was deleted. **Use `cursor-agent`'s own TUI for Cursor
-work** - its tool loop is native and complete.
+1. **Local TUI** - `clc` execs the native `cursor-agent` CLI
+   (`%LOCALAPPDATA%\cursor-agent\versions\<latest>\node.exe index.js`) with
+   `CURSOR_API_KEY` / `--api-key`, `--trust --approve-mcps --force`, default
+   model `cursor-grok-4.6-xhigh-fast`, Max Mode on. Same binary the harness
+   already uses via `start_visible_cursor_worker`.
+2. **Cloud Agents API** - `clc --cloud`, `clc --list-agents`, `clc --me`, and
+   MCP tools `start_cursor_cloud_agent` / `list_cursor_cloud_agents` /
+   `get_cursor_cloud_agent` / `followup_cursor_cloud_agent` against
+   `https://api.cursor.com/v1/agents`. Basic auth (`crsr_:` ) or Bearer.
+   Fire-and-forget VM coding agents, not a token stream for Claude Code.
+3. **Key file** - `~/.cc-bridge/secrets/cursor-api.key` (or `CURSOR_API_KEY`).
+   Do not commit it.
 
-Also settled: Cursor's public API has no inference endpoint at all
-(`POST api.cursor.com/v1/chat/completions` and `/v1/messages` both 404 with a
-valid `crsr_` key), and that key does not authenticate the agent protocol either
-(502 `unauthenticated`).
+PowerShell ships a ReadOnly AllScope alias `clc` -> `Clear-Content`. The
+installer removes it in the user profile and defines `function global:clc`.
+If `clc` still clears a file, run `Remove-Item Alias:clc -Force` then
+`. $PROFILE`. `clc.cmd` always works.
+
+Do **not** point `ANTHROPIC_BASE_URL` at Cursor. That is the path that failed.
 
 ## Relationship to the 2026-08-15 decommission
 

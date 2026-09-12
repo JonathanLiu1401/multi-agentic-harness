@@ -1,0 +1,68 @@
+#!/bin/sh
+# clc - Claude Code TUI on CURSOR models via the local Anthropic translator.
+# Same shape as clx/clg: CLAUDE_CONFIG_DIR + ANTHROPIC_BASE_URL at :8318.
+set -e
+
+GATEWAY="http://127.0.0.1:8318"
+KEYFILE="$HOME/.cc-bridge/secrets/cursor-api.key"
+GATEWAY_PY="$HOME/.agent-bridge/cursor_anthropic_gateway.py"
+[ -f "$GATEWAY_PY" ] || GATEWAY_PY="$HOME/github-tools/multi-agentic-harness/gateway/cursor_anthropic_gateway.py"
+
+if [ -n "$CURSOR_API_KEY" ]; then
+  :
+elif [ -r "$KEYFILE" ]; then
+  CURSOR_API_KEY=$(cat "$KEYFILE")
+  export CURSOR_API_KEY
+else
+  echo "clc: missing $KEYFILE and CURSOR_API_KEY" >&2
+  exit 1
+fi
+
+unset ANTHROPIC_API_KEY ANTHROPIC_MODEL ANTHROPIC_DEFAULT_MODEL
+unset ANTHROPIC_DEFAULT_OPUS_MODEL ANTHROPIC_DEFAULT_SONNET_MODEL
+unset ANTHROPIC_DEFAULT_HAIKU_MODEL ANTHROPIC_DEFAULT_FABLE_MODEL
+unset ANTHROPIC_SMALL_FAST_MODEL ANTHROPIC_CUSTOM_MODEL_OPTION
+unset CLAUDE_CODE_SUBAGENT_MODEL CLAUDE_CODE_SUBAGENT_MODEL_FORCE
+unset CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY
+
+CLAUDE_CONFIG_DIR="$HOME/.claude-clc"
+ANTHROPIC_BASE_URL="$GATEWAY"
+ANTHROPIC_AUTH_TOKEN="clc"
+CLC_WORKSPACE=$(pwd)
+
+ANTHROPIC_MODEL="grok-4.6-fast"
+ANTHROPIC_DEFAULT_MODEL="grok-4.6-fast"
+ANTHROPIC_CUSTOM_MODEL_OPTION="grok-4.6-fast"
+ANTHROPIC_CUSTOM_MODEL_OPTION_NAME="Cursor Grok 4.6 Fast"
+ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION="Cursor Grok 4.6 fast via clc translator"
+ANTHROPIC_CUSTOM_MODEL_OPTION_SUPPORTED_CAPABILITIES="thinking"
+
+CLAUDE_CODE_MAX_CONTEXT_TOKENS=1000000
+CLAUDE_CODE_AUTO_COMPACT_WINDOW=1000000
+CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+CLAUDE_CODE_SUBAGENT_MODEL="grok-4.6-fast"
+
+export CLAUDE_CONFIG_DIR ANTHROPIC_BASE_URL ANTHROPIC_AUTH_TOKEN CLC_WORKSPACE
+export ANTHROPIC_MODEL ANTHROPIC_DEFAULT_MODEL
+export ANTHROPIC_CUSTOM_MODEL_OPTION ANTHROPIC_CUSTOM_MODEL_OPTION_NAME
+export ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION
+export ANTHROPIC_CUSTOM_MODEL_OPTION_SUPPORTED_CAPABILITIES
+export CLAUDE_CODE_MAX_CONTEXT_TOKENS CLAUDE_CODE_AUTO_COMPACT_WINDOW
+export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC CLAUDE_CODE_SUBAGENT_MODEL
+export CURSOR_API_KEY
+
+mkdir -p "$CLAUDE_CONFIG_DIR"
+
+if ! curl -fsS -m 2 -o /dev/null "$GATEWAY/health" 2>/dev/null; then
+  echo "clc: gateway not responding at $GATEWAY" >&2
+  echo "clc: start it with:  powershell.exe -NoProfile -Command \"Start-ScheduledTask -TaskName CLCCursorGateway\"" >&2
+  echo "clc: (or run ~/github-tools/multi-agentic-harness/gateway/start-clc-gateway.ps1)" >&2
+  exit 1
+fi
+
+case "$*" in
+  *--permission-mode*|*--dangerously-skip-permissions*)
+    exec claude "$@" ;;
+  *)
+    exec claude --dangerously-skip-permissions "$@" ;;
+esac

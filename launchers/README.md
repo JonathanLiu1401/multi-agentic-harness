@@ -13,12 +13,14 @@ and talk directly to `api.anthropic.com`.
 | `clx` | xAI Grok | Grok 4.6 (xhigh/high/medium/low), 4.5 | 500k tokens | `~/.claude-clx` |
 | `clg` | Antigravity (Gemini) | Gemini 3.8 Flash high, 3.1 Pro, 3.7/3.6 Flash | 1M tokens | `~/.claude-clg` |
 | `cld` | DeepSeek | DeepSeek V4.1 Flash, DeepSeek V4 Pro | 1M tokens | `~/.claude-cld` |
+| `clc` | Cursor | Cursor Grok 4.6 xhigh fast + Cloud Agents API | 1M Max Mode | n/a (native cursor-agent, not Claude Code) |
 
 ## Files in this Directory
 
-- `clx` / `clg` / `cld`: POSIX sh wrapper scripts for Git Bash (deployed to `~/bin/`).
-- `clx.ps1` / `clg.ps1` / `cld.ps1`: PowerShell wrapper scripts (deployed to `~/bin/`).
-- `clx.cmd` / `clg.cmd` / `cld.cmd`: Windows CMD shims on PATH (deployed to `~/.local/bin/`).
+- `clx` / `clg` / `cld` / `clc`: POSIX sh wrapper scripts for Git Bash (deployed to `~/bin/`).
+- `clx.ps1` / `clg.ps1` / `cld.ps1` / `clc.ps1`: PowerShell wrapper scripts (deployed to `~/bin/`).
+- `clx.cmd` / `clg.cmd` / `cld.cmd` / `clc.cmd`: Windows CMD shims on PATH (deployed to `~/.local/bin/`).
+- `clc` is **not** a Claude Code profile. Cursor has no `/v1/messages` endpoint, so `clc` execs `cursor-agent` and talks to `https://api.cursor.com` for Cloud Agents. PowerShell's built-in `clc` alias (Clear-Content) is removed by the installer.
 
 ## Why Separate Launchers?
 

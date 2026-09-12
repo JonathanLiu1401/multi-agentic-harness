@@ -15,7 +15,19 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from mcp.server.fastmcp import FastMCP
+try:
+    from mcp.server.fastmcp import FastMCP
+except (ImportError, ModuleNotFoundError):
+    try:
+        from mcp.server.mcpserver import MCPServer as FastMCP
+    except (ImportError, ModuleNotFoundError):
+        try:
+            from mcp.server import FastMCP
+        except (ImportError, ModuleNotFoundError):
+            try:
+                from mcp.server import MCPServer as FastMCP
+            except (ImportError, ModuleNotFoundError):
+                from fastmcp import FastMCP
 
 
 mcp = FastMCP("agent-visibility")
@@ -4692,6 +4704,7 @@ def check_worker_backends(cwd: str | None = None, deep: bool = False) -> dict[st
         "codex": _check_codex_backend(deep=deep, cwd=cwd),
         "agy": _check_agy_backend(deep=deep),
         "cursor_agent": _check_cursor_agent_backend(),
+        "cursor_cloud": _check_cursor_cloud_backend(deep=deep),
     }
 
 
@@ -5024,9 +5037,11 @@ def _resolve_cursor_agent_argv() -> list[str]:
             index = directory / "index.js"
             if node.exists() and index.exists():
                 return [str(node), str(index)]
-    found = shutil.which("cursor-agent") or shutil.which("agent")
+    found = shutil.which("cursor-agent")
     if found:
         return [found]
+    # Do not shutil.which("agent"): on this machine that resolves to
+    # ~/.grok/bin/agent.exe (Grok Build CLI), not Cursor.
     fallback = localapp / "cursor-agent" / "cursor-agent.cmd"
     if fallback.exists():
         return [str(fallback)]
@@ -5508,6 +5523,138 @@ def _dispatch_visible_steer(
     if agent == "cursor":
         return steer_visible_cursor_run(run_dir, instruction, **kwargs)
     return steer_visible_codex_run(run_dir, instruction, **kwargs)
+
+
+# ============================================================================
+# Cursor Cloud Agents API (added 2026-09-12)
+# ============================================================================
+# Fire-and-forget coding agents at https://api.cursor.com/v1/agents.
+# This is NOT an inference endpoint: POST /v1/messages 404s. Use the `clc`
+# launcher for the local TUI, and these tools to dispatch cloud VMs.
+
+_BRIDGE_DIR = Path(__file__).resolve().parent
+if str(_BRIDGE_DIR) not in sys.path:
+    sys.path.insert(0, str(_BRIDGE_DIR))
+try:
+    import cursor_cloud_api as _cursor_cloud
+except ImportError:
+    _cursor_cloud = None  # type: ignore[assignment]
+
+
+def _check_cursor_cloud_backend(deep: bool = False) -> dict[str, Any]:
+    if _cursor_cloud is None:
+        return {
+            "available": False,
+            "reason": "cursor_cloud_api.py not importable next to the bridge",
+            "detail": "",
+        }
+    if not _cursor_cloud.key_file_present():
+        return {
+            "available": False,
+            "reason": f"missing CURSOR_API_KEY and {_cursor_cloud.KEY_FILE}",
+            "detail": "",
+        }
+    if not deep:
+        return {
+            "available": True,
+            "reason": f"crsr_ key present at {_cursor_cloud.KEY_FILE} (deep=False, no live ping)",
+            "detail": str(_cursor_cloud.KEY_FILE),
+        }
+    try:
+        me = _cursor_cloud.get_me()
+        name = (me or {}).get("apiKeyName") or (me or {}).get("userEmail") or "ok"
+        return {
+            "available": True,
+            "reason": f"GET /v1/me ok ({name})",
+            "detail": json.dumps(me)[:500],
+        }
+    except Exception as exc:
+        return {
+            "available": False,
+            "reason": f"GET /v1/me failed: {exc}",
+            "detail": str(exc),
+        }
+
+
+def _cursor_cloud_or_error() -> Any:
+    if _cursor_cloud is None:
+        return None
+    return _cursor_cloud
+
+
+@mcp.tool()
+def list_cursor_cloud_agents(limit: int = 20, include_archived: bool = False) -> dict[str, Any]:
+    """List Cursor Cloud Agents (GET /v1/agents). Newest first."""
+    api = _cursor_cloud_or_error()
+    if api is None:
+        return {"ok": False, "error": "cursor_cloud_api.py not importable"}
+    try:
+        payload = api.list_agents(limit=limit, include_archived=include_archived)
+        return {"ok": True, "result": payload}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+
+
+@mcp.tool()
+def start_cursor_cloud_agent(
+    prompt: str,
+    model: str = "",
+    repo_url: str = "",
+    starting_ref: str = "main",
+    name: str = "",
+    auto_create_pr: bool = False,
+) -> dict[str, Any]:
+    """Create a Cursor Cloud Agent (POST /v1/agents).
+
+    Omit repo_url for a no-repo VM. This is a fire-and-forget cloud coding
+    agent, not a local cursor-agent window and not a Claude Code session.
+    Poll with get_cursor_cloud_agent.
+    """
+    api = _cursor_cloud_or_error()
+    if api is None:
+        return {"ok": False, "error": "cursor_cloud_api.py not importable"}
+    try:
+        payload = api.create_agent(
+            prompt=prompt,
+            model=model,
+            repo_url=repo_url,
+            starting_ref=starting_ref,
+            name=name,
+            auto_create_pr=auto_create_pr,
+        )
+        return {"ok": True, "result": payload}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+
+
+@mcp.tool()
+def get_cursor_cloud_agent(agent_id: str, run_id: str = "") -> dict[str, Any]:
+    """Get a Cloud Agent, and optionally a specific run."""
+    api = _cursor_cloud_or_error()
+    if api is None:
+        return {"ok": False, "error": "cursor_cloud_api.py not importable"}
+    try:
+        agent = api.get_agent(agent_id)
+        out: dict[str, Any] = {"ok": True, "agent": agent}
+        rid = (run_id or "").strip() or str((agent or {}).get("latestRunId") or "")
+        if rid:
+            out["run"] = api.get_run(agent_id, rid)
+        return out
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+
+
+@mcp.tool()
+def followup_cursor_cloud_agent(agent_id: str, prompt: str, mode: str = "") -> dict[str, Any]:
+    """Create a follow-up run on an existing Cloud Agent (POST /v1/agents/{id}/runs)."""
+    api = _cursor_cloud_or_error()
+    if api is None:
+        return {"ok": False, "error": "cursor_cloud_api.py not importable"}
+    try:
+        payload = api.create_run(agent_id, prompt, mode=mode)
+        return {"ok": True, "result": payload}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
 
 
 if __name__ == "__main__":

@@ -4,7 +4,7 @@ A unified agentic ecosystem that combines multi-agent orchestration with multi-p
 
 The repository is structured into two distinct, complementary parts:
 - **Part 1: The Multi-Agent Worker Bridge (`claude-manages-xxx`)**: Orchestration engine where Claude (or your manager model) serves as executive captain, architect, and reviewer while delegating implementation to visible terminal-window or headless workers across Cursor Agent, Grok Build CLI, Google Antigravity, or Claude Code runners.
-- **Part 2: Provider Profiles & Gateway Launchers (`clx`, `clg`, `cld`)**: Run alternate frontier models (xAI Grok, Google Gemini / Antigravity, DeepSeek V4.1 Flash / V4 Pro) directly inside the real Claude Code TUI with isolated profiles, dedicated context windows (500k to 1M), custom model selectors, dynamic reasoning effort, and real API cost tracking.
+- **Part 2: Provider Profiles & Gateway Launchers (`clx`, `clg`, `cld`, `clc`)**: Run alternate frontier models (xAI Grok, Google Gemini / Antigravity, DeepSeek V4.1 Flash / V4 Pro) directly inside the real Claude Code TUI with isolated profiles, dedicated context windows (500k to 1M), custom model selectors, dynamic reasoning effort, and real API cost tracking. `clc` is the Cursor peer: it launches the native `cursor-agent` TUI (Cursor has no Anthropic `/v1/messages` endpoint) and the Cloud Agents API.
 
 ---
 
@@ -29,7 +29,7 @@ Run from the repository root:
    - Installs the captain doctrine skill (`claude-manages-codex`) to `~/.claude/skills/`.
    - Deploys the Git Bash `cursor-agent` shim to `~/.local/bin/cursor-agent`.
 2. **Part 2 (Launchers & Profiles)**:
-   - Installs dual-shell launchers (`clx`, `clg`, `cld`) to `~/bin/` (Git Bash) and `~/.local/bin/` (Windows system PATH).
+   - Installs dual-shell launchers (`clx`, `clg`, `cld`, `clc`) to `~/bin/` (Git Bash) and `~/.local/bin/` (Windows system PATH).
    - Automatically ensures `~/.local/bin` is added to your Windows user `PATH`.
    - Creates isolated profile directories (`~/.claude-clx`, `~/.claude-clg`, `~/.claude-cld`) and establishes directory junctions to share agents and skills.
    - Installs native subagent definitions (`grok.md`, `agy-gemini-3-8-flash.md`, `deepseek.md`) into `~/.claude/agents/`.
@@ -51,7 +51,8 @@ When the user has NOT invoked `/claude-manages-codex` or requested the harness, 
 | **clx** (`~/.claude-clx`, Grok 500k) | `Agent` tool with `subagent_type: "grok"` | Agy: `start_visible_agy_worker`<br>Grok CLI extras: `start_visible_grok_worker`<br>Never switch to clg or cld. |
 | **clg** (`~/.claude-clg`, Gemini 1M) | `Agent` tool with `subagent_type: "agy-gemini-3-8-flash"` | Grok: `start_visible_grok_worker`<br>Agy CLI: `start_visible_agy_worker`<br>Never switch to clx or cld. |
 | **cld** (`~/.claude-cld`, DeepSeek 1M) | `Agent` tool with `subagent_type: "deepseek"` | Grok: `start_visible_grok_worker`<br>Agy: `start_visible_agy_worker`<br>Never switch to clx or clg. |
-| **Cursor TUI** (`cursor-agent`) | Native cursor-agent subagents (`cursor-grok-4.6-xhigh-fast`) | Never shell out to Claude or Grok from Cursor. |
+| **clc** (`cursor-agent` TUI) | Native cursor-agent subagents (`cursor-grok-4.6-xhigh-fast`) | Cloud Agents: `start_cursor_cloud_agent`. Never shell out to Claude or Grok from Cursor. |
+| **Cursor TUI** (`cursor-agent` without clc) | Native cursor-agent subagents (`cursor-grok-4.6-xhigh-fast`) | Never shell out to Claude or Grok from Cursor. |
 | **Grok Build CLI** (`grok`) | Native Grok subagents | Never shell out to Claude or Cursor. |
 
 ---
@@ -87,7 +88,7 @@ The Worker Bridge enables a division of labor: the manager model acts as executi
 
 ---
 
-# Part 2: Provider Profiles & Gateway Launchers (`clx`, `clg`, `cld`)
+# Part 2: Provider Profiles & Gateway Launchers (`clx`, `clg`, `cld`, `clc`)
 
 Part 2 allows you to run third-party frontier models inside the official Claude Code CLI interface, completely preserving Claude Code's agentic loop, interactive diffs, tool calling, and slash commands while keeping configurations strictly isolated.
 
@@ -98,6 +99,7 @@ Part 2 allows you to run third-party frontier models inside the official Claude 
 | `clx` | xAI Grok | Grok 4.6 (xhigh/high/med/low), Grok 4.5 | 500k tokens | Local CLIProxyAPI gateway (`127.0.0.1:8317`) | `~/.claude-clx` |
 | `clg` | Antigravity (Gemini) | Gemini 3.8 Flash, 3.1 Pro, 3.7/3.6 Flash | 1M tokens | Local CLIProxyAPI gateway (`127.0.0.1:8317`) | `~/.claude-clg` |
 | `cld` | DeepSeek | DeepSeek V4.1 Flash, DeepSeek V4 Pro | 1M tokens | Direct Anthropic API (`https://api.deepseek.com/anthropic`) | `~/.claude-cld` |
+| `clc` | Cursor | Cursor Grok 4.6 xhigh fast, Composer 2.5, Cloud Agents | 1M Max Mode | Native `cursor-agent` CLI + `https://api.cursor.com/v1/agents` | `~/.cursor` (not a Claude Code profile) |
 
 ### Architectural Highlights
 
