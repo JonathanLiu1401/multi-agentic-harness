@@ -323,6 +323,7 @@ paths = [
     os.path.expanduser(r"~\.claude-clg\.claude.json"),
     os.path.expanduser(r"~\.claude-clx\.claude.json"),
     os.path.expanduser(r"~\.claude-cld\.claude.json"),
+    os.path.expanduser(r"~\.claude-clc\.claude.json"),
     os.path.expanduser(r"~\.claude.json")
 ]
 
@@ -375,6 +376,14 @@ $ErrorActionPreference = 'SilentlyContinue'
 $PricingPyScript | & $Py -
 $ErrorActionPreference = $prevEAP
 Write-Host "Injected real API pricing into .claude.json config caches safely via Python."
+
+$ClcPricing = Join-Path $Here "gateway\inject_clc_pricing.py"
+if (Test-Path $ClcPricing) {
+    Push-Location (Join-Path $Here "gateway")
+    & $Py $ClcPricing
+    Pop-Location
+    Write-Host "Injected clc Cursor catalog /cost rates."
+}
 
 Write-Host "`n============================================================"
 Write-Host "Installation Completed Successfully!"

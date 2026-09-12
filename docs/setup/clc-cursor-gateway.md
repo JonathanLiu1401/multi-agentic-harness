@@ -144,10 +144,29 @@ The translator still sends `context=1m` (or the model's max) in
 
 ## Pricing
 
-`templates/claude-clc/settings.json` `modelPricing.overrides` uses underlying
-provider list rates (September 2026) so `/cost` is not Opus-5 default. Cursor's
-own dashboard often shows **Included**. Those two views will not match dollar
-for dollar.
+`/cost` uses `templates/claude-clc/settings.json` `modelPricing.overrides`
+(canonical table: `gateway/clc_pricing.py`). Re-apply with
+`python gateway/inject_clc_pricing.py`. The translator forwards Cursor
+`RunResult.usage` as Anthropic `input_tokens` / `output_tokens` /
+`cache_read_input_tokens` / `cache_creation_input_tokens`. Without that,
+Claude Code estimated output as `len(text)//4` and billed input as 0.
+
+Rates (USD / MTok, September 2026):
+
+- Cursor Grok / Composer: Cursor's published card. Fast is 2x-6x
+  (`grok-4.6-fast` $4/$12, `composer-2.5-fast` $3/$15, `composer-2.5` $0.50/$2.50).
+- Claude: Anthropic list. Opus 5 is **$5/$25**, not the retired Opus 4.1 $15/$75.
+  Fable 5.1 is $10/$50. Opus 5 / 4.8 Fast is Anthropic Fast mode $10/$50.
+  Sonnet 5 is $2/$10 (intro price made permanent).
+- GPT: OpenAI list. Sol promo $4/$20 (through 2026-11-21). Fast is OpenAI
+  Fast/priority (5.6 family 2x, GPT-5.5 2.5x). Mini/nano are not GPT-5.5 rates
+  (`gpt-5.4-mini` $0.75/$4.50, `gpt-5.4-nano` $0.20/$1.25, `gpt-5-mini` $0.25/$2).
+- Gemini: Google list. 3.5 Flash is $1.50/$9, not Flash-3.8's $0.75/$3.75.
+- Muse Spark 1.3: $1.25/$4.25. Kimi K3 $3/$15. GLM-5.2 $1.40/$4.40.
+
+Cursor's dashboard often shows **Included**. `/cost` is the list-rate estimate,
+not the subscription drawdown. Auto (`default`) is estimated at Grok 4.6
+standard because Auto bills the routed model.
 
 ## Logs
 

@@ -116,6 +116,7 @@ We resolved this by adding exact `modelPricing.overrides` and caching them in `a
 - **Google Gemini Flash (`clg`)**: $0.75 input / $3.75 output / $0.075 cache read (90% cache discount) per [Google AI pricing](https://ai.google.dev/pricing). Pro models: $2.00 input / $12.00 output / $0.20 cache read.
 - **DeepSeek V4.1 Flash (`cld`)**: $0.30 input ($0.15 off-peak) / $1.20 output ($0.60 off-peak) / $0.006 cache read ($0.003 off-peak, 98% cache discount) per [DeepSeek pricing](https://api-docs.deepseek.com/quick_start/pricing). V4 Pro: $1.32 input / $3.96 output / $0.044 cache read.
 - **xAI Grok 4.6 (`clx`)**: $2.00 input / $6.00 output / $0.50 cache read (75% cache discount) for prompts under 200k tokens per [xAI developer pricing](https://docs.x.ai/developers/pricing).
+- **Cursor catalog (`clc`)**: Cursor first-party card for Grok/Composer Fast; Anthropic/OpenAI/Google/Moonshot/Z.ai list rates for the rest. Canonical table `gateway/clc_pricing.py`. Opus 5 is $5/$25 (not $15/$75). See [`docs/setup/clc-cursor-gateway.md`](docs/setup/clc-cursor-gateway.md).
 All session spending calculations reflect accurate real-world API costs.
 
 #### 4. Dynamic Reasoning Effort

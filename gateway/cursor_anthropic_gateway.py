@@ -366,6 +366,24 @@ class Session:
             return None
 
 
+def anthropic_usage(usage: Any) -> dict[str, int] | None:
+    """Map cursor-sdk TokenUsage onto Anthropic usage fields for /cost."""
+    if usage is None:
+        return None
+    inp = int(getattr(usage, "input_tokens", 0) or 0)
+    out = int(getattr(usage, "output_tokens", 0) or 0)
+    cache_read = int(getattr(usage, "cache_read_tokens", 0) or 0)
+    cache_write = int(getattr(usage, "cache_write_tokens", 0) or 0)
+    if inp == 0 and out == 0 and cache_read == 0 and cache_write == 0:
+        return None
+    return {
+        "input_tokens": inp,
+        "output_tokens": max(1, out) if out or inp else 0,
+        "cache_read_input_tokens": cache_read,
+        "cache_creation_input_tokens": cache_write,
+    }
+
+
 def wire_model(selection: ModelSelection) -> str:
     """Cursor CLI parameterized id: gpt-5.5[reasoning=high,fast=true]."""
     if not selection.params:
@@ -520,8 +538,18 @@ class Gateway:
                     echo_txt = json.dumps(echoed.to_json() if hasattr(echoed, "to_json") else str(echoed))
                 except Exception:
                     echo_txt = str(echoed)
-            sess.emit({"kind": "done", "status": status, "text": getattr(result, "result", None)})
-            log(f"send done session={sess.session_id} status={status} echoed={echo_txt}")
+            sess.emit(
+                {
+                    "kind": "done",
+                    "status": status,
+                    "text": getattr(result, "result", None),
+                    "usage": anthropic_usage(getattr(result, "usage", None)),
+                }
+            )
+            log(
+                f"send done session={sess.session_id} status={status} "
+                f"echoed={echo_txt} usage={anthropic_usage(getattr(result, 'usage', None))}"
+            )
         except Exception as exc:
             sess.emit({"kind": "error", "error": str(exc)})
             log(f"send failed: {exc}\n{traceback.format_exc()}")
@@ -672,6 +700,7 @@ def handle_messages(handler: BaseHTTPRequestHandler, body: dict[str, Any]) -> No
 def collect_turn(sess: Session, model: str, msg_id: str) -> dict[str, Any]:
     text_parts: list[str] = []
     tools: list[PendingTool] = []
+    last_usage: dict[str, int] | None = None
     deadline = time.time() + 580
     while time.time() < deadline:
         ev = sess.drain_timeout(0.25)
@@ -689,6 +718,12 @@ def collect_turn(sess: Session, model: str, msg_id: str) -> dict[str, Any]:
                     tools.append(extra["tool"])
                 elif extra and extra.get("kind") == "text":
                     text_parts.append(str(extra.get("text") or ""))
+                elif extra and extra.get("kind") == "done":
+                    leftover = str(extra.get("text") or "")
+                    if leftover:
+                        text_parts.append(leftover)
+                    if isinstance(extra.get("usage"), dict):
+                        last_usage = extra["usage"]
             break
         elif kind == "error":
             break
@@ -696,6 +731,8 @@ def collect_turn(sess: Session, model: str, msg_id: str) -> dict[str, Any]:
             leftover = str(ev.get("text") or "")
             if leftover:
                 text_parts.append(leftover)
+            if isinstance(ev.get("usage"), dict):
+                last_usage = ev["usage"]
             break
     content: list[dict[str, Any]] = []
     text = "".join(text_parts)
@@ -711,6 +748,10 @@ def collect_turn(sess: Session, model: str, msg_id: str) -> dict[str, Any]:
             }
         )
     stop = "tool_use" if tools else "end_turn"
+    usage = last_usage or {
+        "input_tokens": 0,
+        "output_tokens": max(1, len(text) // 4),
+    }
     return {
         "id": msg_id,
         "type": "message",
@@ -718,7 +759,7 @@ def collect_turn(sess: Session, model: str, msg_id: str) -> dict[str, Any]:
         "model": model,
         "content": content,
         "stop_reason": stop,
-        "usage": {"input_tokens": 0, "output_tokens": max(1, len(text) // 4)},
+        "usage": usage,
     }
 
 
@@ -729,6 +770,7 @@ def stream_turn(
     text_open = False
     thinking_open = False
     output_tokens = 0
+    billed: dict[str, int] | None = None
     stop = "end_turn"
     deadline = time.time() + 580
     last_ping = time.time()
@@ -883,6 +925,8 @@ def stream_turn(
             stop = "end_turn"
             break
         elif kind == "done":
+            if isinstance(ev.get("usage"), dict):
+                billed = ev["usage"]
             leftover = str(ev.get("text") or "")
             if leftover and not text_open:
                 sse(
@@ -910,13 +954,14 @@ def stream_turn(
 
     close_thinking()
     close_text()
+    usage = billed or {"output_tokens": max(1, output_tokens)}
     sse(
         handler,
         "message_delta",
         {
             "type": "message_delta",
             "delta": {"stop_reason": stop, "stop_sequence": None},
-            "usage": {"output_tokens": max(1, output_tokens)},
+            "usage": usage,
         },
     )
     sse(handler, "message_stop", {"type": "message_stop"})

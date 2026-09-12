@@ -18,7 +18,12 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "gateway"))
 import cursor_cloud_api as api  # noqa: E402
+import clc_pricing  # noqa: E402
+from cursor_anthropic_gateway import anthropic_usage  # noqa: E402
+from types import SimpleNamespace
+TEMPLATE = ROOT / "templates" / "claude-clc" / "settings.json"
 
 GATEWAY = os.environ.get("CLC_GATEWAY", "http://127.0.0.1:8318")
 LAUNCHER = Path.home() / "bin" / "clc.ps1"
@@ -31,6 +36,32 @@ def _ok(name: str, cond: bool, detail: str = "") -> None:
     print(f"{status}  {name}{extra}")
     if not cond:
         raise SystemExit(1)
+
+
+def test_pricing_covers_every_picker_id() -> None:
+    data = json.loads(TEMPLATE.read_text(encoding="utf-8"))
+    picker = set(data.get("availableModels") or [])
+    overrides = set((data.get("modelPricing") or {}).get("overrides") or {})
+    rates = set(clc_pricing.RATES)
+    _ok("every picker id has a rate", picker <= overrides, f"missing={sorted(picker - overrides)}")
+    _ok("canonical table matches settings.json", rates == overrides)
+    opus = data["modelPricing"]["overrides"]["claude-opus-5"]
+    _ok("Opus 5 is $5/$25 not $15/$75", opus["input"] == 5.0 and opus["output"] == 25.0)
+    mini = data["modelPricing"]["overrides"]["gpt-5.4-mini"]
+    _ok("GPT-5.4 mini is not GPT-5.5 rates", mini["input"] == 0.75 and mini["output"] == 4.5)
+
+
+def test_anthropic_usage_mapping() -> None:
+    mapped = anthropic_usage(
+        SimpleNamespace(input_tokens=1200, output_tokens=80, cache_read_tokens=400, cache_write_tokens=50)
+    )
+    _ok("usage maps cache fields", mapped == {
+        "input_tokens": 1200,
+        "output_tokens": 80,
+        "cache_read_input_tokens": 400,
+        "cache_creation_input_tokens": 50,
+    })
+    _ok("empty usage is omitted", anthropic_usage(SimpleNamespace(input_tokens=0, output_tokens=0, cache_read_tokens=0, cache_write_tokens=0)) is None)
 
 
 def test_messages_still_404() -> None:
@@ -109,6 +140,8 @@ def main() -> int:
     create_cloud = "--create-cloud" in sys.argv
     skip_health = "--skip-health" in sys.argv
     print("clc e2e")
+    test_pricing_covers_every_picker_id()
+    test_anthropic_usage_mapping()
     test_messages_still_404()
     test_me_and_list()
     test_launcher_is_claude_code_dialect()
