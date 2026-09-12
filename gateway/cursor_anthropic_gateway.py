@@ -77,7 +77,85 @@ MODEL_ALIASES = {
 }
 
 
-def parse_model(raw: str) -> ModelSelection:
+CATALOG: dict[str, dict[str, list[str]]] = {}
+
+
+def refresh_catalog() -> None:
+    """Load Cursor /v1/models so effort/fast map onto each model's real params."""
+    import base64
+    import urllib.request
+
+    global CATALOG
+    try:
+        key = load_key()
+        req = urllib.request.Request(
+            "https://api.cursor.com/v1/models",
+            headers={
+                "Authorization": "Basic " + base64.b64encode(f"{key}:".encode("ascii")).decode("ascii")
+            },
+        )
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+        catalog: dict[str, dict[str, list[str]]] = {}
+        for item in payload.get("items") or []:
+            mid = str(item.get("id") or "")
+            if not mid:
+                continue
+            params: dict[str, list[str]] = {}
+            for param in item.get("parameters") or []:
+                pid = str(param.get("id") or "")
+                vals = []
+                for raw in param.get("values") or []:
+                    if isinstance(raw, dict):
+                        vals.append(str(raw.get("value") or ""))
+                    else:
+                        vals.append(str(raw))
+                if pid:
+                    params[pid] = [v for v in vals if v]
+            catalog[mid] = params
+        CATALOG = catalog
+        log(f"catalog loaded n={len(CATALOG)}")
+    except Exception as exc:
+        log(f"catalog load failed: {exc}")
+
+
+def extract_effort(body: dict[str, Any]) -> str | None:
+    oc = body.get("output_config")
+    if isinstance(oc, dict):
+        for key in ("effort", "reasoning_effort", "reasoning"):
+            val = oc.get(key)
+            if val:
+                return str(val).lower()
+    for key in ("effort", "reasoning_effort"):
+        val = body.get(key)
+        if val:
+            return str(val).lower()
+    env = (os.environ.get("CLAUDE_CODE_EFFORT_LEVEL") or "").strip().lower()
+    if env in ("low", "medium", "high", "xhigh", "max"):
+        return env
+    return None
+
+
+def map_level(wanted: str, allowed: list[str]) -> str | None:
+    if not wanted or not allowed:
+        return None
+    if wanted in allowed:
+        return wanted
+    aliases = {
+        "xhigh": ["xhigh", "extra-high", "extra_high", "max"],
+        "max": ["max", "xhigh", "extra-high"],
+        "high": ["high"],
+        "medium": ["medium", "med"],
+        "low": ["low"],
+        "none": ["none", "off"],
+    }
+    for cand in aliases.get(wanted, [wanted]):
+        if cand in allowed:
+            return cand
+    return None
+
+
+def parse_model(raw: str, effort_override: str | None = None) -> ModelSelection:
     s = (raw or "grok-4.6-fast").strip()
     if s.startswith("claude-grok"):
         s = s[len("claude-") :]
@@ -87,7 +165,7 @@ def parse_model(raw: str) -> ModelSelection:
     if s.endswith("-fast") or "[fast]" in s:
         fast = True
         s = s.replace("-fast", "").replace("[fast]", "")
-    match = re.search(r"\((low|medium|high|xhigh)\)", s)
+    match = re.search(r"\((low|medium|high|xhigh|max)\)", s)
     if match:
         effort = match.group(1)
         s = (s[: match.start()] + s[match.end() :]).strip()
@@ -101,13 +179,45 @@ def parse_model(raw: str) -> ModelSelection:
         "claude-opus-5-fast": "claude-opus-5",
         "gpt-5.6-sol-fast": "gpt-5.6-sol",
     }.get(cursor_id, cursor_id)
+    if effort_override:
+        effort = effort_override
+    spec = CATALOG.get(cursor_id) or {}
     params: list[ModelParameterValue] = []
-    if fast and cursor_id in ("grok-4.6", "claude-opus-5", "gpt-5.6-sol", "composer-2.5"):
+    if fast and (not spec or "fast" in spec):
         params.append(ModelParameterValue(id="fast", value="true"))
-    if effort and cursor_id in ("grok-4.6", "claude-opus-5", "claude-fable-5-1"):
-        params.append(ModelParameterValue(id="effort", value=effort))
-    elif cursor_id == "grok-4.6" and not effort:
-        params.append(ModelParameterValue(id="effort", value="xhigh"))
+    if not effort:
+        if cursor_id.startswith("grok-4."):
+            effort = "xhigh"
+        elif spec:
+            effort = "high"
+    if effort:
+        for pname in ("reasoning", "effort", "reasoning_effort"):
+            if spec and pname not in spec:
+                continue
+            if not spec and pname != (
+                "reasoning"
+                if cursor_id.startswith(("gpt-", "kimi-", "glm-"))
+                else "reasoning_effort"
+                if cursor_id.startswith("gemini-3.8")
+                else "effort"
+            ):
+                continue
+            allowed = spec.get(pname) or []
+            val = map_level(effort, allowed) if allowed else effort
+            if val:
+                params.append(ModelParameterValue(id=pname, value=val))
+                break
+    if "context" in spec:
+        allowed = spec.get("context") or []
+        chosen = None
+        for prefer in ("1m", "1000k", "300k", "272k"):
+            if prefer in allowed:
+                chosen = prefer
+                break
+        if chosen is None and allowed:
+            chosen = allowed[-1]
+        if chosen:
+            params.append(ModelParameterValue(id="context", value=chosen))
     return ModelSelection(id=cursor_id, params=params)
 
 
@@ -258,6 +368,7 @@ class Gateway:
     async def _boot(self) -> None:
         try:
             os.environ["CURSOR_API_KEY"] = load_key()
+            refresh_catalog()
             self.client = await AsyncClient.launch_bridge(
                 workspace=self.workspace,
                 timeout=60,
@@ -288,9 +399,11 @@ class Gateway:
                 self.sessions[session_id] = sess
             return sess
 
-    def ensure_agent(self, sess: Session, model: str, tools: list[dict[str, Any]]) -> None:
+    def ensure_agent(
+        self, sess: Session, model: str, tools: list[dict[str, Any]], effort: str | None = None
+    ) -> None:
         wanted = {sanitize_tool_name(t.get("name") or "tool"): t for t in tools if t.get("name")}
-        selection = parse_model(model)
+        selection = parse_model(model, effort_override=effort)
         model_key = selection.id + "|" + ",".join(f"{p.id}={p.value}" for p in (selection.params or []))
         if (
             sess.agent is not None
@@ -425,7 +538,12 @@ def handle_messages(handler: BaseHTTPRequestHandler, body: dict[str, Any]) -> No
     )
     sess = GATEWAY.get_session(session_id)
     tool_results, user_text = extract_last_turn(messages)
-    log(f"turn session={session_id} model={model} tools={len(tools)} chars={len(user_text)} title={is_title_request(tools, user_text, body.get('max_tokens'))}")
+    effort = extract_effort(body)
+    log(
+        f"turn session={session_id} model={model} effort={effort} "
+        f"tools={len(tools)} chars={len(user_text)} "
+        f"title={is_title_request(tools, user_text, body.get('max_tokens'))}"
+    )
 
     if is_title_request(tools, user_text, body.get("max_tokens")):
         title = "Cursor session"
@@ -465,7 +583,7 @@ def handle_messages(handler: BaseHTTPRequestHandler, body: dict[str, Any]) -> No
 
     with sess.turn_lock:
         sess.clear_events()
-        GATEWAY.ensure_agent(sess, model, tools)
+        GATEWAY.ensure_agent(sess, model, tools, effort=effort)
         if tool_results:
             GATEWAY.fulfill_tools(sess, tool_results)
         elif user_text:
@@ -801,12 +919,21 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200, {"ok": True, "service": "clc-cursor-gateway"})
             return
         if path == "/v1/models":
+            mids = list(DEFAULT_MODELS)
+            settings = Path.home() / ".claude-clc" / "settings.json"
+            try:
+                loaded = json.loads(settings.read_text(encoding="utf-8"))
+                if loaded.get("availableModels"):
+                    mids = list(loaded["availableModels"])
+            except Exception:
+                pass
             data = [
-                {"id": mid, "type": "model", "display_name": f"Cursor {mid}"}
-                for mid in DEFAULT_MODELS
+                {"id": mid, "type": "model", "display_name": str(mid)}
+                for mid in mids
             ]
             self._json(200, {"data": data, "object": "list"})
             return
+
         self._json(404, {"error": {"type": "not_found", "message": path}})
 
     def do_POST(self) -> None:  # noqa: N802
