@@ -33,8 +33,10 @@ from cursor_sdk import (
     ModelParameterValue,
     ModelSelection,
     SendOptions,
+    PartialToolCallUpdate,
     TextDeltaUpdate,
     ThinkingDeltaUpdate,
+    ToolCallCompletedUpdate,
     ToolCallStartedUpdate,
 )
 
@@ -271,6 +273,78 @@ def load_key() -> str:
     raise RuntimeError(f"missing CURSOR_API_KEY and {KEY_FILE}")
 
 
+def extract_tool_schema(spec: dict[str, Any]) -> dict[str, Any]:
+    """Anthropic/OpenAI tool schema -> JSON Schema object Cursor will honor.
+
+    Empty `{type: object}` plus MCP additionalProperties=false strips every
+    argument (clc sessions called Read/Bash with input={}). Always keep
+    properties and allow extras.
+    """
+    raw = (
+        spec.get("input_schema")
+        or spec.get("inputSchema")
+        or spec.get("parameters")
+        or spec.get("schema")
+    )
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except json.JSONDecodeError:
+            raw = None
+    if not isinstance(raw, dict):
+        raw = {}
+    try:
+        schema = json.loads(json.dumps(raw))
+    except TypeError:
+        schema = {}
+    if not isinstance(schema, dict):
+        schema = {}
+    schema.setdefault("type", "object")
+    if not isinstance(schema.get("properties"), dict):
+        schema["properties"] = {}
+    schema["additionalProperties"] = True
+    return schema
+
+
+def normalize_tool_args(args: Any) -> dict[str, Any]:
+    """Unwrap MCP/Cursor envelopes so Claude Code sees the real tool input."""
+    if args is None:
+        return {}
+    if isinstance(args, str):
+        try:
+            args = json.loads(args)
+        except json.JSONDecodeError:
+            return {"value": args}
+    if not isinstance(args, dict):
+        return {"value": args}
+    for key in ("arguments", "input", "params", "args"):
+        inner = args.get(key)
+        if isinstance(inner, str) and inner.strip().startswith(("{", "[")):
+            try:
+                inner = json.loads(inner)
+            except json.JSONDecodeError:
+                continue
+        if isinstance(inner, dict) and inner:
+            extra = {k: v for k, v in args.items() if k not in ("arguments", "input", "params", "args", "name", "toolName", "tool_name", "server", "serverName")}
+            merged = dict(inner)
+            for k, v in extra.items():
+                merged.setdefault(k, v)
+            return merged
+    return args
+
+
+def args_from_tool_call(tool_call: Any) -> dict[str, Any]:
+    if not isinstance(tool_call, dict):
+        return {}
+    return normalize_tool_args(
+        tool_call.get("args")
+        or tool_call.get("arguments")
+        or tool_call.get("input")
+        or tool_call.get("parameters")
+        or tool_call
+    )
+
+
 def sanitize_tool_name(name: str) -> str:
     out = re.sub(r"[^A-Za-z0-9_]", "_", name or "tool")
     if not out or out[0].isdigit():
@@ -348,6 +422,16 @@ class Session:
         self.run_in_flight = False
         self.model_key = ""
         self.selection: ModelSelection | None = None
+        self.stream_args: dict[str, dict[str, Any]] = {}
+        self.last_stream_args: dict[str, Any] = {}
+
+    def note_stream_args(self, call_id: str | None, args: dict[str, Any]) -> None:
+        if not args:
+            return
+        with self.lock:
+            self.last_stream_args = dict(args)
+            if call_id:
+                self.stream_args[str(call_id)] = dict(args)
 
     def emit(self, event: dict[str, Any]) -> None:
         self.events.put(event)
@@ -467,11 +551,15 @@ class Gateway:
         for san, spec in wanted.items():
             orig = str(spec.get("name") or san)
             orig_map[san] = orig
-            schema = spec.get("input_schema") or {"type": "object", "properties": {}}
+            schema = extract_tool_schema(spec)
             custom[san] = CustomTool(
                 description=str(spec.get("description") or orig),
-                input_schema=schema if isinstance(schema, dict) else {"type": "object"},
+                input_schema=schema,
                 execute=lambda args, ctx, san=san, sess=sess: self._execute(sess, san, args, ctx),
+            )
+            log(
+                f"tool schema {san} props={list((schema.get('properties') or {}).keys())[:12]} "
+                f"keys={list(spec.keys())}"
             )
         wire = wire_model(selection)
         agent = await AsyncAgent.create(
@@ -498,7 +586,18 @@ class Gateway:
     ) -> str:
         orig = sess.tool_map.get(san, san)
         call_id = ctx.tool_call_id or f"tool_{uuid.uuid4()}"
-        payload = args if isinstance(args, dict) else {"value": args}
+        payload = normalize_tool_args(args)
+        if not payload:
+            deadline = time.time() + 1.0
+            while time.time() < deadline:
+                with sess.lock:
+                    payload = dict(
+                        sess.stream_args.get(str(call_id)) or sess.last_stream_args or {}
+                    )
+                if payload:
+                    break
+                time.sleep(0.05)
+        log(f"tool execute {orig} id={call_id} args={json.dumps(payload)[:500]}")
         pending = PendingTool(orig, payload, call_id)
         with sess.lock:
             sess.pending[call_id] = pending
@@ -521,8 +620,11 @@ class Gateway:
                 # Thinking is Cursor-internal. Emitting thinking_delta can hang
                 # Claude Code -p when the request did not enable thinking.
                 pass
-            elif isinstance(update, ToolCallStartedUpdate):
-                pass
+            elif isinstance(
+                update, (ToolCallStartedUpdate, PartialToolCallUpdate, ToolCallCompletedUpdate)
+            ):
+                tc = getattr(update, "tool_call", None)
+                sess.note_stream_args(getattr(update, "call_id", None), args_from_tool_call(tc))
 
         try:
             send_opts = SendOptions(on_delta=on_delta)

@@ -58,6 +58,14 @@ Claude Code TUI  --ANTHROPIC_BASE_URL-->  127.0.0.1:8318 translator
 matching `tool_result`. That is how Claude Code's Read/Bash/Edit loop stays
 in Claude Code.
 
+Tool schemas must keep `properties` and `additionalProperties: true`. Cursor
+exposes custom tools over MCP (`CallMcpTool` / CallDynamicTool). An empty
+`{type: object}` schema plus MCP's default `additionalProperties: false`
+strips every argument, so Claude Code sees `Read`/`Bash` with `input: {}`.
+Verified 2026-09-13 on session `9803a912`. The translator now unwraps MCP
+`arguments` envelopes and copies stream `tool_call` args if execute() arrives
+empty.
+
 Do **not** put CLI bracket syntax into the model id
 (`gemini-3.8-flash[reasoning_effort=high]`). Cursor returns
 `invalid_argument: Cannot use this model`. Pass catalog ids plus a

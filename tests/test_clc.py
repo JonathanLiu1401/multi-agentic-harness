@@ -51,6 +51,23 @@ def test_pricing_covers_every_picker_id() -> None:
     _ok("GPT-5.4 mini is not GPT-5.5 rates", mini["input"] == 0.75 and mini["output"] == 4.5)
 
 
+def test_tool_schema_and_args() -> None:
+    from cursor_anthropic_gateway import extract_tool_schema, normalize_tool_args
+
+    empty = extract_tool_schema({"name": "Read"})
+    _ok("missing schema still allows extra properties", empty.get("additionalProperties") is True)
+    camel = extract_tool_schema({
+        "inputSchema": {"type": "object", "properties": {"file_path": {"type": "string"}}, "additionalProperties": False},
+    })
+    _ok("camelCase inputSchema kept", "file_path" in camel["properties"])
+    _ok("additionalProperties forced true", camel["additionalProperties"] is True)
+    parsed = extract_tool_schema({"input_schema": json.dumps({"type": "object", "properties": {"command": {"type": "string"}}})})
+    _ok("JSON string schema parsed", "command" in parsed["properties"])
+    _ok("MCP arguments envelope unwrapped", normalize_tool_args({"arguments": {"file_path": "C:/x"}}) == {"file_path": "C:/x"})
+    _ok("JSON string arguments unwrapped", normalize_tool_args({"arguments": '{"file_path":"C:/x"}'}) == {"file_path": "C:/x"})
+    _ok("plain dict kept", normalize_tool_args({"file_path": "C:/x"}) == {"file_path": "C:/x"})
+
+
 def test_anthropic_usage_mapping() -> None:
     mapped = anthropic_usage(
         SimpleNamespace(input_tokens=1200, output_tokens=80, cache_read_tokens=400, cache_write_tokens=50)
@@ -141,6 +158,7 @@ def main() -> int:
     skip_health = "--skip-health" in sys.argv
     print("clc e2e")
     test_pricing_covers_every_picker_id()
+    test_tool_schema_and_args()
     test_anthropic_usage_mapping()
     test_messages_still_404()
     test_me_and_list()
