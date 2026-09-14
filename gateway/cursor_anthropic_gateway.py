@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
 import json
 import os
 import queue
@@ -18,6 +19,7 @@ import threading
 import time
 import traceback
 import uuid
+from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -346,10 +348,14 @@ def args_from_tool_call(tool_call: Any) -> dict[str, Any]:
 
 
 def sanitize_tool_name(name: str) -> str:
+    """Cursor custom-tool keys are 64 chars. MCP names collide if we only slice."""
     out = re.sub(r"[^A-Za-z0-9_]", "_", name or "tool")
     if not out or out[0].isdigit():
         out = "t_" + out
-    return out[:64]
+    if len(out) <= 64:
+        return out
+    digest = hashlib.sha1(name.encode("utf-8")).hexdigest()[:8]
+    return out[:55] + "_" + digest
 
 
 def content_to_text(content: Any) -> str:
@@ -417,6 +423,7 @@ class Session:
         self.tool_map: dict[str, str] = {}  # sanitized -> original
         self.pending: dict[str, PendingTool] = {}
         self.events: queue.Queue[dict[str, Any]] = queue.Queue()
+        self.undrained: deque[dict[str, Any]] = deque()
         self.lock = threading.Lock()
         self.turn_lock = threading.Lock()
         self.run_in_flight = False
@@ -437,13 +444,22 @@ class Session:
         self.events.put(event)
 
     def clear_events(self) -> None:
+        with self.lock:
+            self.undrained.clear()
         while True:
             try:
                 self.events.get_nowait()
             except queue.Empty:
                 break
 
+    def undrain(self, event: dict[str, Any]) -> None:
+        with self.lock:
+            self.undrained.appendleft(event)
+
     def drain_timeout(self, timeout: float) -> dict[str, Any] | None:
+        with self.lock:
+            if self.undrained:
+                return self.undrained.popleft()
         try:
             return self.events.get(timeout=timeout)
         except queue.Empty:
@@ -682,6 +698,35 @@ class Gateway:
 GATEWAY: Gateway | None = None
 
 
+TOOL_BATCH_IDLE_S = 2.0
+TOOL_BATCH_MAX_S = 8.0
+
+
+def collect_tool_batch(sess: Session, first: PendingTool) -> list[PendingTool]:
+    """Wait for parallel Cursor execute() calls so one SSE carries the whole batch.
+
+    Claude Code processes one assistant message at a time. Returning after the
+    first tool_use deadlocks: later execute()s wait for tool_result POSTs that
+    will not come until this SSE ends.
+    """
+    tools = [first]
+    started = time.time()
+    idle_deadline = started + TOOL_BATCH_IDLE_S
+    hard = started + TOOL_BATCH_MAX_S
+    while time.time() < min(idle_deadline, hard):
+        extra = sess.drain_timeout(max(0.01, min(idle_deadline, hard) - time.time()))
+        if extra is None:
+            continue
+        if extra.get("kind") == "tool":
+            tools.append(extra["tool"])
+            idle_deadline = time.time() + TOOL_BATCH_IDLE_S
+            continue
+        sess.undrain(extra)
+        break
+    log(f"tool batch n={len(tools)} waited={time.time() - started:.2f}s")
+    return tools
+
+
 def sse(handler: BaseHTTPRequestHandler, event: str, data: dict[str, Any]) -> None:
     payload = json.dumps(data, ensure_ascii=False)
     chunk = f"event: {event}\ndata: {payload}\n\n".encode("utf-8")
@@ -749,7 +794,11 @@ def handle_messages(handler: BaseHTTPRequestHandler, body: dict[str, Any]) -> No
         return
 
     with sess.turn_lock:
-        sess.clear_events()
+        # tool_result POSTs must not drop sibling parallel tool events.
+        # Clearing here + a 0.15s batch window deadlocked clc for ~580s
+        # (TUI "Considering 9m", 26 tokens).
+        if not tool_results:
+            sess.clear_events()
         GATEWAY.ensure_agent(sess, model, tools, effort=effort)
         if tool_results:
             GATEWAY.fulfill_tools(sess, tool_results)
@@ -812,20 +861,7 @@ def collect_turn(sess: Session, model: str, msg_id: str) -> dict[str, Any]:
         if kind == "text":
             text_parts.append(str(ev.get("text") or ""))
         elif kind == "tool":
-            tools.append(ev["tool"])
-            t_end = time.time() + 0.15
-            while time.time() < t_end:
-                extra = sess.drain_timeout(max(0.01, t_end - time.time()))
-                if extra and extra.get("kind") == "tool":
-                    tools.append(extra["tool"])
-                elif extra and extra.get("kind") == "text":
-                    text_parts.append(str(extra.get("text") or ""))
-                elif extra and extra.get("kind") == "done":
-                    leftover = str(extra.get("text") or "")
-                    if leftover:
-                        text_parts.append(leftover)
-                    if isinstance(extra.get("usage"), dict):
-                        last_usage = extra["usage"]
+            tools = collect_tool_batch(sess, ev["tool"])
             break
         elif kind == "error":
             break
@@ -950,37 +986,7 @@ def stream_turn(
         elif kind == "tool":
             close_thinking()
             close_text()
-            tools = [ev["tool"]]
-            t_end = time.time() + 0.15
-            while time.time() < t_end:
-                extra = sess.drain_timeout(max(0.01, t_end - time.time()))
-                if extra is None:
-                    continue
-                if extra.get("kind") == "tool":
-                    tools.append(extra["tool"])
-                elif extra.get("kind") == "text":
-                    # late text before tools
-                    if not text_open:
-                        sse(
-                            handler,
-                            "content_block_start",
-                            {
-                                "type": "content_block_start",
-                                "index": index,
-                                "content_block": {"type": "text", "text": ""},
-                            },
-                        )
-                        text_open = True
-                    sse(
-                        handler,
-                        "content_block_delta",
-                        {
-                            "type": "content_block_delta",
-                            "index": index,
-                            "delta": {"type": "text_delta", "text": extra.get("text") or ""},
-                        },
-                    )
-                    close_text()
+            tools = collect_tool_batch(sess, ev["tool"])
             for tool in tools:
                 sse(
                     handler,

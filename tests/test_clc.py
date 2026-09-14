@@ -51,6 +51,21 @@ def test_pricing_covers_every_picker_id() -> None:
     _ok("GPT-5.4 mini is not GPT-5.5 rates", mini["input"] == 0.75 and mini["output"] == 4.5)
 
 
+def test_sanitize_mcp_names_unique() -> None:
+    from cursor_anthropic_gateway import sanitize_tool_name
+
+    names = [
+        "mcp__plugin_claude-manages-codex_agent-visibility__start_visible_grok_worker",
+        "mcp__plugin_claude-manages-codex_agent-visibility__start_visible_agy_worker",
+        "mcp__plugin_claude-manages-codex_agent-visibility__start_visible_cursor_worker",
+        "Read",
+    ]
+    out = [sanitize_tool_name(n) for n in names]
+    _ok("long MCP names stay unique", len(set(out)) == len(names), str(out))
+    _ok("sanitized names fit 64 chars", all(len(x) <= 64 for x in out))
+    _ok("Read unchanged", out[-1] == "Read")
+
+
 def test_tool_schema_and_args() -> None:
     from cursor_anthropic_gateway import extract_tool_schema, normalize_tool_args
 
@@ -158,6 +173,7 @@ def main() -> int:
     skip_health = "--skip-health" in sys.argv
     print("clc e2e")
     test_pricing_covers_every_picker_id()
+    test_sanitize_mcp_names_unique()
     test_tool_schema_and_args()
     test_anthropic_usage_mapping()
     test_messages_still_404()

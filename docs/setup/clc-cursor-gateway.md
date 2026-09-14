@@ -66,6 +66,13 @@ Verified 2026-09-13 on session `9803a912`. The translator now unwraps MCP
 `arguments` envelopes and copies stream `tool_call` args if execute() arrives
 empty.
 
+Parallel Cursor `execute()` calls must ship in **one** SSE. A 0.15s batch
+window plus `clear_events()` on the tool_result POST deadlocked the TUI for
+the 580s drain timeout ("Considering 9m", 26 tokens). Batch idle is 2s
+(max 8s). Do not clear the event queue on tool_result turns. MCP tool names
+longer than 64 chars get a hash suffix so `start_visible_grok_worker` and
+`start_visible_agy_worker` do not collapse to one custom tool.
+
 Do **not** put CLI bracket syntax into the model id
 (`gemini-3.8-flash[reasoning_effort=high]`). Cursor returns
 `invalid_argument: Cannot use this model`. Pass catalog ids plus a
