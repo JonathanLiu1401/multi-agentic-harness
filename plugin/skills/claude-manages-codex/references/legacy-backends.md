@@ -7,24 +7,21 @@ clg: native Agent `agy-gemini-3-8-flash`; grok via `start_visible_grok_worker`.
 clx and clg are not cross-compatible. This file is the per-backend mechanics
 for the visible-window paths.
 
-- **cursor-agent CLI** (explicit harness request, preferred visible path):
-  `cursor-agent -p --output-format stream-json --trust --approve-mcps --sandbox disabled
-  --workspace <cwd> --model cursor-grok-4.6-xhigh-fast`; tools
-  `start_visible_cursor_worker` / `start_visible_haiku_composed_cursor_worker` /
-  `start_visible_first_mate_cursor_pool` / `steer_visible_cursor_run`. Resume is
-  `--resume <session_id>`. Read-only maps to `--mode plan`. That mode emits a
-  plan unless the brief forces a finished-answer schema (numbered findings
-  with file:line and a concrete observed value). See SKILL.md Review Pass.
-- **grok-4.6 xhigh via grok CLI** (legacy path, kept for grok-CLI-only extras):
+- **grok-4.6 xhigh via grok CLI** (harness fan-out path as of 2026-09-14):
   `grok --prompt-file ... --output-format streaming-json -m grok-4.6 --reasoning-effort xhigh`; tools
   `start_visible_grok_worker` / `start_visible_haiku_composed_grok_worker` /
-  `start_visible_first_mate_grok_pool` / `steer_visible_grok_run`. Use when you
-  want **Parallel Competition Mode** (`competition_agents`, default 16 in-turn
-  competitors) and the **Mandatory Parallel Work-Checker** gate - those
-  injections are grok-CLI-only. Grok 4.6 xhigh fully supersedes grok 4.5.
-  xhigh is available in both grok Build CLI and cursor-agent CLI
-  (`cursor-grok-4.6-xhigh-fast` with Cursor Max Mode on — Grok 4.6 Extra High Fast · MAX). `~/.grok/config.toml`
-  already sets `default = "grok-4.6"` and `default_reasoning_effort = "xhigh"`.
+  `start_visible_first_mate_grok_pool` / `steer_visible_grok_run`. This is the
+  visible-window and parallel fan-out path for `/claude-manages-codex`. It is
+  also the path for **Parallel Competition Mode** (`competition_agents`, default
+  16 in-turn competitors) and the **Mandatory Parallel Work-Checker** gate.
+  Grok 4.6 xhigh fully supersedes grok 4.5. `~/.grok/config.toml` already sets
+  `default = "grok-4.6"` and `default_reasoning_effort = "xhigh"`.
+- **cursor-agent CLI** (EXHAUSTED 2026-09-14 - do not fan out):
+  tools `start_visible_cursor_worker` / `start_visible_haiku_composed_cursor_worker` /
+  `start_visible_first_mate_cursor_pool` / `steer_visible_cursor_run` remain in
+  the bridge for owner-named revival only. CLI present is not quota remaining.
+  Resume is `--resume <session_id>`. Read-only maps to `--mode plan`. See
+  SKILL.md Review Pass.
 - **Antigravity / Gemini 3.7 Flash (High)** (on request): Google `agy` CLI,
   plain-text `agy -p "..." --model "Gemini 3.7 Flash (High)"
   --dangerously-skip-permissions`; tools `start_visible_agy_worker` etc. Strong

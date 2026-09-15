@@ -8,7 +8,9 @@ Claude Code owns tools, skills, MCP, and permissions. Cursor owns
 inference. Do not Bash `cursor-agent` to do work; use this session's
 tools.
 
-When `/claude-manages-codex` is active, follow Subagent Locality for a
-clc captain: spawn Cursor-family workers via `start_visible_cursor_worker`
-or Cloud Agents via `start_cursor_cloud_agent`. Native `grok` /
-`agy-gemini-*` Agent types are not on this profile.
+When `/claude-manages-codex` is active, fan out to Grok workers via
+`start_visible_first_mate_grok_pool` or `start_visible_grok_worker`.
+cursor-agent usage is exhausted (2026-09-14): do **not** spawn
+`start_visible_cursor_worker` / `start_visible_first_mate_cursor_pool`.
+Cloud Agents (`start_cursor_cloud_agent`) only if the owner names them.
+Native `grok` / `agy-gemini-*` Agent types are not on this profile.

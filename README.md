@@ -51,7 +51,7 @@ When the user has NOT invoked `/claude-manages-codex` or requested the harness, 
 | **clx** (`~/.claude-clx`, Grok 500k) | `Agent` tool with `subagent_type: "grok"` | Agy: `start_visible_agy_worker`<br>Grok CLI extras: `start_visible_grok_worker`<br>Never switch to clg or cld. |
 | **clg** (`~/.claude-clg`, Gemini 1M) | `Agent` tool with `subagent_type: "agy-gemini-3-8-flash"` | Grok: `start_visible_grok_worker`<br>Agy CLI: `start_visible_agy_worker`<br>Never switch to clx or cld. |
 | **cld** (`~/.claude-cld`, DeepSeek 1M) | `Agent` tool with `subagent_type: "deepseek"` | Grok: `start_visible_grok_worker`<br>Agy: `start_visible_agy_worker`<br>Never switch to clx or clg. |
-| **clc** (`~/.claude-clc`, Cursor 1M via `127.0.0.1:8318`) | No native Agent types on this profile | Cursor workers: `start_visible_cursor_worker`. Cloud: `start_cursor_cloud_agent`. Never Agent `grok` / `agy-gemini-*` / `deepseek`. |
+| **clc** (`~/.claude-clc`, Cursor 1M via `127.0.0.1:8318`) | No native Agent types on this profile | Grok workers: `start_visible_grok_worker` / `start_visible_first_mate_grok_pool` (cursor-agent usage exhausted 2026-09-14). Cloud: `start_cursor_cloud_agent` only if the owner names Cloud Agents. Never Agent `grok` / `agy-gemini-*` / `deepseek`. |
 | **Cursor TUI** (`cursor-agent` without clc) | Native cursor-agent subagents (`cursor-grok-4.6-xhigh-fast`) | Never shell out to Claude or Grok from Cursor. |
 | **Grok Build CLI** (`grok`) | Native Grok subagents | Never shell out to Claude or Cursor. |
 
@@ -69,14 +69,14 @@ The Worker Bridge enables a division of labor: the manager model acts as executi
 - **Mandatory 10-Minute Supervision**: Includes `captain_checkup.py` and `supervise_command` timers ensuring long-running workers are audited for progress rather than simple process liveness.
 
 ### Supported Worker Backends
-1. **Cursor Agent (`cursor-agent`)**:
-   - Preferred visible worker when the harness is explicitly requested.
-   - Default model: `cursor-grok-4.6-xhigh-fast` with Cursor Max Mode enabled (1M context unlock).
-   - Driven by `cursor_worker_runner.py` with tools `start_visible_cursor_worker`, `start_visible_haiku_composed_cursor_worker`, `start_visible_first_mate_cursor_pool`, `steer_visible_cursor_run`.
-2. **Grok Build CLI (`grok`)**:
-   - Used for Grok-specific workflows, Parallel Competition Mode, and the Mandatory Parallel Work-Checker gate.
+1. **Grok Build CLI (`grok`)** (harness fan-out as of 2026-09-14):
+   - Visible-window and parallel fan-out path for `/claude-manages-codex` (`start_visible_first_mate_grok_pool` / `start_visible_grok_worker`).
+   - Also used for Parallel Competition Mode and the Mandatory Parallel Work-Checker gate.
    - Tools: `start_visible_grok_worker`, `start_visible_first_mate_grok_pool`, `steer_visible_grok_run`.
    - Supports `best_of_n` (parallel multi-candidate sampling) and `self_check`.
+2. **Cursor Agent (`cursor-agent`)** (EXHAUSTED 2026-09-14 - do not fan out):
+   - Tools remain in the bridge (`start_visible_cursor_worker`, `start_visible_haiku_composed_cursor_worker`, `start_visible_first_mate_cursor_pool`, `steer_visible_cursor_run`) for owner-named revival only.
+   - CLI present is not quota remaining. Default model was `cursor-grok-4.6-xhigh-fast`.
 3. **Google Antigravity (`agy`)**:
    - Drives the standalone `agy` CLI in a visible window using your Antigravity Google credentials and separate quota.
    - Tools: `start_visible_agy_worker`, `start_visible_haiku_composed_agy_worker`, `steer_visible_agy_run`.
