@@ -32,7 +32,8 @@ foreach ($v in @(
     "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY",
     "CLAUDE_CODE_EFFORT_LEVEL", "CLAUDE_CODE_MAX_OUTPUT_TOKENS",
     "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_SESSION_KIND",
-    "CLAUDE_CODE_HOST_SESSION_ID", "CLAUDE_CODE_BRIDGE_SESSION_ID")) {
+    "CLAUDE_CODE_HOST_SESSION_ID", "CLAUDE_CODE_BRIDGE_SESSION_ID",
+    "ENABLE_TOOL_SEARCH")) {
     Remove-Item -Path "Env:$v" -ErrorAction SilentlyContinue
 }
 
@@ -57,13 +58,10 @@ $env:CLAUDE_CODE_MAX_OUTPUT_TOKENS = "8192"
 $env:CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = "1"
 $env:CLAUDE_CODE_SKIP_FAST_MODE_ORG_CHECK = "1"
 $env:CLAUDE_CODE_SUBAGENT_MODEL = "~anthropic/claude-sonnet-latest[1m]"
-# Deferred/tool-search custom tools 400 on non-Anthropic OpenRouter slugs
-# ("Deferred custom tools are only supported on Anthropic models").
-# "false" is rejected ("expected auto:N"). auto:0 disables deferred tools so
-# non-Anthropic OpenRouter slugs (Union Alpha, GPT, ...) can run.
-# auto:N means "defer tools when the tool list exceeds N". auto:0 always
-# defers (TUI 400s Union Alpha). A large N keeps every tool in tools[].
-$env:ENABLE_TOOL_SEARCH = "auto:9999"
+# Do NOT set ENABLE_TOOL_SEARCH. A custom ANTHROPIC_BASE_URL already
+# disables optimistic tool-search ("not a first-party Anthropic host").
+# auto / auto:N / true re-enables deferral and 400s Union Alpha / GPT.
+$env:CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS = "1"
 
 if (-not (Test-Path $env:CLAUDE_CONFIG_DIR)) {
     New-Item -ItemType Directory -Path $env:CLAUDE_CONFIG_DIR | Out-Null

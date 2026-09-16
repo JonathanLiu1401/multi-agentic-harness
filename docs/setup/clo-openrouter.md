@@ -34,7 +34,7 @@ Official integration: [OpenRouter Claude Code docs](https://openrouter.ai/docs/g
 | `CLAUDE_CODE_MAX_CONTEXT_TOKENS` / `AUTO_COMPACT_WINDOW` | `1000000` | Process-wide 1M. |
 | `CLAUDE_CODE_EFFORT_LEVEL` | unset | So `/effort` maps. |
 | `CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY` | unset | Binary filters ids to `/^(claude\|anthropic)/i`; the picker is `settings.json`. |
-| `ENABLE_TOOL_SEARCH` | `auto:9999` | `"false"` is rejected (`expected auto:N`). `auto:N` defers when the tool list exceeds N. Print mode (`-p`) can run Union Alpha; the interactive TUI still 400s non-Anthropic slugs on deferred custom tools (Claude Code 2.1.273). |
+| `ENABLE_TOOL_SEARCH` | **unset** | A custom `ANTHROPIC_BASE_URL` already disables optimistic tool-search (`not a first-party Anthropic host`). Setting `true` / `auto` / `auto:N` turns deferral back on and 400s Union Alpha / GPT. |
 
 ## Key file
 
@@ -69,10 +69,11 @@ keeps the previous settings so `clo` still starts.
 
 OpenRouter's docs say the Anthropic skin is only guaranteed with Anthropic
 first-party. Direct `POST /api/v1/messages` works for GPT-5.6 Sol, but
-Claude Code 2.1.273 deferred custom tools 400 on non-Anthropic slugs
-(`Received openai/gpt-5.6-sol-20260709`). Default is therefore
-`~anthropic/claude-sonnet-latest[1m]`. GPT/Grok/Gemini/Kimi/GLM/Qwen stay
-in the picker; they will 400 until deferred tools can be turned off.
+Do not set `ENABLE_TOOL_SEARCH`. The custom base URL already disables
+optimistic tool-search. Verified 2026-09-16 in the real TUI: `clo --model
+stealth/union-alpha` answered `UNION_ALPHA_OK` in 11s with no 400. Default
+stays `~anthropic/claude-sonnet-latest[1m]`; `/model` can pick Union Alpha
+or any other catalog slug.
 
 ## Subagent locality
 

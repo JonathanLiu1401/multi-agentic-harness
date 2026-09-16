@@ -228,8 +228,8 @@ def _load_settings() -> dict:
         "skipDangerousModePermissionPrompt": True,
         "theme": "dark",
         "env": {
-            "ENABLE_TOOL_SEARCH": "auto:9999",
             "CLAUDE_CODE_MAX_OUTPUT_TOKENS": "8192",
+            "CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS": "1",
         },
     }
 
@@ -260,8 +260,9 @@ def apply(settings: dict, available: list[str], options: list[dict],
     env = settings.get("env")
     if not isinstance(env, dict):
         env = {}
-    env["ENABLE_TOOL_SEARCH"] = "auto:9999"
+    env.pop("ENABLE_TOOL_SEARCH", None)
     env.setdefault("CLAUDE_CODE_MAX_OUTPUT_TOKENS", "8192")
+    env["CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS"] = "1"
     settings["env"] = env
     return settings
 
