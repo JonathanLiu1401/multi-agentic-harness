@@ -63,6 +63,22 @@ if (-not (Test-Path $env:CLAUDE_CONFIG_DIR)) {
     New-Item -ItemType Directory -Path $env:CLAUDE_CONFIG_DIR | Out-Null
 }
 
+# Rebuild /model from the live OpenRouter catalog (all modalities).
+if (-not $env:CLO_SKIP_MODEL_REFRESH) {
+    $Refresh = @(
+        (Join-Path $HOME "github-tools\multi-agentic-harness\gateway\refresh_clo_models.py"),
+        (Join-Path $HOME ".cc-bridge\refresh_clo_models.py")
+    ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+    if ($Refresh) {
+        try {
+            $py = Get-Command py -ErrorAction SilentlyContinue
+            if ($py) { & py -3 $Refresh } else { & python $Refresh }
+        } catch {
+            Write-Host "clo: catalog refresh failed; using previous picker"
+        }
+    }
+}
+
 # Bypass permission prompts by default (matching clx/clg/cld posture).
 # An explicit permission flag on the command line still wins.
 if (($args -join ' ') -match '--permission-mode|--dangerously-skip-permissions') {

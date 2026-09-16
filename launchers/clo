@@ -60,6 +60,25 @@ export ENABLE_TOOL_SEARCH
 
 mkdir -p "$CLAUDE_CONFIG_DIR"
 
+# Rebuild /model from the live OpenRouter catalog (all modalities).
+if [ -z "$CLO_SKIP_MODEL_REFRESH" ]; then
+  REFRESH=""
+  if [ -f "$HOME/github-tools/multi-agentic-harness/gateway/refresh_clo_models.py" ]; then
+    REFRESH="$HOME/github-tools/multi-agentic-harness/gateway/refresh_clo_models.py"
+  elif [ -f "$HOME/.cc-bridge/refresh_clo_models.py" ]; then
+    REFRESH="$HOME/.cc-bridge/refresh_clo_models.py"
+  fi
+  if [ -n "$REFRESH" ]; then
+    if command -v py >/dev/null 2>&1; then
+      py -3 "$REFRESH" || true
+    elif command -v python3 >/dev/null 2>&1; then
+      python3 "$REFRESH" || true
+    elif command -v python >/dev/null 2>&1; then
+      python "$REFRESH" || true
+    fi
+  fi
+fi
+
 # Bypass permission prompts by default (matching clx/clg/cld posture).
 # An explicit permission flag on the command line still wins.
 case "$*" in

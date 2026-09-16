@@ -51,13 +51,21 @@ Verified 2026-09-16: `POST https://openrouter.ai/api/v1/messages` with this
 key returned `CLO_OK` for both `openai/gpt-5.6-sol` and
 `~anthropic/claude-sonnet-latest`.
 
-## Model picker
+## Model picker (live catalog)
 
-`templates/claude-clo/settings.json` ships a curated OpenRouter catalog
-(GPT 5.6 Sol/Terra/Luna, GPT 5.5/5.4/5.3-Codex, Anthropic latest aliases,
-Grok 4.6, Gemini 3.8 Flash, Kimi K3 / K2.7 Code, GLM 5.3, Qwen3.8 Max).
-`modelPricing.overrides` uses live OpenRouter rates (USD per million tokens)
-so `/cost` does not fall back to Opus list prices.
+Every `clo` launch runs `gateway/refresh_clo_models.py`, which GETs
+[`https://openrouter.ai/api/v1/models?output_modalities=all`](https://openrouter.ai/docs/guides/overview/models)
+and rewrites `~/.claude-clo/settings.json` `availableModels`, `modelPicker`,
+and `modelPricing`. The default `/api/v1/models` list is text-only and
+capped at 500; `output_modalities=all` is the full dashboard catalog
+(575+; 599 on 2026-09-16).
+
+Set `CLO_SKIP_MODEL_REFRESH=1` to reuse the last picker. A failed fetch
+keeps the previous settings so `clo` still starts.
+
+`[1m]` is appended when OpenRouter reports `context_length >= 1000000`.
+`behavesAs` maps Opus/Sonnet/Haiku/Fable families; everything else uses
+`claude-sonnet-5` client handling.
 
 OpenRouter's docs say the Anthropic skin is only guaranteed with Anthropic
 first-party. Direct `POST /api/v1/messages` works for GPT-5.6 Sol, but

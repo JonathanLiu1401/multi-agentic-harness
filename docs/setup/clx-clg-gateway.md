@@ -18,7 +18,7 @@ after judging the 2026-08 attempt as "trying to do too much".
 | `clx` | Grok | Grok 4.5 / 4.6 | `~/.claude-clx` | 500k | `CLIProxyAPI` |
 | `clg` | Gemini | Gemini 3.6/3.7/3.8 Flash, 3.1 Pro | `~/.claude-clg` | 1M | `CLIProxyAPI` |
 | `cld` | DeepSeek | DeepSeek V4.1 Flash, DeepSeek V4 Pro | `~/.claude-cld` | 1M | (direct) |
-| `clo` | OpenRouter | Anthropic Sonnet latest default, curated OpenRouter catalog | `~/.claude-clo` | 1M | (direct) |
+| `clo` | OpenRouter | Live OpenRouter catalog (all modalities; Sonnet latest default) | `~/.claude-clo` | 1M | (direct) |
 | `clc` | Cursor | Live Cursor catalog (Grok 4.6 Fast default, plus Fast rows) | `~/.claude-clc` | 1M (process-wide) | `CLCCursorGateway` |
 
 One gateway serves clx/clg: CLIProxyAPI v7.2.147 at `~/cliproxyapi/`, bound to

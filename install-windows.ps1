@@ -273,6 +273,14 @@ if (Test-Path $GatewaySrc) {
     Write-Host "Deployed gateway management scripts to $GatewayDir"
 }
 
+$CloRefreshSrc = Join-Path $Here "gateway\refresh_clo_models.py"
+$CloRefreshDst = Join-Path $UserHome ".cc-bridge\refresh_clo_models.py"
+if (Test-Path $CloRefreshSrc) {
+    New-Item -ItemType Directory -Force -Path (Join-Path $UserHome ".cc-bridge") | Out-Null
+    Copy-Item $CloRefreshSrc $CloRefreshDst -Force
+    Write-Host "Installed clo OpenRouter catalog refresher: $CloRefreshDst"
+}
+
 # Cursor translator (clc): hidden logon task on 127.0.0.1:8318
 $ClcAutostart = Join-Path $Here "gateway\install-clc-autostart.ps1"
 if (Test-Path $ClcAutostart) {
