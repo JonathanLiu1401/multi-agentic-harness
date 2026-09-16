@@ -85,7 +85,7 @@ Read "Which session am I in?" first. Do not call Codex tools. Same-family native
 | Priority | When | How to spawn | How to steer |
 | --- | --- | --- | --- |
 | **1 (MANDATORY on `/claude-manages-codex` or harness request)** | User invokes `/claude-manages-codex`, asks for multi-agentic harness, parallel review, or work-checker | `start_visible_first_mate_grok_pool` (for parallel fan-out/review/work-checker) or `start_visible_grok_worker` then arm `watch_command`. NEVER spawn native Claude `Agent` subagents! | `steer_visible_grok_run` |
-| **2b (on explicit request)** | The owner asks for grok agents / grok workers (including to edit, implement, or fix), or wants grok CLI extras (Parallel Competition Mode / Work-Checker / `best_of_n`) | `start_visible_grok_worker` (or the Haiku-composed variant; `start_visible_first_mate_grok_pool` for fan-out) then arm `watch_command`. If they asked grok to edit, pass `sandbox="workspace-write"` (or `danger-full-access`); do not leave the `read-only` default | `steer_visible_grok_run` |
+| **2b (on explicit request)** | The owner asks for grok agents / grok workers (including to edit, implement, or fix), or wants grok CLI extras (Parallel Competition Mode / Work-Checker) | `start_visible_grok_worker` (or the Haiku-composed variant; `start_visible_first_mate_grok_pool` for fan-out) then arm `watch_command`. If they asked grok to edit, pass `sandbox="workspace-write"` (or `danger-full-access`); do not leave the `read-only` default | `steer_visible_grok_run` |
 | **2 (visible windows; cursor EXHAUSTED)** | The user asks for visible terminal windows | `start_visible_first_mate_grok_pool` / `start_visible_grok_worker` then arm `watch_command`. **Do not** use `start_visible_cursor_worker` / `start_visible_first_mate_cursor_pool`: cursor-agent usage is exhausted (owner 2026-09-14). If the owner names cursor anyway, warn it will likely fail. Cloud Agents (`start_cursor_cloud_agent`) only if they name Cloud Agents | `steer_visible_grok_run` (default) / `steer_visible_cursor_run` only if owner overrode |
 | **2c (on explicit request)** | Grok is capped/exhausted or the owner asks for agy/Gemini | `start_visible_agy_worker` / `start_visible_haiku_composed_agy_worker` | `steer_visible_agy_run` |
 | **3 (secondary)** | Long-running run-dir protocol or explicit headless multi-turn with no window | `start_claude_worker(...)` then arm `watch_command` | `steer_claude_run` |
@@ -116,6 +116,7 @@ The user invoking `/claude-manages-codex` **IS** the explicit instruction to use
 - Passing `model="grok-4.6"` (or any other non-Anthropic model id) to `start_claude_worker`. That tool reaches `api.anthropic.com` only. Provider models are reached by the `clx` / `clg` launchers and their native subagents instead, not by this tool.
 - Ending a turn on a visible run without arming its `watch_command` and, for any run that may last more than a few minutes, its `supervise_command`.
 - Treating Bash `which cursor-agent` / `command -v cursor-agent` as "not installed" on Windows. Git Bash does not resolve `cursor-agent.cmd`. The CLI lives at `%LOCALAPPDATA%\cursor-agent`. Call `check_worker_backends` and read `cursor_agent`. Do not tell the owner it is missing from a PATH check.
+- **Passing a grok CLI flag this document claims exists without checking `grok --help`.** A run that reaches `status: "failed:2"` within a second or two, with an auto-report saying "grok turn failed before producing a text answer", is almost never a task failure. Read `events.jsonl` FIRST: it is usually one line of `error: unexpected argument`. Do not rewrite the brief, do not lower the effort, do not conclude the task is too hard. Verify a relaunch actually took, by checking `events.jsonl` is growing, before reporting the fleet as healthy.
 - Conflating cursor-agent with grok. `start_visible_grok_worker` uses `~/.grok/bin/grok.exe` and does not need cursor-agent. A cursor-agent miss (even a real one) is not a reason to skip grok.
 
 Parallel fan-out: launch every independent visible worker first (or use the first-mate pool), before reading any result. Do not serial-spawn.
@@ -159,7 +160,7 @@ Unless the owner says otherwise:
 2. **Parallel fan-out under `/claude-manages-codex`** -> `start_visible_first_mate_grok_pool` (coordinates an ensemble of Grok workers without burning Claude tokens).
 3. **Routine unprompted internal delegation where user NEVER invoked `/claude-manages-codex`** -> `Agent` tool with a built-in `subagent_type` (`general-purpose`, `Explore`, `Plan`, `claude`).
 4. **User explicitly asks for cursor-agent / Cursor workers** -> tell them cursor-agent usage is exhausted (2026-09-14) and fan out to Grok (`start_visible_first_mate_grok_pool` / `start_visible_grok_worker`) instead. Do not call `start_visible_cursor_worker` / `start_visible_first_mate_cursor_pool`. Only if they insist after that warning may you try cursor, and expect it to fail.
-5. **Owner asks for grok agents / grok workers (including to edit/implement), or wants grok-CLI extras (Competition Mode / Work-Checker / `best_of_n`)** -> `start_visible_grok_worker`. If they asked grok to edit, use a write sandbox; do not substitute Claude subagents.
+5. **Owner asks for grok agents / grok workers (including to edit/implement), or wants grok-CLI extras (Competition Mode / Work-Checker)** -> `start_visible_grok_worker`. If they asked grok to edit, use a write sandbox; do not substitute Claude subagents.
 6. **Grok exhausted or the owner asks for agy** -> `start_visible_agy_worker`.
 7. **Windowless run-dir work** -> `start_claude_worker(...)` (secondary).
 8. **Codex** -> never. Native `grok` only from clx. Native `agy-gemini-3-8-flash` only from clg. Never the other profile's type. Never native grok/agy from plain Claude (use the visible CLI terminals).
@@ -193,15 +194,25 @@ There is no separate `heavy` CLI flag or model id - SuperGrok Heavy (owner is ti
 
 - **Native subagents are ENABLED by default** on every grok worker (the bridge never passes `--no-subagents`), so a single `start_visible_grok_worker` can already spawn parallel child agents ("uses agents efficiently") when the task warrants it.
 - **`start_visible_first_mate_grok_pool`** is the explicit fan-out path - a grok root that coordinates native subagents, the grok analog of the first-mate pool.
-- **`best_of_n` param** (wired 2026-07-15) on `start_visible_grok_worker` / `start_visible_haiku_composed_grok_worker`: pass `best_of_n=N` (capped 1-6) to run the initial task N ways in parallel and keep the best (`--best-of-n`, initial turn only). The concrete Heavy-tier quality lever - but it costs roughly N times the tokens, so reserve it for hard, high-value tasks.
-- **`self_check` param** (wired 2026-07-15): pass `self_check=True` to append grok's own self-verification loop (`--check`) to the initial turn - a cheap quality boost on top of Claude's review.
+- **`best_of_n` and `self_check` ARE BROKEN on grok 1.0.30. Never pass either one.** (verified 2026-09-16 against grok 1.0.30, `04b7ffed98c6`, stable.) The bridge forwards them as `--best-of-n` and `--check`; this CLI has neither, so clap exits 2 **before the worker reads its prompt**:
+
+```
+error: unexpected argument '--best-of-n' found
+Usage: grok --prompt-file <PATH> --output-format <OUTPUT_FORMAT> --cwd <CWD> --permission-mode <MODE> --model <MODEL> --reasoning-effort <EFFORT> [PROMPT]
+```
+
+  The run lands in `status: "failed:2"` with an auto-report reading "grok turn failed before producing a text answer". Nothing is written and no work is lost, which is exactly what makes it dangerous in a parallel fan-out: the fleet silently comes back one worker short while every sibling looks healthy.
+
+  Since 2026-09-16 the bridge probes `grok --help` and DROPS any flag the installed CLI does not advertise, printing `[warn] this grok build does not support: ...` in the window, so a stale flag degrades the run instead of killing it. Do not rely on that to be sloppy: check `grok --help` before trusting any flag named in this document.
+
+  The quality levers that DO work: **`reasoning_effort`** (a real CLI flag) and **`competition_agents`** (a prompt capability, never a flag, so it cannot fail this way).
 - **`[subagents]` config** in `~/.grok/config.toml` (per-agent model pins, roles, personas) is a further lever tuned outside the bridge.
 
 ### Strict read-only enforcement (grok)
 
 For a grok worker launched with `sandbox="read-only"`, the bridge now **enforces** no-edit by passing `--disallowed-tools Write,Edit` so Grok's file-mutation tools are removed - it truly cannot edit, not merely asked not to (borrowed from faeton/claude-grok-plugin). Bash is intentionally kept so read-only inspection (Python-backed skills, read-past-sessions, safe read commands) still works - the bridge's read-only means "no edits", not "no commands". Use `read-only` for scouting / second-opinion / review workers; use `workspace-write` or full access when the worker must edit.
 
-*(These three - read-only enforcement, `best_of_n`, `self_check` - were adopted 2026-07-15 after surveying existing grok↔Claude Code plugins; the multimodal / xAI-API-key / older-model-tier features from those plugins were intentionally not adopted, since this harness runs the newer grok-4.6 via the SuperGrok Heavy OAuth CLI.)*
+*(Read-only enforcement was adopted 2026-07-15 after surveying existing grok↔Claude Code plugins; the multimodal / xAI-API-key / older-model-tier features from those plugins were intentionally not adopted, since this harness runs the newer grok-4.6 via the SuperGrok Heavy OAuth CLI.)*
 
 ### grok-4.6 rigor and mandatory adversarial review (owner assessment 2026-07-15)
 
@@ -213,10 +224,10 @@ For a grok worker launched with `sandbox="read-only"`, the bridge now **enforces
   - Independently VERIFY end to end yourself - run the tests / CLI / endpoint / repro, read the real output. Grok's own "I tested it" is not sufficient evidence; grok's self-check (`--check`) is weak self-marking, not proof.
   - Hunt the cases grok most likely skipped: the edge/empty/null/boundary inputs, the error branch, concurrency, the opposite of the happy path, and the scenario it fixated away from.
   - Check for tunnel vision: did it fix the reported symptom while missing the root cause or breaking an adjacent case?
-  - If it drifted, fixated, or reported success without executed proof, reject and re-steer with the specific missing case - or escalate: raise `reasoning_effort`, set `self_check=True`, or use `best_of_n=2-3` so grok generates and self-selects among multiple attempts on hard tasks.
+  - If it drifted, fixated, or reported success without executed proof, reject and re-steer with the specific missing case - or escalate by raising `reasoning_effort`, or by splitting the task across several workers and judging their results yourself. Do NOT reach for `self_check` or `best_of_n`: they are dead on grok 1.0.30 (see above).
   - Only report a grok result to the user as done after YOU have executed the acceptance test and seen it pass. This is not optional for grok - it is the primary defense against its weaknesses.
 
-For non-trivial or correctness-sensitive grok work, prefer `best_of_n` (multiple scenarios) and `self_check=True` (its own verify pass) on top of your adversarial review - but they supplement, never replace, the captain's independent e2e verification.
+For non-trivial or correctness-sensitive grok work, lean on `competition_agents` and the mandatory parallel work-checker, on top of your adversarial review - but they supplement, never replace, the captain's independent e2e verification.
 
 ### Parallel Competition Mode (grok-4.6, up to 16 in-turn competitors)
 
@@ -225,7 +236,7 @@ grok usage is abundant and resets often, so lean on parallelism to compensate fo
 - It is judgment-gated: the contract tells grok to compete only when the task is hard enough to benefit and to solve simple/mechanical tasks directly, so it does not fan out 16 agents to reply with a token.
 - Set `competition_agents=1` to disable competition for a run (e.g. trivial or strictly-sequential tasks); set 2-16 to cap the competitor count.
 - It composes with the rest: competitors still obey the Rigor Contract (run + prove), and the Opus captain STILL independently e2e-verifies the compiled result - a grok-run competition that picks a winner is not a substitute for the captain's own verification.
-- `competition_agents` is a prompt capability, not a CLI flag; it stacks with `best_of_n` (a CLI-level N-way retry) but the two overlap, so prefer one lever at a time unless a task is genuinely huge.
+- `competition_agents` is a prompt capability, not a CLI flag, which is exactly why it still works when `best_of_n` does not. It is the only in-turn parallelism lever available on grok 1.0.30.
 
 ### Mandatory parallel work-checker (grok, every run)
 
@@ -519,7 +530,7 @@ Layer 2 callback: `~/.cursor/mcp.json` `mcpServers.agent-visibility` points at t
 
 ## Grok Worker Backend (added 2026-07-14; harness fan-out path as of 2026-09-14)
 
-**Grok Build CLI terminal. This is the harness fan-out path** (replaces cursor-agent fan-out; cursor usage exhausted 2026-09-14). grok-4.6 in a visible PowerShell window is the grok path for a **plain Claude** captain, a **clg** captain, a **clc** captain, and for `/claude-manages-codex` parallel fan-out via `start_visible_first_mate_grok_pool`. A **clx** captain uses native Agent `grok` for ordinary same-family work, but still uses these visible grok tools when `/claude-manages-codex` is invoked. Also use this path when the owner wants Parallel Competition Mode / Work-Checker / `best_of_n`. See Mandatory Spawn Path. Codex remains disabled. cursor-agent remains exhausted.
+**Grok Build CLI terminal. This is the harness fan-out path** (replaces cursor-agent fan-out; cursor usage exhausted 2026-09-14). grok-4.6 in a visible PowerShell window is the grok path for a **plain Claude** captain, a **clg** captain, a **clc** captain, and for `/claude-manages-codex` parallel fan-out via `start_visible_first_mate_grok_pool`. A **clx** captain uses native Agent `grok` for ordinary same-family work, but still uses these visible grok tools when `/claude-manages-codex` is invoked. Also use this path when the owner wants Parallel Competition Mode or the Work-Checker gate. See Mandatory Spawn Path. Codex remains disabled. cursor-agent remains exhausted.
 
 The server exposes:
 

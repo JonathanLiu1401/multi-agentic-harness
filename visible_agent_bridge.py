@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import atexit
 import datetime as _dt
+import functools
 import json
 import os
 import re
@@ -3011,21 +3012,91 @@ def _grok_read_only_args(sandbox: str) -> list[str]:
     return []
 
 
-def _grok_initial_extra_args(best_of_n: int, self_check: bool) -> list[str]:
-    """Headless-only Grok flags applied to the initial task turn only:
-    --best-of-n N (run the task N ways in parallel and keep the best; leverages
-    SuperGrok Heavy, costs ~Nx tokens; capped 1..6) and --check (append Grok's
-    self-verification loop). Not applied to resume/steer turns."""
-    args: list[str] = []
+@functools.lru_cache(maxsize=1)
+def _grok_supported_long_flags() -> frozenset[str] | None:
+    """Long options the INSTALLED grok CLI accepts, or None if unknowable.
+
+    These flags are not stable across grok releases. ``--best-of-n`` and
+    ``--check`` were both real once and are both gone in grok 1.0.30, and an
+    unknown flag is not tolerated: clap exits 2 before the worker ever reads
+    its prompt, so the run dies in under a second with
+
+        error: unexpected argument '--best-of-n' found
+
+    and an auto-report reading "grok turn failed before producing a text
+    answer". The tree is untouched and no work is lost, which is exactly what
+    makes it dangerous in a parallel fan-out: the fleet silently comes back one
+    worker short while every sibling looks healthy.
+
+    So ask the binary rather than trusting a constant. None means the probe
+    itself failed (missing binary, timeout), and the caller then keeps its
+    flags rather than dropping them on a guess.
+    """
+
+    try:
+        proc = subprocess.run(
+            [str(GROK), "--help"],
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    text = f"{proc.stdout or ''}\n{proc.stderr or ''}"
+    if not text.strip():
+        return None
+    found = set(re.findall(r"(--[A-Za-z0-9][A-Za-z0-9-]*)", text))
+    return frozenset(found) or None
+
+
+def _grok_initial_extra_args(
+    best_of_n: int, self_check: bool
+) -> tuple[list[str], list[str]]:
+    """(args, dropped) for the initial task turn only, never resume/steer.
+
+    ``--best-of-n N`` runs the task N ways and keeps the best; ``--check``
+    appends grok's self-verification loop. Both are absent from grok 1.0.30.
+    Anything the installed CLI does not advertise is dropped and named in
+    ``dropped`` so the runner can say so in the window, because a silently
+    ignored quality lever is its own kind of lie.
+    """
+
+    wanted: list[str] = []
     try:
         n = max(1, min(int(best_of_n or 1), 6))
     except (TypeError, ValueError):
         n = 1
     if n > 1:
-        args += ["--best-of-n", str(n)]
+        wanted += ["--best-of-n", str(n)]
     if self_check:
-        args.append("--check")
-    return args
+        wanted.append("--check")
+    if not wanted:
+        return [], []
+
+    supported = _grok_supported_long_flags()
+    if supported is None:
+        # Could not read --help. Passing the flags risks a failed launch;
+        # dropping them silently degrades the run. Prefer the launch.
+        return [], [flag for flag in wanted if flag.startswith("--")]
+
+    args: list[str] = []
+    dropped: list[str] = []
+    index = 0
+    while index < len(wanted):
+        flag = wanted[index]
+        value = (
+            wanted[index + 1]
+            if index + 1 < len(wanted) and not wanted[index + 1].startswith("--")
+            else None
+        )
+        if flag in supported:
+            args.append(flag)
+            if value is not None:
+                args.append(value)
+        else:
+            dropped.append(flag)
+        index += 2 if value is not None else 1
+    return args, dropped
 
 
 def _grok_runner(
@@ -3046,8 +3117,15 @@ def _grok_runner(
     effort_flag_ps = ",".join(_ps(part) for part in effort_flag) if effort_flag else ""
     read_only_args = _grok_read_only_args(sandbox)
     read_only_ps = ",".join(_ps(part) for part in read_only_args) if read_only_args else ""
-    initial_extra = _grok_initial_extra_args(best_of_n, self_check)
+    initial_extra, dropped_extra = _grok_initial_extra_args(best_of_n, self_check)
     initial_extra_ps = ",".join(_ps(part) for part in initial_extra) if initial_extra else ""
+    # Say it out loud in the window. A quality lever that was asked for and
+    # silently discarded would otherwise look like it ran.
+    dropped_ps = (
+        f"Write-Host {_ps('[warn] this grok build does not support: ' + ' '.join(dropped_extra) + ' - dropped so the run can start')}"
+        if dropped_extra
+        else ""
+    )
     return f"""
 $ErrorActionPreference = 'Continue'
 $RunDir = {_ps(run_dir)}
@@ -3076,6 +3154,7 @@ $SteerIdleSeconds = {max(0, min(int(steer_idle_seconds), 300))}
 $EffortArgs = @({effort_flag_ps})
 $ReadOnlyArgs = @({read_only_ps})
 $InitialExtraArgs = @({initial_extra_ps})
+{dropped_ps}
 # Force UTF-8 so Grok's UTF-8 stdout/stdin is decoded correctly (mirrors the Codex runner).
 $OutputEncoding = New-Object System.Text.UTF8Encoding $false
 [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false
