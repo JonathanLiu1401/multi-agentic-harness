@@ -185,6 +185,7 @@ paths = [
     os.path.expanduser("~/.claude-clx/.claude.json"),
     os.path.expanduser("~/.claude-cld/.claude.json"),
     os.path.expanduser("~/.claude-clo/.claude.json"),
+    os.path.expanduser("~/.claude-clc/.claude.json"),
     os.path.expanduser("~/.claude.json")
 ]
 
@@ -218,6 +219,16 @@ for p in paths:
         cache.update(model_costs)
     else:
         d["additionalModelCostsCache"] = model_costs
+
+    mcps = d.setdefault("mcpServers", {})
+    if isinstance(mcps, dict) and "agent-visibility" not in mcps:
+        bridge_py = os.path.expanduser("~/.agent-bridge/visible_agent_bridge.py")
+        mcps["agent-visibility"] = {
+            "type": "stdio",
+            "command": sys.executable,
+            "args": [bridge_py],
+            "env": {}
+        }
 
     tmp = f"{p}.tmp.{os.getpid()}"
     try:

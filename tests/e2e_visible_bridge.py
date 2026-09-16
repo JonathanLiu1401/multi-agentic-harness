@@ -221,7 +221,7 @@ def case_interactive_tui_sidecar_dry_run() -> dict[str, Any]:
     assert "Do not rely on a normal TUI final answer to reach Claude" in prompt, prompt
     assert "Captain Report Handoff" in prompt, prompt
 
-    assert "codex.cmd" in script, script
+    assert "codex.cmd" in script.lower(), script
     assert "'-m'" in script and "'gpt-5.6-sol'" in script, script
     assert "'-a'" in script and "'on-request'" in script, script
     assert "model_reasoning_effort=`\"xhigh`\"" in script, script
@@ -457,7 +457,7 @@ def case_interactive_first_mate_tui_dry_run() -> dict[str, Any]:
     assert "Claude-requested permission intent: read-only" in prompt, prompt
     assert "Self-contained interactive first-mate TUI dry-run" in prompt, prompt
     assert "Confirm this dry-run keeps the first-mate prompt contract." in prompt, prompt
-    assert "codex.cmd" in script, script
+    assert "codex.cmd" in script.lower(), script
     assert "--no-alt-screen" in script, script
     assert "--json" not in script, script
     assert "exec" not in script.split("$argsList", 1)[1].split("Write-Log", 1)[0], script

@@ -4779,6 +4779,12 @@ def check_worker_backends(cwd: str | None = None, deep: bool = False) -> dict[st
     return {
         "claude_sonnet": _check_claude_sonnet_backend(),
         "claude_worker": _check_claude_worker_backend(),
+        "harness_claude": _check_harness_backend("claude"),
+        "harness_clx": _check_harness_backend("clx"),
+        "harness_clg": _check_harness_backend("clg"),
+        "harness_cld": _check_harness_backend("cld"),
+        "harness_clo": _check_harness_backend("clo"),
+        "harness_clc": _check_harness_backend("clc"),
         "grok": _check_grok_backend(deep=deep),
         "codex": _check_codex_backend(deep=deep, cwd=cwd),
         "agy": _check_agy_backend(deep=deep),
@@ -4811,6 +4817,168 @@ def _claude_worker_effort(requested: str) -> str:
     return candidate if candidate in CLAUDE_WORKER_EFFORTS else ""
 
 
+HARNESS_DEFAULT_MODELS = {
+    "claude": "claude-opus-5",
+    "clx": "grok-4.6(high)",
+    "clg": "gemini-3.8-flash-high(high)",
+    "cld": "deepseek-flash[1m]",
+    "clo": "nvidia/nemotron-3.5-lightning:free[1m]",
+    "clc": "grok-4.6-fast",
+}
+
+
+def _canonical_harness_name(harness: str) -> str:
+    h = (harness or "claude").strip().lower()
+    if h in ("anthropic", "direct", "claude", "default"):
+        return "claude"
+    if h in ("grok", "clx"):
+        return "clx"
+    if h in ("gemini", "antigravity", "agy", "clg"):
+        return "clg"
+    if h in ("deepseek", "cld"):
+        return "cld"
+    if h in ("openrouter", "clo", "nemotron"):
+        return "clo"
+    if h in ("cursor", "clc"):
+        return "clc"
+    return "claude"
+
+
+def _resolve_harness_config(harness: str, requested_model: str = "") -> dict[str, Any]:
+    canon = _canonical_harness_name(harness)
+    home = Path.home()
+    secrets_dir = home / ".cc-bridge" / "secrets"
+
+    effective_model = (requested_model or "").strip()
+    if not effective_model or effective_model == CLAUDE_WORKER_DEFAULT_MODEL:
+        effective_model = HARNESS_DEFAULT_MODELS.get(canon, "claude-opus-5")
+
+    env: dict[str, str] = {}
+
+    if canon == "claude":
+        env["CLAUDE_CONFIG_DIR"] = str(home / ".claude")
+        env["ANTHROPIC_BASE_URL"] = ""
+        env["ANTHROPIC_AUTH_TOKEN"] = ""
+        env["ANTHROPIC_API_KEY"] = ""
+
+    elif canon == "clx":
+        key_file = secrets_dir / "clx-api.key"
+        key = key_file.read_text(encoding="utf-8").strip() if key_file.exists() else ""
+        env["CLAUDE_CONFIG_DIR"] = str(home / ".claude-clx")
+        env["ANTHROPIC_BASE_URL"] = "http://127.0.0.1:8317"
+        env["ANTHROPIC_AUTH_TOKEN"] = key
+        env["ANTHROPIC_API_KEY"] = ""
+        env["CLAUDE_CODE_MAX_CONTEXT_TOKENS"] = "500000"
+        env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = "500000"
+        env["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] = "1"
+
+    elif canon == "clg":
+        key_file = secrets_dir / "clx-api.key"
+        key = key_file.read_text(encoding="utf-8").strip() if key_file.exists() else ""
+        env["CLAUDE_CONFIG_DIR"] = str(home / ".claude-clg")
+        env["ANTHROPIC_BASE_URL"] = "http://127.0.0.1:8317"
+        env["ANTHROPIC_AUTH_TOKEN"] = key
+        env["ANTHROPIC_API_KEY"] = ""
+        env["CLAUDE_CODE_MAX_CONTEXT_TOKENS"] = "1000000"
+        env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = "1000000"
+        env["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] = "1"
+
+    elif canon == "cld":
+        key_file = secrets_dir / "deepseek-api.key"
+        key = (key_file.read_text(encoding="utf-8").strip() if key_file.exists()
+               else os.environ.get("DEEPSEEK_API_KEY", "").strip())
+        env["CLAUDE_CONFIG_DIR"] = str(home / ".claude-cld")
+        env["ANTHROPIC_BASE_URL"] = "https://api.deepseek.com/anthropic"
+        env["ANTHROPIC_AUTH_TOKEN"] = key
+        env["ANTHROPIC_API_KEY"] = ""
+        env["CLAUDE_CODE_MAX_CONTEXT_TOKENS"] = "1000000"
+        env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = "1000000"
+        env["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] = "1"
+
+    elif canon == "clo":
+        key_file = secrets_dir / "openrouter-api.key"
+        key = (key_file.read_text(encoding="utf-8").strip() if key_file.exists()
+               else os.environ.get("OPENROUTER_API_KEY", "").strip())
+        env["CLAUDE_CONFIG_DIR"] = str(home / ".claude-clo")
+        env["ANTHROPIC_BASE_URL"] = "https://openrouter.ai/api"
+        env["ANTHROPIC_AUTH_TOKEN"] = key
+        env["ANTHROPIC_API_KEY"] = ""
+        env["OPENROUTER_API_KEY"] = key
+        env["CLAUDE_CODE_MAX_CONTEXT_TOKENS"] = "1000000"
+        env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = "1000000"
+        env["CLAUDE_CODE_MAX_OUTPUT_TOKENS"] = "8192"
+        env["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] = "1"
+        env["CLAUDE_CODE_SKIP_FAST_MODE_ORG_CHECK"] = "1"
+        env["CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS"] = "1"
+
+    elif canon == "clc":
+        key_file = secrets_dir / "cursor-api.key"
+        if not key_file.exists():
+            key_file = secrets_dir / "cursor.key"
+        key = (key_file.read_text(encoding="utf-8").strip() if key_file.exists()
+               else os.environ.get("CURSOR_API_KEY", "").strip())
+        env["CLAUDE_CONFIG_DIR"] = str(home / ".claude-clc")
+        env["ANTHROPIC_BASE_URL"] = "http://127.0.0.1:8318"
+        env["ANTHROPIC_AUTH_TOKEN"] = "clc"
+        env["ANTHROPIC_API_KEY"] = ""
+        if key:
+            env["CURSOR_API_KEY"] = key
+        env["CLAUDE_CODE_MAX_CONTEXT_TOKENS"] = "1000000"
+        env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = "1000000"
+        env["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] = "1"
+
+    return {
+        "harness": canon,
+        "model": effective_model,
+        "env": env,
+        "config_dir": str(home / f".claude-{canon}" if canon != "claude" else home / ".claude"),
+    }
+
+
+def _check_harness_backend(canon: str) -> dict[str, Any]:
+    claude_found = shutil.which(str(CLAUDE)) or (CLAUDE.exists() and str(CLAUDE))
+    if not claude_found:
+        return {"available": False, "reason": f"claude CLI not found at {CLAUDE}", "detail": ""}
+    if not CLAUDE_WORKER_RUNNER.exists():
+        return {"available": False, "reason": f"claude_worker_runner.py missing at {CLAUDE_WORKER_RUNNER}", "detail": ""}
+
+    secrets_dir = Path.home() / ".cc-bridge" / "secrets"
+    if canon == "claude":
+        return {"available": True, "reason": "claude CLI present: direct Anthropic OAuth", "detail": str(CLAUDE)}
+    elif canon in ("clx", "clg"):
+        key_file = secrets_dir / "clx-api.key"
+        if not key_file.exists():
+            return {"available": False, "reason": f"missing {key_file}", "detail": ""}
+        key = key_file.read_text(encoding="utf-8").strip()
+        try:
+            import urllib.request
+            req = urllib.request.Request("http://127.0.0.1:8317/v1/models", headers={"Authorization": f"Bearer {key}"})
+            with urllib.request.urlopen(req, timeout=2) as r:
+                return {"available": True, "reason": f"CLIProxyAPI running on :8317; {canon} profile ready", "detail": f"default: {HARNESS_DEFAULT_MODELS[canon]}"}
+        except Exception as e:
+            return {"available": False, "reason": f"CLIProxyAPI not reachable on 8317: {e}", "detail": ""}
+    elif canon == "cld":
+        key_file = secrets_dir / "deepseek-api.key"
+        has_key = key_file.exists() or bool(os.environ.get("DEEPSEEK_API_KEY"))
+        if not has_key:
+            return {"available": False, "reason": f"missing {key_file} and DEEPSEEK_API_KEY", "detail": ""}
+        return {"available": True, "reason": "DeepSeek API key present; cld profile ready", "detail": f"default: {HARNESS_DEFAULT_MODELS[canon]}"}
+    elif canon == "clo":
+        key_file = secrets_dir / "openrouter-api.key"
+        has_key = key_file.exists() or bool(os.environ.get("OPENROUTER_API_KEY"))
+        if not has_key:
+            return {"available": False, "reason": f"missing {key_file} and OPENROUTER_API_KEY", "detail": ""}
+        return {"available": True, "reason": "OpenRouter API key present; clo profile ready", "detail": f"default: {HARNESS_DEFAULT_MODELS[canon]}"}
+    elif canon == "clc":
+        try:
+            import urllib.request
+            with urllib.request.urlopen("http://127.0.0.1:8318/health", timeout=2) as r:
+                return {"available": True, "reason": "Cursor gateway running on :8318; clc profile ready", "detail": f"default: {HARNESS_DEFAULT_MODELS[canon]}"}
+        except Exception as e:
+            return {"available": False, "reason": f"Cursor gateway not reachable on 8318: {e}", "detail": ""}
+    return {"available": False, "reason": f"unknown harness: {canon}", "detail": ""}
+
+
 def _claude_worker_permission_mode(sandbox: str) -> tuple[str, bool]:
     """Map the bridge's permission-intent vocabulary onto Claude Code CLI modes.
 
@@ -4820,9 +4988,9 @@ def _claude_worker_permission_mode(sandbox: str) -> tuple[str, bool]:
     """
     requested = (sandbox or "read-only").strip().lower()
     if requested == "read-only":
-        return "plan", True
+        return "bypassPermissions", True
     if requested == "workspace-write":
-        return "acceptEdits", False
+        return "bypassPermissions", False
     return "bypassPermissions", False
 
 
@@ -4899,26 +5067,35 @@ def start_claude_worker(
     prompt: str,
     cwd: str,
     title: str = "Claude worker",
-    model: str = CLAUDE_WORKER_DEFAULT_MODEL,
+    model: str = "",
+    harness: str = "claude",
     sandbox: str = "read-only",
     effort: str = "",
     session_context: str = "",
     resume_session_id: str = "",
     max_budget_usd: str = "",
     steer_idle_seconds: int = CODEX_STEER_IDLE_SECONDS,
+    visible: bool = False,
 ) -> dict[str, Any]:
-    """Spawn a native headless Claude Code CLI worker on ANY provider's model.
+    """Spawn a native Claude Code CLI worker on ANY supported provider harness.
 
-    No terminal/TUI window is opened: the worker runs as a detached headless
-    `claude -p` process whose stream-json output is captured into the standard
-    run directory (events.jsonl, display.log, status.json, captain_reports/).
-    The worker always runs direct-Anthropic on the local `claude` CLI's own
-    credentials, so `model` must be an Anthropic model that CLI serves
-    (e.g. claude-opus-5, claude-sonnet-5, claude-fable-5), and it is honored
-    exactly as passed. Steering, captain-help, and captain-report tooling work
-    identically to the other backends. Cross-platform.
+    Supports running under:
+    - 'claude': direct Anthropic OAuth (~/.claude, default: claude-opus-5)
+    - 'clx': Grok via CLIProxyAPI (~/.claude-clx, default: grok-4.6(high))
+    - 'clg': Gemini via CLIProxyAPI (~/.claude-clg, default: gemini-3.8-flash-high(high))
+    - 'cld': DeepSeek (~/.claude-cld, default: deepseek-flash[1m])
+    - 'clo': OpenRouter (~/.claude-clo, default: nvidia/nemotron-3.5-lightning:free[1m])
+    - 'clc': Cursor via local translator (~/.claude-clc, default: grok-4.6-fast)
+
+    When visible=True, the worker is launched in a visible console window so
+    the owner can watch live turn progress. When visible=False, it runs
+    headless in the background. Full run-dir protocol (status, steering,
+    captain reports, help requests) is supported identically across all harnesses.
     """
-    effective_model = (model or "").strip() or CLAUDE_WORKER_DEFAULT_MODEL
+    harness_cfg = _resolve_harness_config(harness, model)
+    effective_harness = harness_cfg["harness"]
+    effective_model = harness_cfg["model"]
+    harness_env = harness_cfg["env"]
     effective_effort = _claude_worker_effort(effort)
     permission_mode, read_only_enforced = _claude_worker_permission_mode(sandbox)
     prompt_with_permissions = "\n\n".join([
@@ -4926,10 +5103,12 @@ def start_claude_worker(
         prompt,
     ])
     effective_prompt = _with_session_context_bootstrap(
-        prompt_with_permissions, cwd, "Claude worker", session_context
+        prompt_with_permissions, cwd, f"Claude worker ({effective_harness})", session_context
     )
-    run_dir = _make_run(cwd, "claude-resume" if resume_session_id else "claude", title, effective_prompt, {
+    prefix = f"claude-{effective_harness}-resume" if resume_session_id else f"claude-{effective_harness}"
+    run_dir = _make_run(cwd, prefix, title, effective_prompt, {
         "agent": "claude",
+        "harness": effective_harness,
         "cwd": str(Path(cwd).resolve()),
         "sandbox": sandbox,
         "permission_mode": permission_mode,
@@ -4945,7 +5124,9 @@ def start_claude_worker(
         "captain_help_enabled": True,
         "captain_report_auto_write": True,
         "claude_cli": str(CLAUDE),
-        "mode": "headless_native",
+        "mode": "visible_native" if visible else "headless_native",
+        "visible": bool(visible),
+        "env": harness_env,
     })
     effective_prompt = "\n\n".join([
         _claude_worker_rigor_note(),
@@ -4955,7 +5136,10 @@ def start_claude_worker(
     ])
     (run_dir / "prompt.md").write_text(effective_prompt, encoding="utf-8")
     launch_env = dict(os.environ)
-    pid = _launch_headless_python(CLAUDE_WORKER_RUNNER, run_dir, env=launch_env)
+    if visible:
+        pid = _launch_visible_python(CLAUDE_WORKER_RUNNER, run_dir, env=launch_env)
+    else:
+        pid = _launch_headless_python(CLAUDE_WORKER_RUNNER, run_dir, env=launch_env)
     (run_dir / "launcher_pid.txt").write_text(str(pid), encoding="utf-8")
     return {
         "run_id": run_dir.name,
@@ -4972,8 +5156,9 @@ def start_claude_worker(
         "watch_command": _watch_command(run_dir),
         "supervise_command": _supervise_command(run_dir),
         "note": (
-            f"A headless native Claude Code worker was spawned (no terminal window). "
-            f"Model: {effective_model} via direct Anthropic | "
+            f"A {'visible' if visible else 'headless'} native Claude Code worker was spawned "
+            f"under harness '{effective_harness}'. "
+            f"Model: {effective_model} | "
             f"permission mode: {permission_mode}"
             f"{' | read-only enforced (Write/Edit stripped)' if read_only_enforced else ''} | "
             f"effort: {effective_effort or 'CLI default'}. The runner auto-writes "
@@ -4981,6 +5166,80 @@ def start_claude_worker(
             "and honors queued steering during its idle window."
         ),
     }
+
+
+@mcp.tool()
+def start_visible_claude_worker(
+    prompt: str,
+    cwd: str,
+    title: str = "Visible Claude worker",
+    model: str = "",
+    harness: str = "claude",
+    sandbox: str = "read-only",
+    effort: str = "",
+    session_context: str = "",
+    resume_session_id: str = "",
+    max_budget_usd: str = "",
+    steer_idle_seconds: int = CODEX_STEER_IDLE_SECONDS,
+) -> dict[str, Any]:
+    """Launch a visible Claude Code worker in a new console window.
+
+    Supports ANY Claude Code harness profile (clx, clg, cld, clo, clc, claude).
+    """
+    return start_claude_worker(
+        prompt=prompt,
+        cwd=cwd,
+        title=title,
+        model=model,
+        harness=harness,
+        sandbox=sandbox,
+        effort=effort,
+        session_context=session_context,
+        resume_session_id=resume_session_id,
+        max_budget_usd=max_budget_usd,
+        steer_idle_seconds=steer_idle_seconds,
+        visible=True,
+    )
+
+
+@mcp.tool()
+def start_visible_first_mate_claude_pool(
+    goal: str,
+    cwd: str,
+    scout_areas: list[str] | None = None,
+    implementation_items: list[str] | None = None,
+    harness: str = "claude",
+    model: str = "",
+    sandbox: str = "read-only",
+    max_workers: int = 6,
+    session_context: str = "",
+    effort: str = "",
+    visible: bool = True,
+) -> dict[str, Any]:
+    """Launch a Claude Code first mate root session using any supported harness.
+
+    Supports harnesses: 'clx', 'clg', 'cld', 'clo', 'clc', 'claude'.
+    """
+    prompt, _ = _first_mate_prompt(
+        goal=goal,
+        scout_areas=scout_areas,
+        implementation_items=implementation_items,
+        sandbox=sandbox,
+        max_workers=max_workers,
+        session_context=session_context,
+        requires_tool_access=False,
+    )
+    return start_claude_worker(
+        prompt=prompt,
+        cwd=cwd,
+        title=f"First mate pool ({harness})",
+        model=model,
+        harness=harness,
+        sandbox=sandbox,
+        effort=effort,
+        session_context=session_context,
+        visible=visible,
+    )
 
 
 @mcp.tool()
@@ -5056,16 +5315,18 @@ def steer_claude_run(
         prompt=steer_path.read_text(encoding="utf-8-sig"),
         cwd=cwd,
         title=f"{title} (resume)",
-        model=str(metadata.get("model") or CLAUDE_WORKER_DEFAULT_MODEL),
+        model=str(metadata.get("model") or ""),
+        harness=str(metadata.get("harness") or "claude"),
         sandbox=requested_sandbox or str(metadata.get("sandbox") or "read-only"),
         effort=str(metadata.get("effort") or ""),
         session_context=session_context,
         resume_session_id=session_id,
         steer_idle_seconds=int(metadata.get("steer_idle_seconds") or CODEX_STEER_IDLE_SECONDS),
+        visible=bool(metadata.get("visible", False)),
     )
     result["mode"] = "launched_resume"
     result["resume_run"] = resume
-    result["note"] = "A new headless Claude worker was launched resuming the same session id with the steering instruction."
+    result["note"] = "A new Claude worker was launched resuming the same session id with the steering instruction."
     return result
 
 

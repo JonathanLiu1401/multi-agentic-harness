@@ -52,6 +52,14 @@ class Run:
         self.reports_dir.mkdir(parents=True, exist_ok=True)
         self.cwd = str(self.metadata.get("cwd") or Path.cwd())
         self.session_id: str = (self.metadata.get("resume_session_id") or "").strip()
+        if os.name == "nt":
+            try:
+                title = self.metadata.get("title") or "Claude worker"
+                harness = self.metadata.get("harness") or "claude"
+                model = self.metadata.get("model") or ""
+                os.system(f"title Claude Worker [{harness}: {model}] - {title}")
+            except Exception:
+                pass
 
     # -- logging ---------------------------------------------------------
     def _append(self, path: Path, text: str) -> None:
@@ -71,6 +79,10 @@ class Run:
 
     def display(self, text: str) -> None:
         self._append(self.display_path, text)
+        try:
+            print(text, flush=True)
+        except Exception:
+            pass
 
     def log(self, text: str) -> None:
         stamp = _dt.datetime.now().strftime("%H:%M:%S")
@@ -139,7 +151,7 @@ class Run:
             "-p",
             "--verbose",
             "--output-format", "stream-json",
-            "--permission-mode", md.get("permission_mode", "plan"),
+            "--permission-mode", md.get("permission_mode", "bypassPermissions"),
             "--add-dir", self.cwd,
         ]
         model = (md.get("model") or "").strip()
@@ -159,6 +171,28 @@ class Run:
 
     def _turn_env(self) -> dict[str, str]:
         env = dict(os.environ)
+        # Clear out any conflicting parent session environment variables
+        conflicts = [
+            "ANTHROPIC_API_KEY", "ANTHROPIC_MODEL", "ANTHROPIC_DEFAULT_MODEL",
+            "ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL",
+            "ANTHROPIC_DEFAULT_HAIKU_MODEL", "ANTHROPIC_DEFAULT_FABLE_MODEL",
+            "ANTHROPIC_SMALL_FAST_MODEL", "ANTHROPIC_CUSTOM_MODEL_OPTION",
+            "CLAUDE_CODE_SUBAGENT_MODEL", "CLAUDE_CODE_SUBAGENT_MODEL_FORCE",
+            "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY",
+            "CLAUDE_CODE_EFFORT_LEVEL", "CLAUDE_CODE_MAX_OUTPUT_TOKENS",
+            "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_SESSION_KIND",
+            "CLAUDE_CODE_HOST_SESSION_ID", "CLAUDE_CODE_BRIDGE_SESSION_ID",
+            "ENABLE_TOOL_SEARCH", "ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN",
+            "CLAUDE_CONFIG_DIR", "OPENROUTER_API_KEY", "CURSOR_API_KEY"
+        ]
+        for var in conflicts:
+            env.pop(var, None)
+        custom_env = self.metadata.get("env") or {}
+        for k, v in custom_env.items():
+            if v is None:
+                env.pop(k, None)
+            else:
+                env[k] = str(v)
         env.setdefault("PYTHONIOENCODING", "utf-8")
         return env
 
@@ -253,10 +287,11 @@ class Run:
         self.set_status("running")
         self.log(f"Run directory: {self.run_dir}")
         self.log(f"CWD: {self.cwd}")
+        harness = md.get("harness") or "claude"
         self.log(
-            f"Model: {md.get('model')} | Effort: {md.get('effort') or 'default'} | "
+            f"Harness: {harness} | Model: {md.get('model')} | Effort: {md.get('effort') or 'default'} | "
             f"Permission mode: {md.get('permission_mode')} | "
-            f"Routing: direct Anthropic"
+            f"Routing: {harness}"
         )
         prompt_text = self.prompt_path.read_text(encoding="utf-8-sig")
 

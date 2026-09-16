@@ -386,6 +386,16 @@ for p in paths:
     else:
         d["additionalModelCostsCache"] = model_costs
 
+    mcps = d.setdefault("mcpServers", {})
+    if isinstance(mcps, dict) and "agent-visibility" not in mcps:
+        bridge_py = os.path.expanduser(r"~\.agent-bridge\visible_agent_bridge.py")
+        mcps["agent-visibility"] = {
+            "type": "stdio",
+            "command": sys.executable,
+            "args": [bridge_py],
+            "env": {}
+        }
+
     tmp = f"{p}.tmp.{os.getpid()}"
     try:
         with open(tmp, "w", encoding="utf-8") as f:
