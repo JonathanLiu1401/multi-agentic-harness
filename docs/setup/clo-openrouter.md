@@ -54,11 +54,13 @@ key returned `CLO_OK` for both `openai/gpt-5.6-sol` and
 ## Model picker (live catalog)
 
 Every `clo` launch runs `gateway/refresh_clo_models.py`, which GETs
-[`https://openrouter.ai/api/v1/models?output_modalities=all`](https://openrouter.ai/docs/guides/overview/models)
+[`/api/v1/models?output_modalities=all&sort=most-popular`](https://openrouter.ai/docs/guides/overview/models)
 and rewrites `~/.claude-clo/settings.json` `availableModels`, `modelPicker`,
-and `modelPricing`. The default `/api/v1/models` list is text-only and
-capped at 500; `output_modalities=all` is the full dashboard catalog
-(575+; 599 on 2026-09-16).
+and `modelPricing`. `sort=most-popular` is the same ranking as
+[openrouter.ai/models](https://openrouter.ai/models) popularity (GPT-5.6 Luna,
+Hy4, GLM 5.3 Flash, ...). The default `/api/v1/models` list is text-only,
+capped at 500, and newest-first; this fetch is the full catalog in
+popularity order (599 on 2026-09-16).
 
 Set `CLO_SKIP_MODEL_REFRESH=1` to reuse the last picker. A failed fetch
 keeps the previous settings so `clo` still starts.

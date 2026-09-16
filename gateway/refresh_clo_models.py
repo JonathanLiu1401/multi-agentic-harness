@@ -1,9 +1,10 @@
 """Refresh ~/.claude-clo/settings.json from the live OpenRouter catalog.
 
-Fetches GET /api/v1/models?output_modalities=all (full catalog, not the
-text-only default) and rewrites availableModels, modelPicker, and
-modelPricing. Called by the clo launcher before starting Claude Code.
-On fetch failure, leaves the previous picker in place.
+Fetches GET /api/v1/models?output_modalities=all&sort=most-popular
+(full catalog, ranked like https://openrouter.ai/models popularity)
+and rewrites availableModels, modelPicker, and modelPricing. Called by
+the clo launcher before starting Claude Code. On fetch failure, leaves
+the previous picker in place.
 """
 from __future__ import annotations
 
@@ -15,7 +16,8 @@ import urllib.request
 from pathlib import Path
 
 CATALOG_URL = (
-    "https://openrouter.ai/api/v1/models?output_modalities=all&limit=1000"
+    "https://openrouter.ai/api/v1/models"
+    "?output_modalities=all&limit=1000&sort=most-popular"
 )
 PREFERRED_DEFAULTS = (
     "~anthropic/claude-sonnet-latest",
