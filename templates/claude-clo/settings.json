@@ -1,0 +1,346 @@
+{
+  "model": "~anthropic/claude-sonnet-latest[1m]",
+  "availableModels": [
+    "openai/gpt-5.6-sol[1m]",
+    "openai/gpt-5.6-terra[1m]",
+    "openai/gpt-5.6-luna[1m]",
+    "openai/gpt-5.5[1m]",
+    "openai/gpt-5.4[1m]",
+    "openai/gpt-5.3-codex",
+    "~anthropic/claude-sonnet-latest[1m]",
+    "~anthropic/claude-opus-latest[1m]",
+    "~anthropic/claude-fable-latest[1m]",
+    "~anthropic/claude-haiku-latest",
+    "anthropic/claude-sonnet-5[1m]",
+    "anthropic/claude-opus-5[1m]",
+    "x-ai/grok-4.6",
+    "google/gemini-3.8-flash[1m]",
+    "moonshotai/kimi-k3[1m]",
+    "moonshotai/kimi-k2.7-code",
+    "z-ai/glm-5.3[1m]",
+    "qwen/qwen3.8-max-0902[1m]"
+  ],
+  "enforceAvailableModels": true,
+  "modelPicker": {
+    "options": [
+      {
+        "model": "openai/gpt-5.6-sol[1m]",
+        "label": "GPT-5.6 Sol",
+        "description": "OpenAI GPT-5.6 Sol via OpenRouter - 1M ctx",
+        "behavesAs": "claude-sonnet-5"
+      },
+      {
+        "model": "openai/gpt-5.6-terra[1m]",
+        "label": "GPT-5.6 Terra",
+        "description": "OpenAI GPT-5.6 Terra via OpenRouter - 1M ctx",
+        "behavesAs": "claude-sonnet-5"
+      },
+      {
+        "model": "openai/gpt-5.6-luna[1m]",
+        "label": "GPT-5.6 Luna",
+        "description": "OpenAI GPT-5.6 Luna via OpenRouter - 1M ctx",
+        "behavesAs": "claude-haiku-4-5"
+      },
+      {
+        "model": "openai/gpt-5.5[1m]",
+        "label": "GPT-5.5",
+        "description": "OpenAI GPT-5.5 via OpenRouter - 1M ctx",
+        "behavesAs": "claude-opus-5"
+      },
+      {
+        "model": "openai/gpt-5.4[1m]",
+        "label": "GPT-5.4",
+        "description": "OpenAI GPT-5.4 via OpenRouter - 1M ctx",
+        "behavesAs": "claude-sonnet-5"
+      },
+      {
+        "model": "openai/gpt-5.3-codex",
+        "label": "GPT-5.3 Codex",
+        "description": "OpenAI GPT-5.3 Codex via OpenRouter",
+        "behavesAs": "claude-sonnet-5"
+      },
+      {
+        "model": "~anthropic/claude-sonnet-latest[1m]",
+        "label": "Claude Sonnet latest",
+        "description": "Anthropic Sonnet latest via OpenRouter - 1M ctx",
+        "behavesAs": "claude-sonnet-5"
+      },
+      {
+        "model": "~anthropic/claude-opus-latest[1m]",
+        "label": "Claude Opus latest",
+        "description": "Anthropic Opus latest via OpenRouter - 1M ctx",
+        "behavesAs": "claude-opus-5"
+      },
+      {
+        "model": "~anthropic/claude-fable-latest[1m]",
+        "label": "Claude Fable latest",
+        "description": "Anthropic Fable latest via OpenRouter - 1M ctx",
+        "behavesAs": "claude-fable-5"
+      },
+      {
+        "model": "~anthropic/claude-haiku-latest",
+        "label": "Claude Haiku latest",
+        "description": "Anthropic Haiku latest via OpenRouter",
+        "behavesAs": "claude-haiku-4-5"
+      },
+      {
+        "model": "anthropic/claude-sonnet-5[1m]",
+        "label": "Claude Sonnet 5",
+        "description": "Anthropic Sonnet 5 via OpenRouter - 1M ctx",
+        "behavesAs": "claude-sonnet-5"
+      },
+      {
+        "model": "anthropic/claude-opus-5[1m]",
+        "label": "Claude Opus 5",
+        "description": "Anthropic Opus 5 via OpenRouter - 1M ctx",
+        "behavesAs": "claude-opus-5"
+      },
+      {
+        "model": "x-ai/grok-4.6",
+        "label": "Grok 4.6",
+        "description": "xAI Grok 4.6 via OpenRouter - 500k ctx",
+        "behavesAs": "claude-sonnet-5"
+      },
+      {
+        "model": "google/gemini-3.8-flash[1m]",
+        "label": "Gemini 3.8 Flash",
+        "description": "Google Gemini 3.8 Flash via OpenRouter - 1M ctx",
+        "behavesAs": "claude-sonnet-5"
+      },
+      {
+        "model": "moonshotai/kimi-k3[1m]",
+        "label": "Kimi K3",
+        "description": "Moonshot Kimi K3 via OpenRouter - 1M ctx",
+        "behavesAs": "claude-sonnet-5"
+      },
+      {
+        "model": "moonshotai/kimi-k2.7-code",
+        "label": "Kimi K2.7 Code",
+        "description": "Moonshot Kimi K2.7 Code via OpenRouter",
+        "behavesAs": "claude-sonnet-5"
+      },
+      {
+        "model": "z-ai/glm-5.3[1m]",
+        "label": "GLM 5.3",
+        "description": "Z.ai GLM 5.3 via OpenRouter - 1M ctx",
+        "behavesAs": "claude-sonnet-5"
+      },
+      {
+        "model": "qwen/qwen3.8-max-0902[1m]",
+        "label": "Qwen3.8 Max",
+        "description": "Qwen 3.8 Max via OpenRouter - 1M ctx",
+        "behavesAs": "claude-sonnet-5"
+      }
+    ],
+    "replaceBuiltInOptions": true
+  },
+  "modelPricing": {
+    "overrides": {
+      "openai/gpt-5.6-sol[1m]": {
+        "input": 2.0,
+        "output": 10.0,
+        "cacheRead": 0.2,
+        "cacheWrite": 2.5
+      },
+      "openai/gpt-5.6-sol": {
+        "input": 2.0,
+        "output": 10.0,
+        "cacheRead": 0.2,
+        "cacheWrite": 2.5
+      },
+      "openai/gpt-5.6-terra[1m]": {
+        "input": 2.0,
+        "output": 12.0,
+        "cacheRead": 0.2,
+        "cacheWrite": 2.5
+      },
+      "openai/gpt-5.6-terra": {
+        "input": 2.0,
+        "output": 12.0,
+        "cacheRead": 0.2,
+        "cacheWrite": 2.5
+      },
+      "openai/gpt-5.6-luna[1m]": {
+        "input": 0.2,
+        "output": 1.2,
+        "cacheRead": 0.02,
+        "cacheWrite": 0.25
+      },
+      "openai/gpt-5.6-luna": {
+        "input": 0.2,
+        "output": 1.2,
+        "cacheRead": 0.02,
+        "cacheWrite": 0.25
+      },
+      "openai/gpt-5.5[1m]": {
+        "input": 5.0,
+        "output": 30.0,
+        "cacheRead": 0.5,
+        "cacheWrite": 5.0
+      },
+      "openai/gpt-5.5": {
+        "input": 5.0,
+        "output": 30.0,
+        "cacheRead": 0.5,
+        "cacheWrite": 5.0
+      },
+      "openai/gpt-5.4[1m]": {
+        "input": 2.5,
+        "output": 15.0,
+        "cacheRead": 0.25,
+        "cacheWrite": 2.5
+      },
+      "openai/gpt-5.4": {
+        "input": 2.5,
+        "output": 15.0,
+        "cacheRead": 0.25,
+        "cacheWrite": 2.5
+      },
+      "openai/gpt-5.3-codex": {
+        "input": 1.75,
+        "output": 14.0,
+        "cacheRead": 0.175,
+        "cacheWrite": 1.75
+      },
+      "~anthropic/claude-sonnet-latest[1m]": {
+        "input": 2.0,
+        "output": 10.0,
+        "cacheRead": 0.2,
+        "cacheWrite": 2.5
+      },
+      "~anthropic/claude-sonnet-latest": {
+        "input": 2.0,
+        "output": 10.0,
+        "cacheRead": 0.2,
+        "cacheWrite": 2.5
+      },
+      "~anthropic/claude-opus-latest[1m]": {
+        "input": 5.0,
+        "output": 25.0,
+        "cacheRead": 0.5,
+        "cacheWrite": 6.25
+      },
+      "~anthropic/claude-opus-latest": {
+        "input": 5.0,
+        "output": 25.0,
+        "cacheRead": 0.5,
+        "cacheWrite": 6.25
+      },
+      "~anthropic/claude-fable-latest[1m]": {
+        "input": 10.0,
+        "output": 50.0,
+        "cacheRead": 0.25,
+        "cacheWrite": 12.5
+      },
+      "~anthropic/claude-fable-latest": {
+        "input": 10.0,
+        "output": 50.0,
+        "cacheRead": 0.25,
+        "cacheWrite": 12.5
+      },
+      "~anthropic/claude-haiku-latest": {
+        "input": 1.0,
+        "output": 5.0,
+        "cacheRead": 0.1,
+        "cacheWrite": 1.25
+      },
+      "anthropic/claude-sonnet-5[1m]": {
+        "input": 2.0,
+        "output": 10.0,
+        "cacheRead": 0.2,
+        "cacheWrite": 2.5
+      },
+      "anthropic/claude-sonnet-5": {
+        "input": 2.0,
+        "output": 10.0,
+        "cacheRead": 0.2,
+        "cacheWrite": 2.5
+      },
+      "anthropic/claude-opus-5[1m]": {
+        "input": 5.0,
+        "output": 25.0,
+        "cacheRead": 0.5,
+        "cacheWrite": 6.25
+      },
+      "anthropic/claude-opus-5": {
+        "input": 5.0,
+        "output": 25.0,
+        "cacheRead": 0.5,
+        "cacheWrite": 6.25
+      },
+      "x-ai/grok-4.6": {
+        "input": 2.0,
+        "output": 6.0,
+        "cacheRead": 0.5,
+        "cacheWrite": 2.0
+      },
+      "google/gemini-3.8-flash[1m]": {
+        "input": 0.75,
+        "output": 3.75,
+        "cacheRead": 0.075,
+        "cacheWrite": 0.0417
+      },
+      "google/gemini-3.8-flash": {
+        "input": 0.75,
+        "output": 3.75,
+        "cacheRead": 0.075,
+        "cacheWrite": 0.0417
+      },
+      "moonshotai/kimi-k3[1m]": {
+        "input": 3.0,
+        "output": 15.0,
+        "cacheRead": 0.3,
+        "cacheWrite": 3.0
+      },
+      "moonshotai/kimi-k3": {
+        "input": 3.0,
+        "output": 15.0,
+        "cacheRead": 0.3,
+        "cacheWrite": 3.0
+      },
+      "moonshotai/kimi-k2.7-code": {
+        "input": 0.7062,
+        "output": 3.21,
+        "cacheRead": 0.18,
+        "cacheWrite": 0.7062
+      },
+      "z-ai/glm-5.3[1m]": {
+        "input": 1.4,
+        "output": 4.4,
+        "cacheRead": 0.26,
+        "cacheWrite": 1.4
+      },
+      "z-ai/glm-5.3": {
+        "input": 1.4,
+        "output": 4.4,
+        "cacheRead": 0.26,
+        "cacheWrite": 1.4
+      },
+      "qwen/qwen3.8-max-0902[1m]": {
+        "input": 2.0,
+        "output": 6.0,
+        "cacheRead": 0.25,
+        "cacheWrite": 2.5
+      },
+      "qwen/qwen3.8-max-0902": {
+        "input": 2.0,
+        "output": 6.0,
+        "cacheRead": 0.25,
+        "cacheWrite": 2.5
+      }
+    }
+  },
+  "effortLevel": "high",
+  "skipDangerousModePermissionPrompt": true,
+  "theme": "dark",
+  "statusLine": {
+    "type": "command",
+    "command": "node C:/Users/jonny/bin/statusline.js",
+    "padding": 0
+  },
+  "preferredNotifChannel": "terminal_bell",
+  "env": {
+    "ENABLE_TOOL_SEARCH": "false",
+    "CLAUDE_CODE_MAX_OUTPUT_TOKENS": "8192"
+  }
+}

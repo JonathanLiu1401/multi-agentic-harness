@@ -6,6 +6,8 @@ This directory provides scripts and templates for:
 - `cursor_anthropic_gateway.py` on `http://127.0.0.1:8318` for `clc` (Cursor)
 
 `cld` does not use either of these; it talks to DeepSeek directly.
+`clo` does not use either of these; it talks to OpenRouter's Anthropic
+skin at `https://openrouter.ai/api`. See [`docs/setup/clo-openrouter.md`](../docs/setup/clo-openrouter.md).
 
 ## Architecture
 

@@ -3,6 +3,7 @@
 This directory contains launchers for running alternate provider models in the
 Claude Code TUI. `clx` and `clg` talk to the local CLIProxyAPI gateway on
 `http://127.0.0.1:8317`. `cld` talks to DeepSeek's Anthropic endpoint.
+`clo` talks to OpenRouter's Anthropic skin at `https://openrouter.ai/api`.
 `clc` talks to the Cursor Anthropic translator on `http://127.0.0.1:8318`.
 
 Your normal `claude` command and `~/.claude` profile are completely untouched
@@ -15,13 +16,14 @@ and talk directly to `api.anthropic.com`.
 | `clx` | xAI Grok | Grok 4.6 (xhigh/high/medium/low), 4.5 | 500k tokens | `~/.claude-clx` |
 | `clg` | Antigravity (Gemini) | Gemini 3.8 Flash high, 3.1 Pro, 3.7/3.6 Flash | 1M tokens | `~/.claude-clg` |
 | `cld` | DeepSeek | DeepSeek V4.1 Flash, DeepSeek V4 Pro | 1M tokens | `~/.claude-cld` |
+| `clo` | OpenRouter | Anthropic Sonnet latest default, plus GPT/Grok/Gemini/Kimi/GLM/Qwen | 1M tokens | `~/.claude-clo` |
 | `clc` | Cursor | Live Cursor catalog (Grok 4.6 Fast default) | 1M (process-wide) | `~/.claude-clc` |
 
 ## Files in this Directory
 
-- `clx` / `clg` / `cld` / `clc`: POSIX sh wrapper scripts for Git Bash (deployed to `~/bin/`).
-- `clx.ps1` / `clg.ps1` / `cld.ps1` / `clc.ps1`: PowerShell wrapper scripts (deployed to `~/bin/`).
-- `clx.cmd` / `clg.cmd` / `cld.cmd` / `clc.cmd`: Windows CMD shims on PATH (deployed to `~/.local/bin/`).
+- `clx` / `clg` / `cld` / `clo` / `clc`: POSIX sh wrapper scripts for Git Bash (deployed to `~/bin/`).
+- `clx.ps1` / `clg.ps1` / `cld.ps1` / `clo.ps1` / `clc.ps1`: PowerShell wrapper scripts (deployed to `~/bin/`).
+- `clx.cmd` / `clg.cmd` / `cld.cmd` / `clo.cmd` / `clc.cmd`: Windows CMD shims on PATH (deployed to `~/.local/bin/`).
 
 `clc` **is** a Claude Code profile. Cursor has no public `/v1/messages`, so
 `clc` points `ANTHROPIC_BASE_URL` at `gateway/cursor_anthropic_gateway.py`
@@ -45,12 +47,12 @@ Context window sizing in Claude Code is process-wide:
   per-model context window key.
 - `CLAUDE_CODE_AUTO_COMPACT_WINDOW` overrides any model suffix such as `[1m]`.
 Therefore, each provider family runs under its own isolated profile
-(`~/.claude-clx`, `~/.claude-clg`, `~/.claude-cld`, `~/.claude-clc`) to ensure
+(`~/.claude-clx`, `~/.claude-clg`, `~/.claude-cld`, `~/.claude-clo`, `~/.claude-clc`) to ensure
 correct auto-compaction and token tracking.
 
 ## Dual-Shell Architecture on Windows
 
-On Windows, both shells can invoke `clx`, `clg`, `cld`, or `clc` directly:
+On Windows, both shells can invoke `clx`, `clg`, `cld`, `clo`, or `clc` directly:
 - **Git Bash** resolves `~/bin/clx` etc. (`~/bin` is in Git Bash PATH).
 - **PowerShell / CMD** resolve `~/.local/bin/clx.cmd` etc.
   (`~/.local/bin` is in Windows system/user PATH). The `.cmd` shim executes
@@ -60,7 +62,7 @@ On Windows, both shells can invoke `clx`, `clg`, `cld`, or `clc` directly:
 
 ## Permission Posture and Speed
 
-By default, `clx`, `clg`, `cld`, and `clc` run with `--dangerously-skip-permissions`.
+By default, `clx`, `clg`, `cld`, `clo`, and `clc` run with `--dangerously-skip-permissions`.
 Measured 2026-09-02:
 - On an identical multi-turn task with 35 tool calls, interactive prompting took
   **10m59s** (nearly 9 minutes stalled waiting for user approval clicks on tool calls).
@@ -86,6 +88,7 @@ If you want a specific permission mode, pass it explicitly on the command line
 4. **Reasoning effort**:
    - `clx` / `clg`: CLIProxyAPI `(level)` suffix on the model id.
    - `cld`: DeepSeek honors `output_config.effort` natively.
+   - `clo`: OpenRouter Anthropic skin; leave `CLAUDE_CODE_EFFORT_LEVEL` unset.
    - `clc`: translator maps `/effort` onto Cursor catalog params. Do **not**
      export `CLAUDE_CODE_EFFORT_LEVEL` (it pins the TUI and overrides saved
      `modelSettings.<id>.effortLevel`).

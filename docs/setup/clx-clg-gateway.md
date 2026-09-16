@@ -1,6 +1,7 @@
-# clx / clg / cld / clc: provider models in the Claude Code TUI
+# clx / clg / cld / clo / clc: provider models in the Claude Code TUI
 
-Set up 2026-09-02, extended 2026-09-09, Cursor dialect `clc` added 2026-09-12.
+Set up 2026-09-02, extended 2026-09-09, Cursor dialect `clc` added 2026-09-12,
+OpenRouter dialect `clo` added 2026-09-16.
 Runs Grok, Google Antigravity (Gemini), DeepSeek, and Cursor-hosted models
 inside the Claude Code TUI with fully isolated config. The plain `claude`
 entry point and `~/.claude` are untouched.
@@ -16,28 +17,32 @@ after judging the 2026-08 attempt as "trying to do too much".
 | --- | --- | --- | --- | --- | --- |
 | `clx` | Grok | Grok 4.5 / 4.6 | `~/.claude-clx` | 500k | `CLIProxyAPI` |
 | `clg` | Gemini | Gemini 3.6/3.7/3.8 Flash, 3.1 Pro | `~/.claude-clg` | 1M | `CLIProxyAPI` |
-| `cld` | DeepSeek | DeepSeek V4.1 Flash, DeepSeek V4 Pro | `~/.claude-cld` | 1M | `CLIProxyAPI` |
+| `cld` | DeepSeek | DeepSeek V4.1 Flash, DeepSeek V4 Pro | `~/.claude-cld` | 1M | (direct) |
+| `clo` | OpenRouter | Anthropic Sonnet latest default, curated OpenRouter catalog | `~/.claude-clo` | 1M | (direct) |
 | `clc` | Cursor | Live Cursor catalog (Grok 4.6 Fast default, plus Fast rows) | `~/.claude-clc` | 1M (process-wide) | `CLCCursorGateway` |
 
 One gateway serves clx/clg: CLIProxyAPI v7.2.147 at `~/cliproxyapi/`, bound to
 `127.0.0.1:8317`, started at logon by `CLIProxyAPI`. `cld` talks to DeepSeek
-directly. `clc` talks to a separate translator on `127.0.0.1:8318` (scheduled
-task `CLCCursorGateway`). Operator detail: [`clc-cursor-gateway.md`](clc-cursor-gateway.md).
+directly. `clo` talks to OpenRouter's Anthropic skin at
+`https://openrouter.ai/api` (no `/v1`). `clc` talks to a separate translator
+on `127.0.0.1:8318` (scheduled task `CLCCursorGateway`). Operator detail:
+[`clc-cursor-gateway.md`](clc-cursor-gateway.md),
+[`clo-openrouter.md`](clo-openrouter.md).
 
 Shipped components in this repository:
-- **Launchers**: `launchers/` (`clx`, `clg`, `cld`, `clc` in Bash, PS1, and CMD)
+- **Launchers**: `launchers/` (`clx`, `clg`, `cld`, `clo`, `clc` in Bash, PS1, and CMD)
 - **Gateway management**: `gateway/` (`start-gateway.ps1`, `stop-gateway.ps1`, `install-autostart.ps1`, `start-clc-gateway.ps1`, `install-clc-autostart.ps1`, `cursor_anthropic_gateway.py`)
-- **Profile templates**: `templates/` (`templates/claude-clx/`, `templates/claude-clg/`, `templates/claude-cld/`, `templates/claude-clc/`)
+- **Profile templates**: `templates/` (`templates/claude-clx/`, `templates/claude-clg/`, `templates/claude-cld/`, `templates/claude-clo/`, `templates/claude-clc/`)
 - **Performance benchmarks & analysis**: [`docs/setup/clx-clg-perf.md`](clx-clg-perf.md)
 - **Interactive TUI test suite**: `tests/tui_test.py`
 
-Launchers live in `~/bin/{clx,clg,cld,clc}` (Git Bash) and `~/bin/{clx,clg,cld,clc}.ps1`, with
-`~/.local/bin/{clx,clg,cld,clc}.cmd` shims for PowerShell/cmd. Full operator detail is in
+Launchers live in `~/bin/{clx,clg,cld,clo,clc}` (Git Bash) and `~/bin/{clx,clg,cld,clo,clc}.ps1`, with
+`~/.local/bin/{clx,clg,cld,clo,clc}.cmd` shims for PowerShell/cmd. Full operator detail is in
 `gateway/README.md` and `launchers/README.md`; this file documents the harness-relevant parts.
 
 ## Native subagents (the harness change)
 
-`plugin/agents/grok.md`, `plugin/agents/agy-gemini-3-8-flash.md`, and `plugin/agents/deepseek.md` are available.
+`plugin/agents/grok.md`, `plugin/agents/agy-gemini-3-8-flash.md`, `plugin/agents/deepseek.md`, and `plugin/agents/openrouter.md` are available.
 They were deleted in `2df4291` when the gateway was decommissioned; the gateway
 is back, so they work again.
 
@@ -48,6 +53,7 @@ is back, so they work again.
 | Plain Claude (`~/.claude`) | Agent built-in `subagent_type` | grok: `start_visible_grok_worker` (Grok Build CLI). agy: `start_visible_agy_worker` (Antigravity CLI). Never native `grok` / `agy-gemini-*`. |
 | clx (grok 500k) | Agent `grok` | agy: `start_visible_agy_worker`. Never Agent `agy-gemini-*`. |
 | clg (Gemini 1M) | Agent `agy-gemini-3-8-flash` | grok: `start_visible_grok_worker`. Never Agent `grok`. |
+| clo (OpenRouter 1M) | Agent `openrouter` | grok: `start_visible_grok_worker`. agy: `start_visible_agy_worker`. Never Agent `grok` / `agy-gemini-*` / `deepseek`. |
 | clc (Cursor 1M) | no native Agent type | Cursor: `start_visible_cursor_worker`. Cloud: `start_cursor_cloud_agent`. Never Agent `grok` / `agy-gemini-*`. |
 
 Native Agent types run inside Claude Code's own runtime (tools, permissions,

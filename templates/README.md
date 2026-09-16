@@ -1,6 +1,6 @@
 # Profile Templates
 
-This directory contains configuration templates for the `clx` (Grok), `clg` (Gemini), `cld` (DeepSeek), and `clc` (Cursor) Claude Code profiles.
+This directory contains configuration templates for the `clx` (Grok), `clg` (Gemini), `cld` (DeepSeek), `clo` (OpenRouter), and `clc` (Cursor) Claude Code profiles.
 
 ## Setup Instructions
 
@@ -8,6 +8,7 @@ This directory contains configuration templates for the `clx` (Grok), `clg` (Gem
    - For clx: `templates/claude-clx` -> `~/.claude-clx/`
    - For clg: `templates/claude-clg` -> `~/.claude-clg/`
    - For cld: `templates/claude-cld` -> `~/.claude-cld/`
+   - For clo: `templates/claude-clo` -> `~/.claude-clo/`
    - For clc: `templates/claude-clc` -> `~/.claude-clc/`
 2. Link the shared agents and skills:
    - On Windows PowerShell:
@@ -18,6 +19,8 @@ This directory contains configuration templates for the `clx` (Grok), `clg` (Gem
      New-Item -ItemType Junction -Path "$HOME\.claude-clg\skills" -Target "$HOME\.claude\skills"
      New-Item -ItemType Junction -Path "$HOME\.claude-cld\agents" -Target "$HOME\.claude\agents"
      New-Item -ItemType Junction -Path "$HOME\.claude-cld\skills" -Target "$HOME\.claude\skills"
+     New-Item -ItemType Junction -Path "$HOME\.claude-clo\agents" -Target "$HOME\.claude\agents"
+     New-Item -ItemType Junction -Path "$HOME\.claude-clo\skills" -Target "$HOME\.claude\skills"
      New-Item -ItemType Junction -Path "$HOME\.claude-clc\agents" -Target "$HOME\.claude\agents"
      New-Item -ItemType Junction -Path "$HOME\.claude-clc\skills" -Target "$HOME\.claude\skills"
      ```
@@ -29,6 +32,8 @@ This directory contains configuration templates for the `clx` (Grok), `clg` (Gem
      ln -s "$HOME/.claude/skills" "$HOME/.claude-clg/skills"
      ln -s "$HOME/.claude/agents" "$HOME/.claude-cld/agents"
      ln -s "$HOME/.claude/skills" "$HOME/.claude-cld/skills"
+     ln -s "$HOME/.claude/agents" "$HOME/.claude-clo/agents"
+     ln -s "$HOME/.claude/skills" "$HOME/.claude-clo/skills"
      ln -s "$HOME/.claude/agents" "$HOME/.claude-clc/agents"
      ln -s "$HOME/.claude/skills" "$HOME/.claude-clc/skills"
      ```
@@ -45,5 +50,5 @@ This directory contains configuration templates for the `clx` (Grok), `clg` (Gem
 - `skipDangerousModePermissionPrompt`: Set to `true` to avoid permission confirmation prompts that stall agent queues during automated runs.
 
 ### `CLAUDE.md`
-- Profile-specific instructions establishing identity (Grok for clx, Gemini for clg, DeepSeek for cld, Cursor-hosted model for clc).
+- Profile-specific instructions establishing identity (Grok for clx, Gemini for clg, DeepSeek for cld, OpenRouter-hosted model for clo, Cursor-hosted model for clc).
 - Subagent locality rules: specifies which Agent subagents to spawn natively vs via visible CLI terminals.

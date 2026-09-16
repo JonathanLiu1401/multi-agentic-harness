@@ -1,0 +1,70 @@
+#!/bin/sh
+# clo - Claude Code TUI on OpenRouter models (direct Anthropic skin).
+# Isolated profile in ~/.claude-clo.
+# ANTHROPIC_BASE_URL is https://openrouter.ai/api with NO /v1.
+set -e
+
+ENDPOINT="https://openrouter.ai/api"
+KEYFILE="$HOME/.cc-bridge/secrets/openrouter-api.key"
+
+if [ -r "$KEYFILE" ]; then
+  KEY=$(tr -d '\r\n' < "$KEYFILE")
+elif [ -n "$OPENROUTER_API_KEY" ]; then
+  KEY="$OPENROUTER_API_KEY"
+else
+  echo "clo: missing $KEYFILE and OPENROUTER_API_KEY env var - save your sk-or- key to $KEYFILE" >&2
+  exit 1
+fi
+
+# Clear anything inherited so no Claude model id or credential leaks in.
+unset ANTHROPIC_API_KEY ANTHROPIC_MODEL ANTHROPIC_DEFAULT_MODEL
+unset ANTHROPIC_DEFAULT_OPUS_MODEL ANTHROPIC_DEFAULT_SONNET_MODEL
+unset ANTHROPIC_DEFAULT_HAIKU_MODEL ANTHROPIC_DEFAULT_FABLE_MODEL
+unset ANTHROPIC_SMALL_FAST_MODEL ANTHROPIC_CUSTOM_MODEL_OPTION
+unset CLAUDE_CODE_SUBAGENT_MODEL CLAUDE_CODE_SUBAGENT_MODEL_FORCE
+unset CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY
+unset CLAUDE_CODE_EFFORT_LEVEL CLAUDE_CODE_MAX_OUTPUT_TOKENS
+
+CLAUDE_CONFIG_DIR="$HOME/.claude-clo"
+ANTHROPIC_BASE_URL="$ENDPOINT"
+ANTHROPIC_AUTH_TOKEN="$KEY"
+# Empty string, not unset: leftover Anthropic x-api-key bypasses OpenRouter.
+ANTHROPIC_API_KEY=""
+OPENROUTER_API_KEY="$KEY"
+
+ANTHROPIC_MODEL="~anthropic/claude-sonnet-latest[1m]"
+ANTHROPIC_DEFAULT_MODEL="~anthropic/claude-sonnet-latest[1m]"
+ANTHROPIC_CUSTOM_MODEL_OPTION="~anthropic/claude-sonnet-latest[1m]"
+ANTHROPIC_CUSTOM_MODEL_OPTION_NAME="Claude Sonnet latest"
+ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION="Anthropic Sonnet latest via OpenRouter (1M ctx)"
+ANTHROPIC_CUSTOM_MODEL_OPTION_SUPPORTED_CAPABILITIES="effort,max_effort,thinking"
+
+CLAUDE_CODE_MAX_CONTEXT_TOKENS=1000000
+CLAUDE_CODE_AUTO_COMPACT_WINDOW=1000000
+CLAUDE_CODE_MAX_OUTPUT_TOKENS=8192
+CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+CLAUDE_CODE_SKIP_FAST_MODE_ORG_CHECK=1
+CLAUDE_CODE_SUBAGENT_MODEL="~anthropic/claude-sonnet-latest[1m]"
+# Deferred/tool-search custom tools 400 on non-Anthropic OpenRouter slugs.
+ENABLE_TOOL_SEARCH=false
+
+export CLAUDE_CONFIG_DIR ANTHROPIC_BASE_URL ANTHROPIC_AUTH_TOKEN ANTHROPIC_API_KEY
+export OPENROUTER_API_KEY ANTHROPIC_MODEL ANTHROPIC_DEFAULT_MODEL
+export ANTHROPIC_CUSTOM_MODEL_OPTION ANTHROPIC_CUSTOM_MODEL_OPTION_NAME
+export ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION
+export ANTHROPIC_CUSTOM_MODEL_OPTION_SUPPORTED_CAPABILITIES
+export CLAUDE_CODE_MAX_CONTEXT_TOKENS CLAUDE_CODE_AUTO_COMPACT_WINDOW
+export CLAUDE_CODE_MAX_OUTPUT_TOKENS CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC
+export CLAUDE_CODE_SKIP_FAST_MODE_ORG_CHECK CLAUDE_CODE_SUBAGENT_MODEL
+export ENABLE_TOOL_SEARCH
+
+mkdir -p "$CLAUDE_CONFIG_DIR"
+
+# Bypass permission prompts by default (matching clx/clg/cld posture).
+# An explicit permission flag on the command line still wins.
+case "$*" in
+  *--permission-mode*|*--dangerously-skip-permissions*)
+    exec claude "$@" ;;
+  *)
+    exec claude --dangerously-skip-permissions "$@" ;;
+esac

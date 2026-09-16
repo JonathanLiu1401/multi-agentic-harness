@@ -4,7 +4,7 @@
 #
 # This script installs both parts of the Multi-Agentic Harness:
 #   Part 1: The Multi-Agent Worker Bridge (Claude manages Cursor, Grok, Agy, and headless workers)
-#   Part 2: Provider Profiles & Launchers (clx, clg, cld for Grok, Gemini, and DeepSeek in Claude Code)
+#   Part 2: Provider Profiles & Launchers (clx, clg, cld, clo for Grok, Gemini, DeepSeek, and OpenRouter in Claude Code)
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -78,29 +78,29 @@ echo "Python bridge syntax validated successfully."
 # PART 2: Provider Profiles, Launchers & Gateway (clx, clg, cld)
 # ---------------------------------------------------------------------------
 echo ""
-echo "--- Part 2: Provider Profiles & Launchers (clx, clg, cld) ---"
+echo "--- Part 2: Provider Profiles & Launchers (clx, clg, cld, clo) ---"
 
 # 1. Deploy subagent definitions to ~/.claude/agents/
 if [ -d "$HERE/plugin/agents" ]; then
   mkdir -p "$USER_HOME/.claude/agents"
   cp "$HERE/plugin/agents/"*.md "$USER_HOME/.claude/agents/"
-  echo "Installed subagent definitions: grok, agy-gemini-3-8-flash, deepseek"
+  echo "Installed subagent definitions: grok, agy-gemini-3-8-flash, deepseek, openrouter"
 fi
 
 # 2. Deploy launchers to ~/bin/
 if [ -d "$HERE/launchers" ]; then
   mkdir -p "$USER_HOME/bin"
-  for cmd in clx clg cld; do
+  for cmd in clx clg cld clo; do
     if [ -f "$HERE/launchers/$cmd" ]; then
       cp "$HERE/launchers/$cmd" "$USER_HOME/bin/$cmd"
       chmod +x "$USER_HOME/bin/$cmd"
     fi
   done
-  echo "Installed launchers (clx, clg, cld) to $USER_HOME/bin"
+  echo "Installed launchers (clx, clg, cld, clo) to $USER_HOME/bin"
 fi
 
 # 3. Deploy profile templates and symlink agents & skills
-for prof in claude-clx claude-clg claude-cld; do
+for prof in claude-clx claude-clg claude-cld claude-clo; do
   pDir="$USER_HOME/.$prof"
   mkdir -p "$pDir"
   if [ -d "$HERE/templates/$prof" ]; then
@@ -120,6 +120,9 @@ if [ ! -f "$SECRETS_DIR/clx-api.key" ]; then
   echo "ccp-$hex" > "$SECRETS_DIR/clx-api.key"
   chmod 600 "$SECRETS_DIR/clx-api.key"
   echo "Generated local gateway client key: $SECRETS_DIR/clx-api.key"
+fi
+if [ ! -f "$SECRETS_DIR/openrouter-api.key" ]; then
+  echo "clo: no $SECRETS_DIR/openrouter-api.key yet. Save your sk-or- key there (OpenRouter Dashboard -> Keys)."
 fi
 
 # 5. Inject pricing cache into .claude.json files
@@ -171,6 +174,7 @@ paths = [
     os.path.expanduser("~/.claude-clg/.claude.json"),
     os.path.expanduser("~/.claude-clx/.claude.json"),
     os.path.expanduser("~/.claude-cld/.claude.json"),
+    os.path.expanduser("~/.claude-clo/.claude.json"),
     os.path.expanduser("~/.claude.json")
 ]
 
@@ -224,9 +228,10 @@ echo "============================================================"
 echo "Installation Completed Successfully!"
 echo "============================================================"
 echo "Part 1 (Worker Bridge): MCP server 'agent-visibility' registered."
-echo "Part 2 (Custom Launchers): clx (Grok), clg (Gemini), cld (DeepSeek) ready in ~/bin."
+echo "Part 2 (Custom Launchers): clx (Grok), clg (Gemini), cld (DeepSeek), clo (OpenRouter) ready in ~/bin."
 echo ""
 echo "To start a custom session:"
 echo "  clx   -> Grok 4.6 (500k context)"
 echo "  clg   -> Gemini 3.8 Flash / 3.1 Pro (1M context)"
 echo "  cld   -> DeepSeek V4.1 Flash / V4 Pro (1M context)"
+echo "  clo   -> OpenRouter catalog (1M, default Anthropic Sonnet latest)"

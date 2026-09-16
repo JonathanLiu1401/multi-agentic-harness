@@ -3,7 +3,7 @@
 #
 # This script installs both parts of the Multi-Agentic Harness:
 #   Part 1: The Multi-Agent Worker Bridge (Claude manages Cursor, Grok, Agy, and headless workers)
-#   Part 2: Provider Profiles & Launchers (clx, clg, cld, clc for Grok, Gemini, DeepSeek, and Cursor)
+#   Part 2: Provider Profiles & Launchers (clx, clg, cld, clo, clc for Grok, Gemini, DeepSeek, OpenRouter, and Cursor)
 $ErrorActionPreference = 'Stop'
 
 $Here = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -125,7 +125,7 @@ if (Test-Path $ShimSrc) {
 # ---------------------------------------------------------------------------
 # PART 2: Provider Profiles, Launchers & Gateway (clx, clg, cld)
 # ---------------------------------------------------------------------------
-Write-Host "`n--- Part 2: Provider Profiles & Launchers (clx, clg, cld) ---"
+Write-Host "`n--- Part 2: Provider Profiles & Launchers (clx, clg, cld, clo, clc) ---"
 
 # 1. Deploy native subagent definitions to ~/.claude/agents/
 $AgentsSrc = Join-Path $Here 'plugin\agents'
@@ -133,7 +133,7 @@ if (Test-Path $AgentsSrc) {
     $AgentsDst = Join-Path $UserHome '.claude\agents'
     New-Item -ItemType Directory -Force -Path $AgentsDst | Out-Null
     Copy-Item (Join-Path $AgentsSrc '*.md') $AgentsDst -Force
-    Write-Host "Installed subagent definitions: grok, agy-gemini-3-8-flash, deepseek"
+    Write-Host "Installed subagent definitions: grok, agy-gemini-3-8-flash, deepseek, openrouter"
 }
 
 # 2. Deploy launchers to ~/bin/ and ~/.local/bin/
@@ -143,20 +143,20 @@ if (Test-Path $LaunchersSrc) {
     New-Item -ItemType Directory -Force -Path $BinDst | Out-Null
 
     # Shell scripts and PowerShell scripts to ~/bin
-    @('clx', 'clg', 'cld', 'clc', 'clx.ps1', 'clg.ps1', 'cld.ps1', 'clc.ps1') | ForEach-Object {
+    @('clx', 'clg', 'cld', 'clo', 'clc', 'clx.ps1', 'clg.ps1', 'cld.ps1', 'clo.ps1', 'clc.ps1') | ForEach-Object {
         $f = Join-Path $LaunchersSrc $_
         if (Test-Path $f) {
             Copy-Item $f (Join-Path $BinDst $_) -Force
         }
     }
     # Windows CMD shims to ~/.local/bin
-    @('clx.cmd', 'clg.cmd', 'cld.cmd', 'clc.cmd') | ForEach-Object {
+    @('clx.cmd', 'clg.cmd', 'cld.cmd', 'clo.cmd', 'clc.cmd') | ForEach-Object {
         $f = Join-Path $LaunchersSrc $_
         if (Test-Path $f) {
             Copy-Item $f (Join-Path $LocalBin $_) -Force
         }
     }
-    Write-Host "Installed launchers (clx, clg, cld, clc) to $BinDst and $LocalBin"
+    Write-Host "Installed launchers (clx, clg, cld, clo, clc) to $BinDst and $LocalBin"
 }
 
 # 3. Ensure ~/.local/bin is in Windows User Path
@@ -175,6 +175,7 @@ $Profiles = @(
     @{ Name = "claude-clx"; Provider = "Grok" },
     @{ Name = "claude-clg"; Provider = "Gemini/Antigravity" },
     @{ Name = "claude-cld"; Provider = "DeepSeek" },
+    @{ Name = "claude-clo"; Provider = "OpenRouter" },
     @{ Name = "claude-clc"; Provider = "Cursor" }
 )
 
@@ -218,6 +219,11 @@ if (-not (Test-Path $ClxKeyFile)) {
 $CursorKeyFile = Join-Path $SecretsDir "cursor-api.key"
 if (-not (Test-Path $CursorKeyFile)) {
     Write-Host "clc: no $CursorKeyFile yet. Save your crsr_ key there (Cursor Dashboard -> API keys)."
+}
+
+$OpenRouterKeyFile = Join-Path $SecretsDir "openrouter-api.key"
+if (-not (Test-Path $OpenRouterKeyFile)) {
+    Write-Host "clo: no $OpenRouterKeyFile yet. Save your sk-or- key there (OpenRouter Dashboard -> Keys)."
 }
 
 # PowerShell ships `clc` as a ReadOnly AllScope alias for Clear-Content.
@@ -316,13 +322,23 @@ model_costs = {
     "deepseek-v4-pro": {"inputTokens": 1.32, "outputTokens": 3.96, "promptCacheWriteTokens": 1.32, "promptCacheReadTokens": 0.044, "webSearchRequests": 0.01},
     "deepseek-chat": {"inputTokens": 0.30, "outputTokens": 1.20, "promptCacheWriteTokens": 0.30, "promptCacheReadTokens": 0.006, "webSearchRequests": 0.01},
     "deepseek-reasoner": {"inputTokens": 1.32, "outputTokens": 3.96, "promptCacheWriteTokens": 1.32, "promptCacheReadTokens": 0.044, "webSearchRequests": 0.01},
-    "deepseek": {"inputTokens": 0.30, "outputTokens": 1.20, "promptCacheWriteTokens": 0.30, "promptCacheReadTokens": 0.006, "webSearchRequests": 0.01}
+    "deepseek": {"inputTokens": 0.30, "outputTokens": 1.20, "promptCacheWriteTokens": 0.30, "promptCacheReadTokens": 0.006, "webSearchRequests": 0.01},
+
+    # OpenRouter (live /api/v1/models 2026-09-16, USD per MTok)
+    "openai/gpt-5.6-sol[1m]": {"inputTokens": 2.00, "outputTokens": 10.00, "promptCacheWriteTokens": 2.50, "promptCacheReadTokens": 0.20, "webSearchRequests": 0.01},
+    "openai/gpt-5.6-sol": {"inputTokens": 2.00, "outputTokens": 10.00, "promptCacheWriteTokens": 2.50, "promptCacheReadTokens": 0.20, "webSearchRequests": 0.01},
+    "openai/gpt-5.6-terra[1m]": {"inputTokens": 2.00, "outputTokens": 12.00, "promptCacheWriteTokens": 2.50, "promptCacheReadTokens": 0.20, "webSearchRequests": 0.01},
+    "openai/gpt-5.6-luna[1m]": {"inputTokens": 0.20, "outputTokens": 1.20, "promptCacheWriteTokens": 0.25, "promptCacheReadTokens": 0.02, "webSearchRequests": 0.01},
+    "~anthropic/claude-sonnet-latest[1m]": {"inputTokens": 2.00, "outputTokens": 10.00, "promptCacheWriteTokens": 2.50, "promptCacheReadTokens": 0.20, "webSearchRequests": 0.01},
+    "~anthropic/claude-opus-latest[1m]": {"inputTokens": 5.00, "outputTokens": 25.00, "promptCacheWriteTokens": 6.25, "promptCacheReadTokens": 0.50, "webSearchRequests": 0.01},
+    "x-ai/grok-4.6": {"inputTokens": 2.00, "outputTokens": 6.00, "promptCacheWriteTokens": 2.00, "promptCacheReadTokens": 0.50, "webSearchRequests": 0.01}
 }
 
 paths = [
     os.path.expanduser(r"~\.claude-clg\.claude.json"),
     os.path.expanduser(r"~\.claude-clx\.claude.json"),
     os.path.expanduser(r"~\.claude-cld\.claude.json"),
+    os.path.expanduser(r"~\.claude-clo\.claude.json"),
     os.path.expanduser(r"~\.claude-clc\.claude.json"),
     os.path.expanduser(r"~\.claude.json")
 ]
@@ -389,11 +405,12 @@ Write-Host "`n============================================================"
 Write-Host "Installation Completed Successfully!"
 Write-Host "============================================================"
 Write-Host "Part 1 (Worker Bridge): MCP server 'agent-visibility' registered."
-Write-Host "Part 2 (Custom Launchers): clx (Grok), clg (Gemini), cld (DeepSeek), clc (Cursor) ready."
+Write-Host "Part 2 (Custom Launchers): clx (Grok), clg (Gemini), cld (DeepSeek), clo (OpenRouter), clc (Cursor) ready."
 Write-Host "`nTo start a custom session:"
 Write-Host "  clx   -> Grok 4.6 (500k context, Claude Code TUI)"
 Write-Host "  clg   -> Gemini 3.8 Flash / 3.1 Pro (1M context, Claude Code TUI)"
 Write-Host "  cld   -> DeepSeek V4.1 Flash / V4 Pro (1M context, Claude Code TUI)"
+Write-Host "  clo   -> OpenRouter catalog in Claude Code TUI (1M, default Anthropic Sonnet latest)"
 Write-Host "  clc   -> Cursor catalog in Claude Code TUI (1M, translator on 127.0.0.1:8318)"
 Write-Host "         Save crsr_ key to ~/.cc-bridge/secrets/cursor-api.key"
 Write-Host "         If clc still clears a file: Remove-Item Alias:clc -Force; . `$PROFILE"

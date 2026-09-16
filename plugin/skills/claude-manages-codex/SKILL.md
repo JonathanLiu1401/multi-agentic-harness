@@ -52,6 +52,7 @@ clx reported `E2E_NATIVE_AGY=WRONG_MODEL` and ran as `grok-4.6(high)`.
 | **clx** (`~/.claude-clx`, grok 500k) | Agent `subagent_type: "grok"` | agy: `start_visible_agy_worker`. Never Agent `agy-gemini-*`. Never switch to clg or cld. |
 | **clg** (`~/.claude-clg`, Gemini 1M) | Agent `subagent_type: "agy-gemini-3-8-flash"` | grok: `start_visible_grok_worker` (Grok Build CLI). Never Agent `grok`. Never switch to clx or cld. |
 | **cld** (`~/.claude-cld`, DeepSeek 1M) | Agent `subagent_type: "deepseek"` | grok: `start_visible_grok_worker`. agy: `start_visible_agy_worker`. Never switch to clx or clg. |
+| **clo** (`~/.claude-clo`, OpenRouter 1M) | Agent `subagent_type: "openrouter"` | grok: `start_visible_grok_worker`. agy: `start_visible_agy_worker`. Never Agent `grok` / `agy-gemini-*` / `deepseek`. |
 | **clc** (`~/.claude-clc`, Cursor 1M via `127.0.0.1:8318`) | No native Agent types on this profile | Grok workers: `start_visible_grok_worker` / `start_visible_first_mate_grok_pool` (cursor-agent usage exhausted 2026-09-14). Cloud: `start_cursor_cloud_agent` only if the owner names Cloud Agents. Never Agent `grok` / `agy-gemini-*` / `deepseek`. |
 
 **Native subagents are same-family only.** In clx, native `grok` is the grok
