@@ -34,7 +34,7 @@ Official integration: [OpenRouter Claude Code docs](https://openrouter.ai/docs/g
 | `CLAUDE_CODE_MAX_CONTEXT_TOKENS` / `AUTO_COMPACT_WINDOW` | `1000000` | Process-wide 1M. |
 | `CLAUDE_CODE_EFFORT_LEVEL` | unset | So `/effort` maps. |
 | `CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY` | unset | Binary filters ids to `/^(claude\|anthropic)/i`; the picker is `settings.json`. |
-| `ENABLE_TOOL_SEARCH` | `false` | Deferred custom tools 400 on non-Anthropic OpenRouter slugs. |
+| `ENABLE_TOOL_SEARCH` | `auto:9999` | `"false"` is rejected (`expected auto:N`). `auto:N` defers when the tool list exceeds N. Print mode (`-p`) can run Union Alpha; the interactive TUI still 400s non-Anthropic slugs on deferred custom tools (Claude Code 2.1.273). |
 
 ## Key file
 

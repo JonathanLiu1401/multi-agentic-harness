@@ -81,7 +81,16 @@ def _f(value) -> float | None:
 def _mtok(per_token: float | None) -> float:
     if per_token is None:
         return 0.0
-    return round(per_token * 1_000_000.0, 4)
+    usd = round(per_token * 1_000_000.0, 4)
+    if usd != usd:
+        return 0.0
+    # Claude Code rejects rows outside 0..10000 USD/MTok (STT models and
+    # OpenRouter routers that send -1 sentinels).
+    if usd < 0.0:
+        return 0.0
+    if usd > 10000.0:
+        return 10000.0
+    return usd
 
 
 def _ctx(model: dict) -> int:
@@ -219,7 +228,7 @@ def _load_settings() -> dict:
         "skipDangerousModePermissionPrompt": True,
         "theme": "dark",
         "env": {
-            "ENABLE_TOOL_SEARCH": "false",
+            "ENABLE_TOOL_SEARCH": "auto:9999",
             "CLAUDE_CODE_MAX_OUTPUT_TOKENS": "8192",
         },
     }
@@ -251,7 +260,7 @@ def apply(settings: dict, available: list[str], options: list[dict],
     env = settings.get("env")
     if not isinstance(env, dict):
         env = {}
-    env.setdefault("ENABLE_TOOL_SEARCH", "false")
+    env["ENABLE_TOOL_SEARCH"] = "auto:9999"
     env.setdefault("CLAUDE_CODE_MAX_OUTPUT_TOKENS", "8192")
     settings["env"] = env
     return settings
