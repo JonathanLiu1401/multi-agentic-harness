@@ -187,6 +187,10 @@ foreach ($p in $Profiles) {
     if (Test-Path $tplDir) {
         Copy-Item (Join-Path $tplDir "settings.json") (Join-Path $pDir "settings.json") -Force
         Copy-Item (Join-Path $tplDir "CLAUDE.md") (Join-Path $pDir "CLAUDE.md") -Force
+        $cmdSrc = Join-Path $tplDir "commands"
+        if (Test-Path $cmdSrc) {
+            Copy-Item $cmdSrc (Join-Path $pDir "commands") -Recurse -Force
+        }
     }
 
     # Link agents and skills junctions

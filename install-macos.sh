@@ -106,6 +106,10 @@ for prof in claude-clx claude-clg claude-cld claude-clo; do
   if [ -d "$HERE/templates/$prof" ]; then
     cp "$HERE/templates/$prof/settings.json" "$pDir/settings.json"
     cp "$HERE/templates/$prof/CLAUDE.md" "$pDir/CLAUDE.md"
+    if [ -d "$HERE/templates/$prof/commands" ]; then
+      mkdir -p "$pDir/commands"
+      cp "$HERE/templates/$prof/commands/"* "$pDir/commands/"
+    fi
   fi
   [ -e "$pDir/agents" ] || ln -s "$USER_HOME/.claude/agents" "$pDir/agents"
   [ -e "$pDir/skills" ] || ln -s "$USER_HOME/.claude/skills" "$pDir/skills"

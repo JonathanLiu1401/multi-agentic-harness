@@ -108,9 +108,25 @@ def _ctx(model: dict) -> int:
 
 
 def _picker_id(mid: str, ctx: int) -> str:
-    if ctx >= 1_000_000 and not mid.endswith("[1m]"):
-        return mid + "[1m]"
-    return mid
+    # Claude Code assumes 200k unless the id ends in [1m]. Pin every row to
+    # 1M so 1M OpenRouter models are not clipped. Native size goes in the
+    # description; OpenRouter strips [1m] before routing.
+    if mid.endswith("[1m]"):
+        return mid
+    return mid + "[1m]"
+
+
+def _ctx_label(ctx: int) -> str:
+    if ctx >= 1_000_000:
+        m = ctx / 1_000_000
+        if abs(m - round(m)) < 0.05:
+            return f"{int(round(m))}M native"
+        return f"{m:.1f}M native"
+    if ctx >= 1000:
+        return f"{ctx // 1000}k native"
+    if ctx > 0:
+        return f"{ctx} native"
+    return "native ctx unknown"
 
 
 def _behaves_as(mid: str, name: str) -> str:
@@ -166,8 +182,7 @@ def build_picker(catalog: list[dict]) -> tuple[list[str], list[dict], dict, dict
         pid = _picker_id(mid, ctx)
         name = (model.get("name") or mid).strip()
         mods = _modalities(model)
-        ctx_label = f"{ctx // 1000}k ctx" if ctx else "ctx unknown"
-        desc = f"{name} via OpenRouter - {ctx_label}"
+        desc = f"{name} via OpenRouter - {_ctx_label(ctx)} (TUI 1M)"
         if mods != "text":
             desc += f" ({mods})"
         available.append(pid)
@@ -193,7 +208,14 @@ def build_picker(catalog: list[dict]) -> tuple[list[str], list[dict], dict, dict
         costs[pid] = cost
         if pid != mid:
             costs[mid] = cost
+    options.sort(key=lambda o: (_company(o["model"]), (o.get("label") or "").lower()))
+    available = [o["model"] for o in options]
     return available, options, overrides, costs
+
+
+def _company(mid: str) -> str:
+    bare = mid.replace("[1m]", "").lstrip("~")
+    return bare.split("/", 1)[0].lower() if "/" in bare else bare.lower()
 
 
 def _pick_default(available: list[str], previous: str | None) -> str:
@@ -248,6 +270,7 @@ def apply(settings: dict, available: list[str], options: list[dict],
     settings["model"] = default
     settings["availableModels"] = available
     settings["enforceAvailableModels"] = True
+    settings["autoCompactWindow"] = 1000000
     picker = settings.get("modelPicker")
     if not isinstance(picker, dict):
         picker = {}
@@ -290,7 +313,48 @@ def apply_cost_cache(costs: dict) -> None:
     _write_json(LIVE_CACHE, data)
 
 
-def main() -> int:
+def search_catalog(query: str, catalog: list[dict]) -> list[dict]:
+    q = " ".join(query.lower().split())
+    if not q:
+        return []
+    terms = q.split()
+    hits: list[dict] = []
+    for model in catalog:
+        blob = " ".join(
+            str(model.get(k) or "")
+            for k in ("id", "name", "description", "canonical_slug")
+        ).lower()
+        if all(t in blob for t in terms):
+            hits.append(model)
+    return hits
+
+
+def print_search(query: str, catalog: list[dict]) -> int:
+    hits = search_catalog(query, catalog)
+    if not hits:
+        print(f"clo: no OpenRouter models matching {query!r}")
+        return 0
+    print(f"clo: {len(hits)} match(es) for {query!r} (popularity order)")
+    print("Use /model then paste the id. In the picker, press / to type-filter.")
+    for i, model in enumerate(hits[:25], 1):
+        ctx = _ctx(model)
+        pid = _picker_id(model.get("id") or "", ctx)
+        name = (model.get("name") or pid).strip()
+        print(f"  {i:2d}. {name}")
+        print(f"      {pid}  ({_ctx_label(ctx)})")
+    if len(hits) > 25:
+        print(f"  ... {len(hits) - 25} more. Narrow the query.")
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = list(sys.argv[1:] if argv is None else argv)
+    search_q = None
+    if args and args[0] in ("--search", "-s"):
+        search_q = " ".join(args[1:]).strip()
+        if not search_q:
+            print("clo: usage: refresh_clo_models.py --search <query>", file=sys.stderr)
+            return 2
     key = _read_key()
     if not key:
         print("clo: no OpenRouter key; skip catalog refresh", file=sys.stderr)
@@ -303,6 +367,8 @@ def main() -> int:
     if not catalog:
         print("clo: empty OpenRouter catalog; using previous picker", file=sys.stderr)
         return 0
+    if search_q is not None:
+        return print_search(search_q, catalog)
     available, options, overrides, costs = build_picker(catalog)
     settings = _load_settings()
     previous = settings.get("model") if isinstance(settings.get("model"), str) else None

@@ -65,7 +65,17 @@ popularity order (599 on 2026-09-16).
 Set `CLO_SKIP_MODEL_REFRESH=1` to reuse the last picker. A failed fetch
 keeps the previous settings so `clo` still starts.
 
-`[1m]` is appended when OpenRouter reports `context_length >= 1000000`.
+Every picker id gets `[1m]` so Claude Code uses a 1M TUI window (it
+assumes 200k otherwise). The row description shows OpenRouter's real
+native context (`1M native`, `262k native`, ...).
+
+The picker is A-Z by company (the `nvidia/` / `openai/` prefix), then
+name. Search:
+
+- In `/model`, press `/` to type-filter.
+- `/or nemotron` runs `refresh_clo_models.py --search` against the live
+  catalog.
+
 `behavesAs` maps Opus/Sonnet/Haiku/Fable families; everything else uses
 `claude-sonnet-5` client handling.
 

@@ -45,19 +45,14 @@ $env:ANTHROPIC_AUTH_TOKEN = $Key
 $env:ANTHROPIC_API_KEY = ""
 $env:OPENROUTER_API_KEY = $Key
 
-$env:ANTHROPIC_MODEL = "~anthropic/claude-sonnet-latest[1m]"
-$env:ANTHROPIC_DEFAULT_MODEL = "~anthropic/claude-sonnet-latest[1m]"
-$env:ANTHROPIC_CUSTOM_MODEL_OPTION = "~anthropic/claude-sonnet-latest[1m]"
-$env:ANTHROPIC_CUSTOM_MODEL_OPTION_NAME = "Claude Sonnet latest"
-$env:ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION = "Anthropic Sonnet latest via OpenRouter (1M ctx)"
-$env:ANTHROPIC_CUSTOM_MODEL_OPTION_SUPPORTED_CAPABILITIES = "effort,max_effort,thinking"
+# Do not pin ANTHROPIC_MODEL. /model persist writes settings.json; an env pin
+# makes every new session ignore that and snap back to Sonnet latest.
 
 $env:CLAUDE_CODE_MAX_CONTEXT_TOKENS = "1000000"
 $env:CLAUDE_CODE_AUTO_COMPACT_WINDOW = "1000000"
 $env:CLAUDE_CODE_MAX_OUTPUT_TOKENS = "8192"
 $env:CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = "1"
 $env:CLAUDE_CODE_SKIP_FAST_MODE_ORG_CHECK = "1"
-$env:CLAUDE_CODE_SUBAGENT_MODEL = "~anthropic/claude-sonnet-latest[1m]"
 # Do NOT set ENABLE_TOOL_SEARCH. A custom ANTHROPIC_BASE_URL already
 # disables optimistic tool-search ("not a first-party Anthropic host").
 # auto / auto:N / true re-enables deferral and 400s Union Alpha / GPT.
