@@ -128,11 +128,12 @@ fi
 if [ ! -f "$SECRETS_DIR/openrouter-api.key" ]; then
   echo "clo: no $SECRETS_DIR/openrouter-api.key yet. Save your sk-or- key there (OpenRouter Dashboard -> Keys)."
 fi
-if [ -f "$HERE/gateway/refresh_clo_models.py" ]; then
-  mkdir -p "$USER_HOME/.cc-bridge"
-  cp "$HERE/gateway/refresh_clo_models.py" "$USER_HOME/.cc-bridge/refresh_clo_models.py"
-  echo "Installed clo OpenRouter catalog refresher: $USER_HOME/.cc-bridge/refresh_clo_models.py"
-fi
+mkdir -p "$USER_HOME/.cc-bridge"
+for fn in refresh_clo_models.py clo_or_hook.py; do
+  if [ -f "$HERE/gateway/$fn" ]; then
+    cp "$HERE/gateway/$fn" "$USER_HOME/.cc-bridge/$fn"
+  fi
+done
 
 # 5. Inject pricing cache into .claude.json files
 # Official published rates (September 2026):

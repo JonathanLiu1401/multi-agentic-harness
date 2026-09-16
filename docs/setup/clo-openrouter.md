@@ -73,8 +73,12 @@ The picker is A-Z by company (the `nvidia/` / `openai/` prefix), then
 name. Search:
 
 - In `/model`, press `/` to type-filter.
-- `/or nemotron` runs `refresh_clo_models.py --search` against the live
-  catalog.
+- `/or nemotron` is a UserPromptSubmit hook (no LLM call, so it still
+  works when the key is out of inference credits).
+
+Do not start `clo` from `C:\Users\jonny`. That directory's `.claude\settings.json`
+is treated as project settings and pins Opus 5 over the clo picker. Start from
+a project folder instead.
 
 `behavesAs` maps Opus/Sonnet/Haiku/Fable families; everything else uses
 `claude-sonnet-5` client handling.

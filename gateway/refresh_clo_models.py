@@ -286,10 +286,42 @@ def apply(settings: dict, available: list[str], options: list[dict],
     if not isinstance(env, dict):
         env = {}
     env.pop("ENABLE_TOOL_SEARCH", None)
-    env.setdefault("CLAUDE_CODE_MAX_OUTPUT_TOKENS", "8192")
+    env["CLAUDE_CODE_MAX_OUTPUT_TOKENS"] = "8192"
     env["CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS"] = "1"
     settings["env"] = env
+    _ensure_or_hook(settings)
     return settings
+
+
+def _ensure_or_hook(settings: dict) -> None:
+    hook_py = Path.home() / ".cc-bridge" / "clo_or_hook.py"
+    cmd = f'py -3 "{hook_py}"'
+    hooks = settings.get("hooks")
+    if not isinstance(hooks, dict):
+        hooks = {}
+    entries = hooks.get("UserPromptSubmit")
+    if not isinstance(entries, list):
+        entries = []
+    kept = []
+    for entry in entries:
+        blob = json.dumps(entry)
+        if "clo_or_hook.py" in blob or "/or" in blob:
+            continue
+        kept.append(entry)
+    kept.append(
+        {
+            "hooks": [
+                {
+                    "type": "command",
+                    "command": cmd,
+                    "timeout": 30,
+                    "statusMessage": "Searching OpenRouter catalog",
+                }
+            ]
+        }
+    )
+    hooks["UserPromptSubmit"] = kept
+    settings["hooks"] = hooks
 
 
 def apply_cost_cache(costs: dict) -> None:
