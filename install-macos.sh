@@ -218,7 +218,7 @@ fi
 if [ ! -f "$SECRETS_DIR/cursor-api.key" ]; then
   echo "clc: no $SECRETS_DIR/cursor-api.key yet. Save your crsr_ key there (Cursor Dashboard -> API keys)."
 fi
-for fn in refresh_clo_models.py clo_or_hook.py start-gateway.sh stop-gateway.sh start-clc-gateway.sh; do
+for fn in refresh_clo_models.py clo_or_hook.py ddg_search_server.py start-gateway.sh stop-gateway.sh start-clc-gateway.sh; do
   if [ -f "$HERE/gateway/$fn" ]; then
     cp "$HERE/gateway/$fn" "$USER_HOME/.cc-bridge/$fn"
     case "$fn" in *.sh) chmod +x "$USER_HOME/.cc-bridge/$fn" ;; esac

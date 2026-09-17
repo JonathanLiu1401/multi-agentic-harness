@@ -109,3 +109,11 @@ types inherit this profile's model.
 - PowerShell / CMD: `~/bin/clo.ps1` via `~/.local/bin/clo.cmd`
 - Default flag: `--dangerously-skip-permissions` (override with
   `--permission-mode ...`)
+
+## Web search (free DuckDuckGo MCP tool)
+
+Built-in OpenRouter `WebSearch` is disabled in `disabledBuiltinTools` to avoid
+OpenRouter server-side plugin fees (Exa / search billing). Web searches use
+the local DuckDuckGo MCP tool (`mcp__duckduckgo__duckduckgo_search` or
+`mcp__duckduckgo__web_search`), backed by `~/.cc-bridge/ddg_search_server.py`.
+It is completely free, fast, and consumes zero OpenRouter credits.

@@ -278,7 +278,7 @@ if (Test-Path $GatewaySrc) {
 }
 
 New-Item -ItemType Directory -Force -Path (Join-Path $UserHome ".cc-bridge") | Out-Null
-foreach ($fn in @("refresh_clo_models.py", "clo_or_hook.py")) {
+foreach ($fn in @("refresh_clo_models.py", "clo_or_hook.py", "ddg_search_server.py")) {
     $src = Join-Path $Here "gateway\$fn"
     if (Test-Path $src) {
         Copy-Item $src (Join-Path $UserHome ".cc-bridge\$fn") -Force

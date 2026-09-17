@@ -21,3 +21,11 @@ Agent runtime. Cross-family work routes through visible CLI terminals.
 `/claude-manages-codex` still fans out to Grok workers
 (`start_visible_first_mate_grok_pool` / `start_visible_grok_worker`), never
 native Claude Agent types.
+
+## Web search (free DuckDuckGo MCP tool)
+
+Built-in OpenRouter `WebSearch` is disabled in `disabledBuiltinTools` to avoid
+OpenRouter server-side plugin fees (Exa / search billing). Web searches use
+the local DuckDuckGo MCP tool (`mcp__duckduckgo__duckduckgo_search` or
+`mcp__duckduckgo__web_search`), which is free, fast, and consumes zero OpenRouter credits.
+

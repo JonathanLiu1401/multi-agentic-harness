@@ -289,8 +289,44 @@ def apply(settings: dict, available: list[str], options: list[dict],
     env["CLAUDE_CODE_MAX_OUTPUT_TOKENS"] = "8192"
     env["CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS"] = "1"
     settings["env"] = env
+    settings["disabledBuiltinTools"] = ["WebSearch"]
+    perms = settings.setdefault("permissions", {})
+    if isinstance(perms, dict):
+        allow = perms.setdefault("allow", [])
+        if isinstance(allow, list):
+            for t in ["mcp__duckduckgo__duckduckgo_search", "mcp__duckduckgo__web_search"]:
+                if t not in allow:
+                    allow.append(t)
     _ensure_or_hook(settings)
+    _ensure_duckduckgo_mcp(settings)
     return settings
+
+
+def _ensure_duckduckgo_mcp(settings: dict) -> None:
+    server_py = Path.home() / ".cc-bridge" / "ddg_search_server.py"
+    cmd = "py" if sys.platform == "win32" else "python3"
+    args = ["-3", str(server_py)] if sys.platform == "win32" else [str(server_py)]
+    entry = {"command": cmd, "args": args}
+
+    clo_claude_json = Path.home() / ".claude-clo" / ".claude.json"
+    if clo_claude_json.is_file():
+        try:
+            data = json.loads(clo_claude_json.read_text(encoding="utf-8"))
+        except Exception:
+            data = {}
+    else:
+        data = {}
+
+    mcp_servers = data.setdefault("mcpServers", {})
+    if not isinstance(mcp_servers, dict):
+        mcp_servers = {}
+        data["mcpServers"] = mcp_servers
+    mcp_servers["duckduckgo"] = entry
+    _write_json(clo_claude_json, data)
+
+    settings_mcp = settings.setdefault("mcpServers", {})
+    if isinstance(settings_mcp, dict):
+        settings_mcp["duckduckgo"] = entry
 
 
 def _ensure_or_hook(settings: dict) -> None:

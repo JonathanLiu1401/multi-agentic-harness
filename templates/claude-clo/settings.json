@@ -331,6 +331,15 @@
     }
   },
   "effortLevel": "high",
+  "disabledBuiltinTools": [
+    "WebSearch"
+  ],
+  "permissions": {
+    "allow": [
+      "mcp__duckduckgo__duckduckgo_search",
+      "mcp__duckduckgo__web_search"
+    ]
+  },
   "skipDangerousModePermissionPrompt": true,
   "theme": "dark",
   "statusLine": {
