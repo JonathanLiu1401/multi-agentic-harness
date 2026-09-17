@@ -46,7 +46,7 @@ $env:ANTHROPIC_API_KEY = ""
 $env:OPENROUTER_API_KEY = $Key
 
 # Do not pin ANTHROPIC_MODEL. /model persist writes settings.json; an env pin
-# makes every new session ignore that and snap back to Sonnet latest.
+# makes every new session ignore that and snap back to Union Alpha.
 
 $env:CLAUDE_CODE_MAX_CONTEXT_TOKENS = "1000000"
 $env:CLAUDE_CODE_AUTO_COMPACT_WINDOW = "1000000"

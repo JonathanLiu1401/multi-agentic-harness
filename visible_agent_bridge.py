@@ -4936,7 +4936,7 @@ HARNESS_DEFAULT_MODELS = {
     "clx": "grok-4.6(high)",
     "clg": "gemini-3.8-flash-high(high)",
     "cld": "deepseek-flash[1m]",
-    "clo": "nvidia/nemotron-3.5-lightning:free[1m]",
+    "clo": "stealth/union-alpha[1m]",
     "clc": "grok-4.6-fast",
 }
 
@@ -5269,7 +5269,7 @@ def start_claude_worker(
     - 'clx': Grok via CLIProxyAPI (~/.claude-clx, default: grok-4.6(high))
     - 'clg': Gemini via CLIProxyAPI (~/.claude-clg, default: gemini-3.8-flash-high(high))
     - 'cld': DeepSeek (~/.claude-cld, default: deepseek-flash[1m])
-    - 'clo': OpenRouter (~/.claude-clo, default: nvidia/nemotron-3.5-lightning:free[1m])
+    - 'clo': OpenRouter (~/.claude-clo, default: stealth/union-alpha[1m])
     - 'clc': Cursor via local translator (~/.claude-clc, default: grok-4.6-fast)
 
     When visible=True, the worker is launched in a visible console window so

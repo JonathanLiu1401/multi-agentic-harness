@@ -16,7 +16,7 @@ and talk directly to `api.anthropic.com`.
 | `clx` | xAI Grok | Grok 4.6 (xhigh/high/medium/low), 4.5 | 500k tokens | `~/.claude-clx` |
 | `clg` | Antigravity (Gemini) | Gemini 3.8 Flash high, 3.1 Pro, 3.7/3.6 Flash | 1M tokens | `~/.claude-clg` |
 | `cld` | DeepSeek | DeepSeek V4.1 Flash, DeepSeek V4 Pro | 1M tokens | `~/.claude-cld` |
-| `clo` | OpenRouter | Live OpenRouter catalog (all modalities; Sonnet latest default) | 1M tokens | `~/.claude-clo` |
+| `clo` | OpenRouter | Live OpenRouter catalog (Union Alpha default) | 1M tokens | `~/.claude-clo` |
 | `clc` | Cursor | Live Cursor catalog (Grok 4.6 Fast default) | 1M (process-wide) | `~/.claude-clc` |
 
 ## Files in this Directory

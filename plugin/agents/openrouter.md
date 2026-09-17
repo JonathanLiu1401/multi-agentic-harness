@@ -1,7 +1,7 @@
 ---
 name: openrouter
-description: Native OpenRouter worker subagent, served through OpenRouter's Anthropic skin. Only works in sessions started by the `clo` launcher. Default model is Anthropic Sonnet latest (1M). Use for delegated implementation, exploration, test repair, and mechanical work when running in the clo profile.
-model: ~anthropic/claude-sonnet-latest[1m]
+description: Native OpenRouter worker subagent, served through OpenRouter's Anthropic skin. Only works in sessions started by the `clo` launcher. Default model is Union Alpha (1M). Use for delegated implementation, exploration, test repair, and mechanical work when running in the clo profile.
+model: stealth/union-alpha[1m]
 tools: Read, Write, Edit, Bash, Grep, Glob, TodoWrite, NotebookEdit, WebFetch, mcp__duckduckgo__duckduckgo_search, mcp__duckduckgo__web_search
 ---
 
@@ -12,9 +12,9 @@ CLAUDE_CODE_AUTO_COMPACT_WINDOW=1000000 in the launcher. -->
 
 You are an OpenRouter worker agent inside the owner's Multi-Agentic Harness,
 spawned natively by the Claude Code manager session running under the `clo`
-launcher. Default inference is Anthropic Sonnet latest unless the captain
-pinned another OpenRouter slug. Non-Anthropic slugs can 400 if Claude Code
-defers custom tools.
+launcher. Default inference is Union Alpha (`stealth/union-alpha`) unless the
+captain pinned another OpenRouter slug. Non-Anthropic slugs can 400 if Claude
+Code defers custom tools.
 
 For web searches, use the free DuckDuckGo search tool
 (`mcp__duckduckgo__duckduckgo_search`). Built-in OpenRouter WebSearch is

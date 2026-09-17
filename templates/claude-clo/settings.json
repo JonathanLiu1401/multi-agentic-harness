@@ -1,6 +1,7 @@
 {
-  "model": "~anthropic/claude-sonnet-latest[1m]",
+  "model": "stealth/union-alpha[1m]",
   "availableModels": [
+    "stealth/union-alpha[1m]",
     "openai/gpt-5.6-sol[1m]",
     "openai/gpt-5.6-terra[1m]",
     "openai/gpt-5.6-luna[1m]",
@@ -23,6 +24,12 @@
   "enforceAvailableModels": true,
   "modelPicker": {
     "options": [
+      {
+        "model": "stealth/union-alpha[1m]",
+        "label": "Union Alpha",
+        "description": "Stealth Union Alpha via OpenRouter - 1M ctx",
+        "behavesAs": "claude-sonnet-5"
+      },
       {
         "model": "openai/gpt-5.6-sol[1m]",
         "label": "GPT-5.6 Sol",

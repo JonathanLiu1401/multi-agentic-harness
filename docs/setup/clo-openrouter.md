@@ -14,7 +14,7 @@ Official integration: [OpenRouter Claude Code docs](https://openrouter.ai/docs/g
 | --- | --- |
 | Command | `clo` |
 | Provider | OpenRouter |
-| Default model | `~anthropic/claude-sonnet-latest[1m]` |
+| Default model | `stealth/union-alpha[1m]` |
 | Config dir | `~/.claude-clo` |
 | Context | 1M process-wide |
 | Base URL | `https://openrouter.ai/api` (no `/v1`) |
@@ -88,8 +88,7 @@ first-party. Direct `POST /api/v1/messages` works for GPT-5.6 Sol, but
 Do not set `ENABLE_TOOL_SEARCH`. The custom base URL already disables
 optimistic tool-search. Verified 2026-09-16 in the real TUI: `clo --model
 stealth/union-alpha` answered `UNION_ALPHA_OK` in 11s with no 400. Default
-stays `~anthropic/claude-sonnet-latest[1m]`; `/model` can pick Union Alpha
-or any other catalog slug.
+is `stealth/union-alpha[1m]`; `/model` can pick any other catalog slug.
 
 ## Subagent locality
 

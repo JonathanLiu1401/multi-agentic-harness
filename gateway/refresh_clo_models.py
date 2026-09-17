@@ -22,11 +22,19 @@ CATALOG_URL = (
     "?output_modalities=all&limit=1000&sort=most-popular"
 )
 PREFERRED_DEFAULTS = (
+    "stealth/union-alpha",
     "~anthropic/claude-sonnet-latest",
     "anthropic/claude-sonnet-5",
     "anthropic/claude-sonnet-4.6",
     "anthropic/claude-sonnet-4.5",
 )
+# Old installer defaults. Do not treat these as a user /model persist.
+LEGACY_DEFAULTS = frozenset({
+    "~anthropic/claude-sonnet-latest",
+    "~anthropic/claude-sonnet-latest[1m]",
+    "nvidia/nemotron-3.5-lightning:free",
+    "nvidia/nemotron-3.5-lightning:free[1m]",
+})
 KEY_FILE = Path.home() / ".cc-bridge" / "secrets" / "openrouter-api.key"
 LIVE_SETTINGS = Path.home() / ".claude-clo" / "settings.json"
 LIVE_CACHE = Path.home() / ".claude-clo" / ".claude.json"
@@ -253,7 +261,9 @@ def _company(mid: str) -> str:
 def _pick_default(available: list[str], previous: str | None) -> str:
     ids = set(available)
     bare = {i.replace("[1m]", ""): i for i in available}
-    if previous:
+    if previous and previous not in LEGACY_DEFAULTS and previous.replace("[1m]", "") not in {
+        x.replace("[1m]", "") for x in LEGACY_DEFAULTS
+    }:
         if previous in ids:
             return previous
         b = previous.replace("[1m]", "")
@@ -267,7 +277,7 @@ def _pick_default(available: list[str], previous: str | None) -> str:
         for aid in available:
             if aid.replace("[1m]", "").startswith(pref):
                 return aid
-    return available[0] if available else "~anthropic/claude-sonnet-latest[1m]"
+    return available[0] if available else "stealth/union-alpha[1m]"
 
 
 def _load_settings() -> dict:

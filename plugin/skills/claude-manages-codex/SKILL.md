@@ -20,7 +20,7 @@ Use this session's model as captain (Claude on plain `claude`, grok on `clx`, Ge
 1. **YOU MUST OFFLOAD TO WORKER HARNESSES (Grok, OpenRouter, Gemini, DeepSeek, Cursor).**
 2. **YOU MUST NEVER SPAWN NATIVE ANTHROPIC CLAUDE `Agent` SUBAGENTS!** Spawning native Claude subagents inside a plain Anthropic session consumes the user's Anthropic session limits and burns token quotas, which directly violates the purpose of invoking `/claude-manages-codex`.
 3. **Choose the worker harness matched to the task:**
-   - **OpenRouter / Router models (`clo`):** Call `start_claude_worker(harness="clo", model="nvidia/nemotron-3.5-lightning:free[1m]")` or `start_visible_claude_worker(harness="clo", model="...")`. 1M context, access to OpenRouter catalog including free models like Nemotron 3.5 Lightning.
+   - **OpenRouter / Router models (`clo`):** Call `start_claude_worker(harness="clo")` or `start_visible_claude_worker(harness="clo")`. Default model is `stealth/union-alpha[1m]`. 1M context; pass `model=` for any other OpenRouter slug.
    - **Grok workers (`clx` or native Grok):** Call `start_claude_worker(harness="clx")` / `start_visible_claude_worker(harness="clx")`, or native `start_visible_first_mate_grok_pool` / `start_visible_grok_worker`.
    - **Gemini / Antigravity workers (`clg` or native agy):** Call `start_claude_worker(harness="clg")` / `start_visible_claude_worker(harness="clg")`, or native `start_visible_agy_worker`. 1M context.
    - **DeepSeek workers (`cld`):** Call `start_claude_worker(harness="cld")` / `start_visible_claude_worker(harness="cld")`. 1M context.
@@ -66,7 +66,7 @@ Context windows:
 
 | When | How to spawn | How to steer |
 | --- | --- | --- |
-| **OpenRouter / Router workers (Nemotron, open models)** | `start_claude_worker(harness="clo", model="nvidia/nemotron-3.5-lightning:free[1m]")` or `start_visible_claude_worker(harness="clo")` | `steer_claude_run` |
+| **OpenRouter / Router workers (Union Alpha, catalog models)** | `start_claude_worker(harness="clo")` or `start_visible_claude_worker(harness="clo")` | `steer_claude_run` |
 | **Grok Claude Code worker** | `start_claude_worker(harness="clx")` or `start_visible_claude_worker(harness="clx")` | `steer_claude_run` |
 | **Grok native CLI terminal worker** | `start_visible_grok_worker` / `start_visible_first_mate_grok_pool` | `steer_visible_grok_run` |
 | **Gemini / Antigravity Claude Code worker** | `start_claude_worker(harness="clg")` or `start_visible_claude_worker(harness="clg")` | `steer_claude_run` |
@@ -146,7 +146,7 @@ Unless the owner says otherwise:
 
 `start_claude_worker` (headless) and `start_visible_claude_worker` (visible console window) spawn native Claude Code workers across ANY provider harness profile. Workers run under Claude Code CLI's native tool execution engine while routing inference to the configured provider:
 
-- `harness="clo"`: OpenRouter router with access to live catalog models (1M context). Default model: `nvidia/nemotron-3.5-lightning:free[1m]`. Accepts any OpenRouter model slug (e.g. `openai/gpt-5.6-sol`, `~anthropic/claude-sonnet-latest[1m]`, etc.).
+- `harness="clo"`: OpenRouter router with access to live catalog models (1M context). Default model: `stealth/union-alpha[1m]`. Accepts any OpenRouter model slug (e.g. `openai/gpt-5.6-sol`, `~anthropic/claude-sonnet-latest[1m]`, etc.).
 - `harness="clx"`: xAI Grok via local CLIProxyAPI on `127.0.0.1:8317` (500k context). Default model: `grok-4.6(high)`.
 - `harness="clg"`: Antigravity Gemini via local CLIProxyAPI on `127.0.0.1:8317` (1M context). Default model: `gemini-3.8-flash-high(high)`.
 - `harness="cld"`: DeepSeek via `api.deepseek.com/anthropic` (1M context). Default model: `deepseek-flash[1m]`.

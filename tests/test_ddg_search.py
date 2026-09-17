@@ -61,6 +61,19 @@ def test_empty_query_rejected() -> None:
     assert duckduckgo_search("   ") == "Error: query is empty."
 
 
+def test_clo_default_is_union_alpha() -> None:
+    from gateway.refresh_clo_models import _pick_default
+
+    available = [
+        "openai/gpt-5.6-sol[1m]",
+        "stealth/union-alpha[1m]",
+        "~anthropic/claude-sonnet-latest[1m]",
+    ]
+    assert _pick_default(available, None) == "stealth/union-alpha[1m]"
+    assert _pick_default(available, "~anthropic/claude-sonnet-latest[1m]") == "stealth/union-alpha[1m]"
+    assert _pick_default(available, "openai/gpt-5.6-sol[1m]") == "openai/gpt-5.6-sol[1m]"
+
+
 def test_clo_python_is_not_frameworks_37() -> None:
     """Intel Mac PATH python3 is often python.org 3.7; clo MCP must not use it."""
     from gateway.refresh_clo_models import _clo_python, _ensure_duckduckgo_mcp

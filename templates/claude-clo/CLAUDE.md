@@ -5,7 +5,7 @@ This session is `clo`: `CLAUDE_CONFIG_DIR=~/.claude-clo`, base URL
 (`CLAUDE_CODE_MAX_CONTEXT_TOKENS` and `CLAUDE_CODE_AUTO_COMPACT_WINDOW`
 both 1000000).
 
-You are an OpenRouter-hosted model (default Anthropic Sonnet latest). When
+You are an OpenRouter-hosted model (default Union Alpha, `stealth/union-alpha`). When
 `/claude-manages-codex` (Multi-Agentic Harness) is active:
 
 - OpenRouter work: native Agent-tool subagent `openrouter`.
