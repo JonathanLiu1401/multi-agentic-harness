@@ -91,8 +91,13 @@ mkdir -p "$CLAUDE_CONFIG_DIR"
 if ! curl -fsS -m 3 -o /dev/null "$GATEWAY/v1/models" \
      -H "Authorization: Bearer $ANTHROPIC_AUTH_TOKEN" 2>/dev/null; then
   echo "clx: gateway not responding at $GATEWAY" >&2
-  echo "clx: start it with:  powershell -NoProfile -Command \"Start-ScheduledTask -TaskName CLIProxyAPI\"" >&2
-  echo "clx: (or run ~/cliproxyapi/start-gateway.ps1 directly)" >&2
+  if [ "$(uname -s)" = Darwin ]; then
+    echo "clx: start it with:  brew services start cliproxyapi" >&2
+    echo "clx: (or $HOME/.cc-bridge/start-gateway.sh)" >&2
+  else
+    echo "clx: start it with:  powershell -NoProfile -Command \"Start-ScheduledTask -TaskName CLIProxyAPI\"" >&2
+    echo "clx: (or run ~/cliproxyapi/start-gateway.ps1 directly)" >&2
+  fi
   exit 1
 fi
 

@@ -19,8 +19,13 @@ powershell -ExecutionPolicy Bypass -File install-windows.ps1
 ### macOS / Linux (Bash)
 Run from the repository root:
 ```bash
+./uninstall-macos.sh   # if a previous copy is installed (Jul-2026 Windows-oriented deploy)
 ./install-macos.sh
 ```
+
+On **Intel Macs** (`x86_64`, Homebrew `/usr/local`): the installer refuses python.org 3.7,
+opens visible workers in Terminal.app, and talks to Homebrew `cliproxyapi`. Details:
+[`docs/setup/macos-intel.md`](docs/setup/macos-intel.md).
 
 ### What the Installer Configures Automatically
 1. **Part 1 (Worker Bridge)**:

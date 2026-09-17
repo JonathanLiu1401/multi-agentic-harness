@@ -57,8 +57,12 @@ mkdir -p "$CLAUDE_CONFIG_DIR"
 
 if ! curl -fsS -m 2 -o /dev/null "$GATEWAY/health" 2>/dev/null; then
   echo "clc: gateway not responding at $GATEWAY" >&2
-  echo "clc: start it with:  powershell.exe -NoProfile -Command \"Start-ScheduledTask -TaskName CLCCursorGateway\"" >&2
-  echo "clc: (or run ~/github-tools/multi-agentic-harness/gateway/start-clc-gateway.ps1)" >&2
+  if [ "$(uname -s)" = Darwin ]; then
+    echo "clc: start it with:  $HOME/.cc-bridge/start-clc-gateway.sh" >&2
+  else
+    echo "clc: start it with:  powershell.exe -NoProfile -Command \"Start-ScheduledTask -TaskName CLCCursorGateway\"" >&2
+    echo "clc: (or run ~/github-tools/multi-agentic-harness/gateway/start-clc-gateway.ps1)" >&2
+  fi
   exit 1
 fi
 

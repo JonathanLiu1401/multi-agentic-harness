@@ -5,7 +5,9 @@ import datetime as _dt
 import functools
 import json
 import os
+import platform
 import re
+import shlex
 import shutil
 import signal
 import subprocess
@@ -58,7 +60,14 @@ def _resolve_cli(env_var: str, names: tuple[str, ...], *fallbacks: str) -> Path:
 
 
 CODEX = _resolve_cli("BRIDGE_CODEX_CLI", ("codex", "codex.cmd"), r"C:\Users\jonny\AppData\Roaming\npm\codex.cmd")
-CLAUDE = _resolve_cli("BRIDGE_CLAUDE_CLI", ("claude", "claude.exe"), "~/.local/bin/claude", r"C:\Users\jonny\.local\bin\claude.exe")
+CLAUDE = _resolve_cli(
+    "BRIDGE_CLAUDE_CLI",
+    ("claude", "claude.exe"),
+    "~/.local/bin/claude",
+    "/usr/local/bin/claude",
+    "/opt/homebrew/bin/claude",
+    r"C:\Users\jonny\.local\bin\claude.exe",
+)
 PYTHON = Path(os.environ.get("BRIDGE_PYTHON", "").strip() or sys.executable)
 READ_PAST_SESSIONS_SKILL = _resolve_cli(
     "BRIDGE_READ_PAST_SESSIONS",
@@ -895,14 +904,68 @@ def _supervise_command(run_dir: Path, cwd: str | None = None) -> str:
 
 
 def _launch(script_path: Path) -> int:
-    flags = 0x00000010 if os.name == "nt" else 0
-    proc = subprocess.Popen(
-        ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script_path)],
-        cwd=str(script_path.parent),
-        creationflags=flags,
-    )
-    _LAUNCHED_PIDS.append(int(proc.pid))
-    return int(proc.pid)
+    """Launch a visible worker. Windows uses PowerShell; POSIX uses Python runners in Terminal.app."""
+    if os.name == "nt":
+        flags = 0x00000010
+        proc = subprocess.Popen(
+            ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script_path)],
+            cwd=str(script_path.parent),
+            creationflags=flags,
+        )
+        _LAUNCHED_PIDS.append(int(proc.pid))
+        return int(proc.pid)
+    return _launch_posix_script(script_path)
+
+
+def _posix_python_runner_for(run_dir: Path) -> Path | None:
+    """Pick the stdlib runner that replaces run.ps1 on macOS/Linux."""
+    metadata_path = run_dir / "metadata.json"
+    agent = ""
+    if metadata_path.is_file():
+        try:
+            agent = str((_read_json(metadata_path, {}) or {}).get("agent") or "").strip().lower()
+        except Exception:
+            agent = ""
+    here = Path(__file__).resolve().parent
+    mapping = {
+        "grok": here / "grok_worker_runner.py",
+        "agy": here / "agy_worker_runner.py",
+        "cursor": here / "cursor_worker_runner.py",
+        "claude": here / "claude_worker_runner.py",
+    }
+    runner = mapping.get(agent)
+    if runner and runner.is_file():
+        return runner
+    return None
+
+
+def _launch_posix_script(script_path: Path) -> int:
+    run_dir = script_path.parent
+    runner = _posix_python_runner_for(run_dir)
+    if runner is not None:
+        return _launch_visible_python(runner, run_dir)
+    argv = ["bash", str(script_path)] if script_path.suffix in {".sh", ".command", ""} else [str(PYTHON), str(script_path)]
+    if script_path.suffix == ".ps1":
+        pwsh = shutil.which("pwsh")
+        if pwsh:
+            argv = [pwsh, "-NoProfile", "-File", str(script_path)]
+        else:
+            status = run_dir / "status.json"
+            payload = {
+                "status": "failed:macos-powershell-runner-unavailable",
+                "updated_at": _dt.datetime.now().isoformat(),
+                "run_dir": str(run_dir),
+                "error": (
+                    "This worker still uses a Windows PowerShell runner and pwsh is not installed. "
+                    "On macOS use a Grok/Cursor/Claude Python runner (grok_worker_runner.py)."
+                ),
+            }
+            try:
+                status.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+            except Exception:
+                pass
+            raise RuntimeError(payload["error"])
+    return _launch_posix_visible(argv, run_dir, dict(os.environ))
 
 
 def _launch_interactive_terminal(script_path: Path) -> int:
@@ -2820,7 +2883,21 @@ def list_visible_runs(cwd: str | None = None, limit: int = 20) -> list[dict[str,
 # below is new. See plugin/skills/claude-manages-codex/SKILL.md, section
 # "Grok Worker Backend (added 2026-07-14)", for the routing doctrine.
 
-GROK = Path(r"C:\Users\jonny\.grok\bin\grok.exe")
+def _grok_cli() -> Path:
+    """Resolve grok on this machine. Intel Mac: ~/.grok/bin/grok (x86_64 Mach-O)."""
+    return _resolve_cli(
+        "BRIDGE_GROK_CLI",
+        ("grok", "grok.exe"),
+        str(HOME / ".grok" / "bin" / "grok"),
+        str(HOME / ".grok" / "bin" / "grok.exe"),
+        "/usr/local/bin/grok",
+        "/opt/homebrew/bin/grok",
+        r"C:\Users\jonny\.grok\bin\grok.exe",
+    )
+
+
+GROK = _grok_cli()
+GROK_WORKER_RUNNER = Path(__file__).resolve().parent / "grok_worker_runner.py"
 GROK_MODEL = "grok-4.6"
 # grok-4.6 xhigh fully supersedes grok 4.5. xhigh is a first-class
 # --reasoning-effort value in grok Build CLI. Config default is also
@@ -3035,7 +3112,7 @@ def _grok_supported_long_flags() -> frozenset[str] | None:
 
     try:
         proc = subprocess.run(
-            [str(GROK), "--help"],
+            [str(_grok_cli()), "--help"],
             capture_output=True,
             text=True,
             timeout=20,
@@ -3141,7 +3218,7 @@ $SessionPath = Join-Path $RunDir 'session_id.txt'
 $SteerQueue = Join-Path $RunDir 'steer_queue'
 $SteerDone = Join-Path $RunDir 'steer_done'
 $ReportsDir = Join-Path $RunDir '{CAPTAIN_REPORTS_DIR}'
-$Grok = {_ps(GROK)}
+$Grok = {_ps(_grok_cli())}
 $Claude = {_ps(CLAUDE)}
 $Cwd = {_ps(cwd)}
 $Model = {_ps(GROK_MODEL)}
@@ -3550,6 +3627,7 @@ def start_visible_grok_worker(
         effective_prompt = prompt.strip()
     else:
         effective_prompt = _with_session_context_bootstrap(prompt_with_permissions, cwd, "Grok worker", session_context)
+    extra_args, dropped_extra = _grok_initial_extra_args(best_of_n, self_check)
     run_dir = _make_run(cwd, "grok-resume" if resume_session_id else "grok", title, effective_prompt, {
         "agent": "grok",
         "cwd": str(Path(cwd).resolve()),
@@ -3575,6 +3653,11 @@ def start_visible_grok_worker(
         "best_of_n": max(1, min(int(best_of_n or 1), 6)),
         "self_check": bool(self_check),
         "competition_agents": max(1, min(int(competition_agents or 1), 16)),
+        "grok_cli": str(_grok_cli()),
+        "claude_cli": str(CLAUDE),
+        "initial_extra_args": extra_args,
+        "dropped_extra_args": dropped_extra,
+        "mode": "visible_native" if os.name != "nt" else "visible_powershell",
     })
     competition_note = _grok_competition_contract(competition_agents) if int(competition_agents or 1) >= 2 else ""
     if not compose_with_haiku:
@@ -3648,9 +3731,10 @@ def start_visible_grok_worker(
         "watch_command": _watch_command(run_dir),
         "supervise_command": _supervise_command(run_dir),
         "note": (
-            f"A visible PowerShell window was launched. Grok runs {GROK_MODEL} at requested "
+            f"A visible {'Terminal.app' if sys.platform == 'darwin' else 'PowerShell'} window was launched. "
+            f"Grok runs {GROK_MODEL} via {_grok_cli()} at requested "
             f"reasoning '{reasoning_effort or 'unset'}' (effective: {effective_reasoning}; the CLI "
-            "flag only accepts low/medium/high, so it is omitted for xhigh/max/empty and Grok's "
+            "flag only accepts low/medium/high/xhigh, so it is omitted for max/empty and Grok's "
             "config default (xhigh) applies). Effective sandbox is "
             f"{effective_sandbox} (permission intent conveyed via the prompt contract, matching the "
             f"Codex path). Haiku prompt composer enabled={compose_with_haiku}. The runner "
@@ -4009,7 +4093,7 @@ $StatusPath = Join-Path $RunDir 'status.json'
 $SteerQueue = Join-Path $RunDir 'steer_queue'
 $SteerDone = Join-Path $RunDir 'steer_done'
 $ReportsDir = Join-Path $RunDir '{CAPTAIN_REPORTS_DIR}'
-$Agy = {_ps(AGY)}
+$Agy = {_ps(_agy_cli())}
 $Claude = {_ps(CLAUDE)}
 $Cwd = {_ps(cwd)}
 $Model = {_ps(model)}
@@ -4353,6 +4437,8 @@ def start_visible_agy_worker(
         "captain_report_auto_write": True,
         "no_session_id": True,
         "resume_mechanism": "--continue (cwd-scoped, most-recent-conversation; agy has no session id to resume by thread)",
+        "agy_cli": str(_agy_cli()),
+        "mode": "visible_native" if os.name != "nt" else "visible_powershell",
     })
     if not compose_with_haiku:
         effective_prompt = "\n\n".join([
@@ -4412,7 +4498,7 @@ def start_visible_agy_worker(
         "watch_command": _watch_command(run_dir),
         "supervise_command": _supervise_command(run_dir),
         "note": (
-            f"A visible PowerShell window was launched. Antigravity runs model '{model}' for "
+            f"A visible {'Terminal.app' if sys.platform == 'darwin' else 'PowerShell'} window was launched. Antigravity runs model '{model}' for "
             f"requested reasoning effort '{reasoning_effort or 'high'}' (effective: '{effort_key}'; "
             "effort is baked into the model name -- agy has no --reasoning-effort flag). Effective "
             f"sandbox is {effective_sandbox} (permission intent conveyed via the prompt contract, "
@@ -4601,7 +4687,20 @@ def steer_visible_agy_run(
 # revocation (observed live on this machine: HTTP 401 token_invalidated /
 # refresh_token_invalidated, despite a locally well-formed, unexpired token).
 
-AGY = Path(r"C:\Users\jonny\AppData\Local\agy\bin\agy.exe")
+def _agy_cli() -> Path:
+    """Resolve agy on this machine. Intel Homebrew is /usr/local/bin; Apple Silicon is /opt/homebrew/bin."""
+    return _resolve_cli(
+        "BRIDGE_AGY_CLI",
+        ("agy", "agy.exe"),
+        "/usr/local/bin/agy",
+        "/opt/homebrew/bin/agy",
+        str(HOME / ".local" / "bin" / "agy"),
+        r"C:\Users\jonny\AppData\Local\agy\bin\agy.exe",
+    )
+
+
+AGY = _agy_cli()
+AGY_WORKER_RUNNER = Path(__file__).resolve().parent / "agy_worker_runner.py"
 
 
 def _read_json_file(path: Path) -> tuple[dict[str, Any] | None, str]:
@@ -4639,8 +4738,9 @@ def _check_claude_sonnet_backend() -> dict[str, Any]:
 
 
 def _check_grok_backend(deep: bool = False) -> dict[str, Any]:
-    if not GROK.exists():
-        return {"available": False, "reason": f"grok CLI not found at {GROK}", "detail": ""}
+    grok = _grok_cli()
+    if not grok.exists():
+        return {"available": False, "reason": f"grok CLI not found at {grok}", "detail": f"machine={platform.machine()} system={platform.system()}"}
     auth_path = HOME / ".grok" / "auth.json"
     if not auth_path.exists():
         return {"available": False, "reason": "grok CLI present but ~/.grok/auth.json is missing (not logged in)", "detail": str(auth_path)}
@@ -4735,8 +4835,9 @@ def _check_codex_backend(deep: bool = False, cwd: str | None = None) -> dict[str
 
 
 def _check_agy_backend(deep: bool = False) -> dict[str, Any]:
-    if not AGY.exists():
-        return {"available": False, "reason": f"agy CLI not found at {AGY}", "detail": ""}
+    agy = _agy_cli()
+    if not agy.exists():
+        return {"available": False, "reason": f"agy CLI not found at {agy}", "detail": f"machine={platform.machine()} system={platform.system()}"}
     creds_path = HOME / ".gemini" / "oauth_creds.json"
     if not creds_path.exists():
         return {"available": False, "reason": "agy CLI present but ~/.gemini/oauth_creds.json is missing (not logged in)", "detail": str(creds_path)}
@@ -4777,6 +4878,19 @@ def check_worker_backends(cwd: str | None = None, deep: bool = False) -> dict[st
     if unavailable.
     """
     return {
+        "host": {
+            "system": platform.system(),
+            "machine": platform.machine(),
+            "python": str(PYTHON),
+            "grok_cli": str(_grok_cli()),
+            "agy_cli": str(_agy_cli()),
+            "claude_cli": str(CLAUDE),
+            "visible_windows": (
+                "Terminal.app" if sys.platform == "darwin"
+                else "PowerShell" if os.name == "nt"
+                else "headless-or-xterm"
+            ),
+        },
         "claude_sonnet": _check_claude_sonnet_backend(),
         "claude_worker": _check_claude_worker_backend(),
         "harness_claude": _check_harness_backend("claude"),
@@ -5047,19 +5161,90 @@ def _launch_headless_python(script_path: Path, run_dir: Path, env: dict[str, str
     return int(proc.pid)
 
 
-def _launch_visible_python(script_path: Path, run_dir: Path, env: dict[str, str] | None = None) -> int:
-    """Launch a stdlib runner in a new console window (Windows) so the owner can watch it."""
-    kwargs: dict[str, Any] = {
-        "cwd": str(run_dir),
-        "env": env,
-    }
-    if os.name == "nt":
-        kwargs["creationflags"] = 0x00000010  # CREATE_NEW_CONSOLE
-    else:
-        kwargs["start_new_session"] = True
-    proc = subprocess.Popen([str(PYTHON), str(script_path), str(run_dir)], **kwargs)
+def _launch_posix_visible(argv: list[str], run_dir: Path, env: dict[str, str] | None = None) -> int:
+    """Visible POSIX launch: Terminal.app on Darwin, otherwise a new session."""
+    launch_env = dict(env or os.environ)
+    headless = os.environ.get("BRIDGE_HEADLESS", "").strip() in {"1", "true", "yes"}
+    if sys.platform == "darwin" and not headless:
+        try:
+            return _launch_darwin_terminal(argv, run_dir, launch_env)
+        except Exception:
+            pass
+    log_handle = (run_dir / "launcher.log").open("ab")
+    proc = subprocess.Popen(
+        argv,
+        cwd=str(run_dir),
+        env=launch_env,
+        stdin=subprocess.DEVNULL,
+        stdout=log_handle,
+        stderr=log_handle,
+        start_new_session=True,
+    )
     _LAUNCHED_PIDS.append(int(proc.pid))
+    (run_dir / "launcher_pid.txt").write_text(str(proc.pid), encoding="utf-8")
     return int(proc.pid)
+
+
+def _launch_darwin_terminal(argv: list[str], run_dir: Path, env: dict[str, str]) -> int:
+    """Open a new Terminal.app window that execs argv, then return that process pid.
+
+    The wrapper writes launcher_pid.txt then execs the runner so $$ is the
+    worker pid (bash is replaced). Intel and Apple Silicon both ship Terminal.app.
+    Override the app with BRIDGE_TERMINAL=iTerm or BRIDGE_TERMINAL=Ghostty.
+    """
+    pid_file = run_dir / "launcher_pid.txt"
+    try:
+        pid_file.unlink()
+    except FileNotFoundError:
+        pass
+    command_file = run_dir / "run.command"
+    quoted = " ".join(shlex.quote(part) for part in argv)
+    command_file.write_text(
+        "#!/bin/bash\n"
+        "set -e\n"
+        f"cd {shlex.quote(str(run_dir))}\n"
+        f"echo $$ > {shlex.quote(str(pid_file))}\n"
+        f"exec {quoted}\n",
+        encoding="utf-8",
+    )
+    command_file.chmod(0o755)
+    app = os.environ.get("BRIDGE_TERMINAL", "Terminal").strip() or "Terminal"
+    subprocess.run(
+        ["open", "-na", app, str(command_file)],
+        cwd=str(run_dir),
+        env=env,
+        check=True,
+        timeout=15,
+    )
+    deadline = time.time() + 20
+    while time.time() < deadline:
+        if pid_file.is_file():
+            raw = pid_file.read_text(encoding="utf-8").strip()
+            try:
+                pid = int(raw)
+            except ValueError:
+                pid = 0
+            if pid > 0:
+                _LAUNCHED_PIDS.append(pid)
+                return pid
+        time.sleep(0.1)
+    raise RuntimeError(f"macOS {app} did not start worker in {run_dir}")
+
+
+def _launch_visible_python(script_path: Path, run_dir: Path, env: dict[str, str] | None = None) -> int:
+    """Launch a stdlib runner in a new console window so the owner can watch it."""
+    argv = [str(PYTHON), str(script_path), str(run_dir)]
+    launch_env = dict(env or os.environ)
+    if os.name == "nt":
+        proc = subprocess.Popen(
+            argv,
+            cwd=str(run_dir),
+            env=launch_env,
+            creationflags=0x00000010,  # CREATE_NEW_CONSOLE
+        )
+        _LAUNCHED_PIDS.append(int(proc.pid))
+        return int(proc.pid)
+    return _launch_posix_visible(argv, run_dir, launch_env)
 
 
 @mcp.tool()
@@ -5380,6 +5565,14 @@ def _resolve_cursor_agent_argv() -> list[str]:
     found = shutil.which("cursor-agent")
     if found:
         return [found]
+    # macOS native installer (Intel and Apple Silicon): ~/.local/share/cursor-agent/versions/<ver>/cursor-agent
+    mac_versions = HOME / ".local" / "share" / "cursor-agent" / "versions"
+    if mac_versions.is_dir():
+        dirs = sorted((d for d in mac_versions.iterdir() if d.is_dir()), key=lambda d: d.name, reverse=True)
+        for directory in dirs:
+            native = directory / "cursor-agent"
+            if native.is_file() and os.access(native, os.X_OK):
+                return [str(native)]
     # Do not shutil.which("agent"): on this machine that resolves to
     # ~/.grok/bin/agent.exe (Grok Build CLI), not Cursor.
     fallback = localapp / "cursor-agent" / "cursor-agent.cmd"

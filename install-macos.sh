@@ -2,25 +2,71 @@
 # Install the Multi-Agentic Harness on macOS/Linux.
 # Usage: ./install-macos.sh
 #
-# This script installs both parts of the Multi-Agentic Harness:
-#   Part 1: The Multi-Agent Worker Bridge (Claude manages Cursor, Grok, Agy, and headless workers)
-#   Part 2: Provider Profiles & Launchers (clx, clg, cld, clo for Grok, Gemini, DeepSeek, and OpenRouter in Claude Code)
+# Intel Mac notes:
+#   - Homebrew lives at /usr/local (not /opt/homebrew).
+#   - python3 on PATH may be a leftover python.org 3.7; this installer refuses
+#     anything older than 3.10 and prefers 3.12+/skills-venv.
+#   - Visible workers open Terminal.app (BRIDGE_TERMINAL overrides the app).
+#   - CLIProxyAPI is the Homebrew formula `cliproxyapi` (brew services).
+#
+# A previous install is removed first (see uninstall-macos.sh) so stale
+# ~/.local/bin/clx and ~/.agent-bridge copies cannot shadow the new files.
+# Set SKIP_UNINSTALL=1 to keep the previous user files.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 USER_HOME="$HOME"
+ARCH="$(uname -m)"
 
 echo "============================================================"
 echo "Installing Multi-Agentic Harness"
+echo "Host: $(uname -s) ${ARCH}"
 echo "============================================================"
 
-# Python >=3.10 with the `mcp` package
-if [ -x "$HOME/.claude/skills-venv/bin/python" ]; then
-  PY="$HOME/.claude/skills-venv/bin/python"
-else
-  PY="$(command -v python3.12 || command -v python3.11 || command -v python3)"
+if [ "${SKIP_UNINSTALL:-}" != "1" ] && [ -x "$HERE/uninstall-macos.sh" ]; then
+  if [ -d "$USER_HOME/.agent-bridge" ] || [ -e "$USER_HOME/.local/bin/clx" ]; then
+    echo "Previous harness detected — uninstalling it first so the new copy can take over."
+    bash "$HERE/uninstall-macos.sh"
+    echo ""
+  fi
 fi
-echo "Using Python: $PY"
+
+# Python >=3.10. Never use the python.org 3.7 that Intel Macs often prepend
+# via ~/.bash_profile (/Library/Frameworks/Python.framework/Versions/3.7).
+pick_python() {
+  local cand bin ver major minor
+  for cand in \
+    "$HOME/.claude/skills-venv/bin/python" \
+    python3.14 python3.13 python3.12 python3.11 python3.10 \
+    /usr/local/bin/python3.14 /usr/local/bin/python3.13 /usr/local/bin/python3.12 \
+    /opt/homebrew/bin/python3.14 /opt/homebrew/bin/python3.13 /opt/homebrew/bin/python3.12
+  do
+    bin=""
+    if [ -x "$cand" ]; then
+      bin="$cand"
+    elif command -v "$cand" >/dev/null 2>&1; then
+      bin="$(command -v "$cand")"
+    else
+      continue
+    fi
+    ver="$("$bin" -c 'import sys; print("%d.%d"%sys.version_info[:2])' 2>/dev/null || true)"
+    [ -n "$ver" ] || continue
+    major="${ver%%.*}"
+    minor="${ver#*.}"
+    if [ "$major" -gt 3 ] || { [ "$major" -eq 3 ] && [ "$minor" -ge 10 ]; }; then
+      echo "$bin"
+      return 0
+    fi
+  done
+  return 1
+}
+
+PY="$(pick_python)" || {
+  echo "ERROR: Python 3.10+ is required. On this Intel Mac, \`python3\` is often 3.7 from python.org." >&2
+  echo "Install with:  brew install python@3.12" >&2
+  exit 1
+}
+echo "Using Python: $PY ($("$PY" -c 'import sys,platform; print(sys.version.split()[0], platform.machine())'))"
 
 # Check for FastMCP or MCPServer capability (supports both mcp 1.x and mcp 2.x+)
 MCP_CHECK_CODE='
@@ -56,7 +102,14 @@ echo "--- Part 1: Multi-Agent Worker Bridge ---"
 
 BRIDGE_DIR="$USER_HOME/.agent-bridge"
 mkdir -p "$BRIDGE_DIR"
-cp "$HERE/visible_agent_bridge.py" "$HERE/claude_worker_runner.py" "$HERE/cursor_worker_runner.py" "$HERE/captain_checkup.py" "$HERE/cursor_cloud_api.py" "$BRIDGE_DIR/"
+for f in visible_agent_bridge.py claude_worker_runner.py cursor_worker_runner.py captain_checkup.py cursor_cloud_api.py grok_worker_runner.py agy_worker_runner.py; do
+  if [ -f "$HERE/$f" ]; then
+    cp "$HERE/$f" "$BRIDGE_DIR/"
+  fi
+done
+if [ -f "$HERE/gateway/cursor_anthropic_gateway.py" ]; then
+  cp "$HERE/gateway/cursor_anthropic_gateway.py" "$BRIDGE_DIR/"
+fi
 echo "Deployed bridge runners to $BRIDGE_DIR"
 
 # Captain doctrine skill for the manager session
@@ -71,14 +124,18 @@ claude mcp remove agent-visibility -s user >/dev/null 2>&1 || true
 claude mcp add agent-visibility -s user -- "$PY" "$BRIDGE_DIR/visible_agent_bridge.py"
 echo "Registered MCP server 'agent-visibility' (user scope)"
 
-"$PY" -m py_compile "$BRIDGE_DIR/visible_agent_bridge.py" "$BRIDGE_DIR/claude_worker_runner.py" "$BRIDGE_DIR/cursor_worker_runner.py" "$BRIDGE_DIR/captain_checkup.py" "$BRIDGE_DIR/cursor_cloud_api.py"
+compile_files=("$BRIDGE_DIR/visible_agent_bridge.py")
+for f in claude_worker_runner.py cursor_worker_runner.py captain_checkup.py cursor_cloud_api.py grok_worker_runner.py agy_worker_runner.py cursor_anthropic_gateway.py; do
+  [ -f "$BRIDGE_DIR/$f" ] && compile_files+=("$BRIDGE_DIR/$f")
+done
+"$PY" -m py_compile "${compile_files[@]}"
 echo "Python bridge syntax validated successfully."
 
 # ---------------------------------------------------------------------------
 # PART 2: Provider Profiles, Launchers & Gateway (clx, clg, cld)
 # ---------------------------------------------------------------------------
 echo ""
-echo "--- Part 2: Provider Profiles & Launchers (clx, clg, cld, clo) ---"
+echo "--- Part 2: Provider Profiles & Launchers (clx, clg, cld, clo, clc) ---"
 
 # 1. Deploy subagent definitions to ~/.claude/agents/
 if [ -d "$HERE/plugin/agents" ]; then
@@ -87,20 +144,31 @@ if [ -d "$HERE/plugin/agents" ]; then
   echo "Installed subagent definitions: grok, agy-gemini-3-8-flash, deepseek, openrouter"
 fi
 
-# 2. Deploy launchers to ~/bin/
+# 2. Deploy launchers to ~/bin and ~/.local/bin (this Intel Mac already has ~/.local/bin on PATH).
 if [ -d "$HERE/launchers" ]; then
-  mkdir -p "$USER_HOME/bin"
-  for cmd in clx clg cld clo; do
+  mkdir -p "$USER_HOME/bin" "$USER_HOME/.local/bin"
+  for cmd in clx clg cld clo clc; do
     if [ -f "$HERE/launchers/$cmd" ]; then
       cp "$HERE/launchers/$cmd" "$USER_HOME/bin/$cmd"
-      chmod +x "$USER_HOME/bin/$cmd"
+      cp "$HERE/launchers/$cmd" "$USER_HOME/.local/bin/$cmd"
+      chmod +x "$USER_HOME/bin/$cmd" "$USER_HOME/.local/bin/$cmd"
     fi
   done
-  echo "Installed launchers (clx, clg, cld, clo) to $USER_HOME/bin"
+  echo "Installed launchers (clx, clg, cld, clo, clc) to $USER_HOME/bin and $USER_HOME/.local/bin"
 fi
 
+# Ensure ~/bin is on PATH for new shells. Skip unwritable rc files (e.g. root-owned ~/.zshrc).
+MARKER="# multi-agentic-harness launchers (macOS)"
+for rc in "$USER_HOME/.bashrc" "$USER_HOME/.bash_profile" "$USER_HOME/.zshrc"; do
+  [ -e "$rc" ] || continue
+  [ -w "$rc" ] || { echo "Skipping PATH patch (not writable): $rc"; continue; }
+  grep -q "$MARKER" "$rc" && continue
+  printf '\n%s\nexport PATH="$HOME/bin:$HOME/.local/bin:$PATH"\n' "$MARKER" >> "$rc"
+  echo "Added ~/bin to PATH in $rc"
+done
+
 # 3. Deploy profile templates and symlink agents & skills
-for prof in claude-clx claude-clg claude-cld claude-clo; do
+for prof in claude-clx claude-clg claude-cld claude-clo claude-clc; do
   pDir="$USER_HOME/.$prof"
   mkdir -p "$pDir"
   if [ -d "$HERE/templates/$prof" ]; then
@@ -118,22 +186,47 @@ done
 
 # 4. Initialize Secrets Directory
 SECRETS_DIR="$USER_HOME/.cc-bridge/secrets"
-mkdir -p "$SECRETS_DIR"
+mkdir -p "$SECRETS_DIR" "$USER_HOME/.cc-bridge"
 if [ ! -f "$SECRETS_DIR/clx-api.key" ]; then
-  hex=$(openssl rand -hex 24 2>/dev/null || python3 -c "import secrets; print(secrets.token_hex(24))")
-  echo "ccp-$hex" > "$SECRETS_DIR/clx-api.key"
+  seeded=""
+  # Prefer a key already used by the previous clx launcher or Homebrew cliproxyapi.conf.
+  latest_backup="$(ls -td "$USER_HOME"/.agent-bridge-uninstall-* 2>/dev/null | head -1 || true)"
+  if [ -n "$latest_backup" ] && [ -f "$latest_backup/launchers/clx" ]; then
+    seeded="$(awk -F= '/CLX_KEY=/{gsub(/"/,"",$2); print $2; exit}' "$latest_backup/launchers/clx" || true)"
+  fi
+  if [ -z "$seeded" ] && [ -f /usr/local/etc/cliproxyapi.conf ]; then
+    seeded="$("$PY" -c '
+import re, pathlib
+text = pathlib.Path("/usr/local/etc/cliproxyapi.conf").read_text()
+keys = re.findall(r"api-keys:\s*\n(?:[ \t]*- \"([^\"]+)\")", text)
+print(keys[0] if keys else "")
+' 2>/dev/null || true)"
+  fi
+  if [ -n "$seeded" ]; then
+    printf '%s\n' "$seeded" > "$SECRETS_DIR/clx-api.key"
+    echo "Reused existing CLIProxyAPI client key: $SECRETS_DIR/clx-api.key"
+  else
+    hex=$(openssl rand -hex 24 2>/dev/null || "$PY" -c "import secrets; print(secrets.token_hex(24))")
+    echo "ccp-$hex" > "$SECRETS_DIR/clx-api.key"
+    echo "Generated local gateway client key: $SECRETS_DIR/clx-api.key"
+  fi
   chmod 600 "$SECRETS_DIR/clx-api.key"
-  echo "Generated local gateway client key: $SECRETS_DIR/clx-api.key"
 fi
 if [ ! -f "$SECRETS_DIR/openrouter-api.key" ]; then
   echo "clo: no $SECRETS_DIR/openrouter-api.key yet. Save your sk-or- key there (OpenRouter Dashboard -> Keys)."
 fi
-mkdir -p "$USER_HOME/.cc-bridge"
-for fn in refresh_clo_models.py clo_or_hook.py; do
+if [ ! -f "$SECRETS_DIR/cursor-api.key" ]; then
+  echo "clc: no $SECRETS_DIR/cursor-api.key yet. Save your crsr_ key there (Cursor Dashboard -> API keys)."
+fi
+for fn in refresh_clo_models.py clo_or_hook.py start-gateway.sh stop-gateway.sh start-clc-gateway.sh; do
   if [ -f "$HERE/gateway/$fn" ]; then
     cp "$HERE/gateway/$fn" "$USER_HOME/.cc-bridge/$fn"
+    case "$fn" in *.sh) chmod +x "$USER_HOME/.cc-bridge/$fn" ;; esac
   fi
 done
+if [ -x "$HERE/gateway/install-autostart-macos.sh" ]; then
+  bash "$HERE/gateway/install-autostart-macos.sh" || echo "WARNING: CLIProxyAPI autostart install failed (brew services may already own it)."
+fi
 
 # 5. Inject pricing cache into .claude.json files
 # Official published rates (September 2026):
@@ -141,7 +234,7 @@ done
 #   xAI Grok (https://docs.x.ai/developers/pricing): Grok 4.6 $2.00 in / $6.00 out / $0.50 cache read (<200k tokens); Grok 4.5 $2.00 in / $6.00 out / $0.30 cache read
 #   DeepSeek (https://api-docs.deepseek.com/quick_start/pricing): Flash $0.30 in / $1.20 out / $0.006 cache read (peak); V4 Pro $1.32 in / $3.96 out / $0.044 cache read (peak)
 "$PY" - << 'EOF'
-import json, os, shutil
+import json, os, shutil, sys
 
 model_costs = {
     "gemini-3.8-flash-high(high)": {"inputTokens": 0.75, "outputTokens": 3.75, "promptCacheWriteTokens": 0.75, "promptCacheReadTokens": 0.075, "webSearchRequests": 0.01},
@@ -244,15 +337,36 @@ for p in paths:
 EOF
 echo "Injected real API pricing into .claude.json config caches safely via Python."
 
+if [ -f "$HERE/gateway/inject_clc_pricing.py" ]; then
+  (cd "$HERE/gateway" && "$PY" inject_clc_pricing.py) || echo "WARNING: clc pricing inject failed."
+fi
+
+# Layer-2 MCP for Grok workers (submit_captain_report / request_captain_help).
+GROK_TOML="$USER_HOME/.grok/config.toml"
+if [ -f "$GROK_TOML" ] && ! grep -q 'mcp_servers.agent-visibility' "$GROK_TOML"; then
+  cp -a "$GROK_TOML" "$GROK_TOML.bak"
+  cat >> "$GROK_TOML" <<EOF
+
+[mcp_servers.agent-visibility]
+command = "$PY"
+args = ["$BRIDGE_DIR/visible_agent_bridge.py"]
+enabled = true
+EOF
+  echo "Wired Grok MCP server agent-visibility in ~/.grok/config.toml"
+fi
+
 echo ""
 echo "============================================================"
 echo "Installation Completed Successfully!"
 echo "============================================================"
+echo "Host: macOS ${ARCH} (Intel Homebrew prefix /usr/local when x86_64)."
 echo "Part 1 (Worker Bridge): MCP server 'agent-visibility' registered."
-echo "Part 2 (Custom Launchers): clx (Grok), clg (Gemini), cld (DeepSeek), clo (OpenRouter) ready in ~/bin."
+echo "Part 2 (Custom Launchers): clx, clg, cld, clo, clc in ~/bin and ~/.local/bin."
 echo ""
 echo "To start a custom session:"
 echo "  clx   -> Grok 4.6 (500k context)"
 echo "  clg   -> Gemini 3.8 Flash / 3.1 Pro (1M context)"
 echo "  cld   -> DeepSeek V4.1 Flash / V4 Pro (1M context)"
 echo "  clo   -> OpenRouter catalog (1M, default Anthropic Sonnet latest)"
+echo "  clc   -> Cursor catalog (1M, translator on 127.0.0.1:8318)"
+echo "Visible Grok workers open Terminal.app (set BRIDGE_HEADLESS=1 to skip the window)."

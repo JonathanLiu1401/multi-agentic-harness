@@ -18,6 +18,19 @@ skin at `https://openrouter.ai/api`. See [`docs/setup/clo-openrouter.md`](../doc
 
 ## Scripts
 
+### 0. macOS (`start-gateway.sh`)
+On Intel Mac, Homebrew formula `cliproxyapi` is the binary (`/usr/local/bin/cliproxyapi`)
+and `brew services start cliproxyapi` is the autostart path. `install-autostart-macos.sh`
+uses that when the formula is present; otherwise it writes a LaunchAgent.
+
+```bash
+./gateway/start-gateway.sh
+./gateway/stop-gateway.sh
+./gateway/install-autostart-macos.sh
+./gateway/start-clc-gateway.sh
+./gateway/install-clc-autostart-macos.sh
+```
+
 ### 1. `start-gateway.ps1`
 Starts the gateway detached:
 - Clears any orphaned `cli-proxy-api` processes holding port 8317 first.
