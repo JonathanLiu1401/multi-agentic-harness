@@ -61,6 +61,20 @@ def test_empty_query_rejected() -> None:
     assert duckduckgo_search("   ") == "Error: query is empty."
 
 
+def test_clo_python_is_not_frameworks_37() -> None:
+    """Intel Mac PATH python3 is often python.org 3.7; clo MCP must not use it."""
+    from gateway.refresh_clo_models import _clo_python, _ensure_duckduckgo_mcp
+
+    py = _clo_python()
+    assert "Python.framework/Versions/3.7" not in py
+    settings: dict = {}
+    _ensure_duckduckgo_mcp(settings)
+    entry = settings["mcpServers"]["duckduckgo"]
+    if sys.platform != "win32":
+        assert entry["command"] == py
+        assert not entry["command"].endswith("/python3") or "3.7" not in entry["command"]
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):

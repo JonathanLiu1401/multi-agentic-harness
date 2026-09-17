@@ -64,12 +64,24 @@ if [ -z "$CLO_SKIP_MODEL_REFRESH" ]; then
     REFRESH="$HOME/.cc-bridge/refresh_clo_models.py"
   fi
   if [ -n "$REFRESH" ]; then
-    if command -v py >/dev/null 2>&1; then
+    CLO_PY="${CLO_PYTHON:-}"
+    if [ -z "$CLO_PY" ] && [ -x "$HOME/.claude/skills-venv/bin/python" ]; then
+      CLO_PY="$HOME/.claude/skills-venv/bin/python"
+    fi
+    if [ -z "$CLO_PY" ]; then
+      for cand in python3.14 python3.13 python3.12 python3.11 python3.10; do
+        if command -v "$cand" >/dev/null 2>&1; then
+          CLO_PY="$(command -v "$cand")"
+          break
+        fi
+      done
+    fi
+    if [ -n "$CLO_PY" ]; then
+      "$CLO_PY" "$REFRESH" || true
+    elif command -v py >/dev/null 2>&1; then
       py -3 "$REFRESH" || true
     elif command -v python3 >/dev/null 2>&1; then
       python3 "$REFRESH" || true
-    elif command -v python >/dev/null 2>&1; then
-      python "$REFRESH" || true
     fi
   fi
 fi

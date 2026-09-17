@@ -93,6 +93,11 @@ if ! "$PY" -c "$MCP_CHECK_CODE" 2>/dev/null; then
     "$PY" -m pip install --user fastmcp
   fi
 fi
+# clo DuckDuckGo MCP: never rely on PATH python3 (Intel Macs often have 3.7).
+if ! "$PY" -c "from ddgs import DDGS" 2>/dev/null; then
+  echo "Installing python ddgs package for clo DuckDuckGo search..."
+  "$PY" -m pip install ddgs
+fi
 
 # ---------------------------------------------------------------------------
 # PART 1: Multi-Agent Worker Bridge (claude-manages-xxx)

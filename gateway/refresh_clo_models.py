@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
+import shutil
 import sys
 import urllib.error
 import urllib.request
@@ -37,6 +39,36 @@ def _read_key() -> str:
     if KEY_FILE.is_file():
         return KEY_FILE.read_text(encoding="utf-8").strip()
     return (os.environ.get("OPENROUTER_API_KEY") or "").strip()
+
+
+def _clo_python() -> str:
+    """Python 3.10+ for clo MCP/hooks. Never the leftover python.org 3.7 on Intel Macs."""
+    override = os.environ.get("CLO_PYTHON", "").strip()
+    if override:
+        return override
+    if sys.platform == "win32":
+        return "py"
+    home = Path.home()
+    candidates = [
+        home / ".claude" / "skills-venv" / "bin" / "python",
+        Path("/usr/local/bin/python3.14"),
+        Path("/usr/local/bin/python3.13"),
+        Path("/usr/local/bin/python3.12"),
+        Path("/usr/local/bin/python3.11"),
+        Path("/opt/homebrew/bin/python3.14"),
+        Path("/opt/homebrew/bin/python3.13"),
+        Path("/opt/homebrew/bin/python3.12"),
+    ]
+    for path in candidates:
+        if path.is_file() and os.access(path, os.X_OK):
+            return str(path)
+    for name in ("python3.14", "python3.13", "python3.12", "python3.11", "python3.10"):
+        found = shutil.which(name)
+        if found:
+            return found
+    if sys.version_info >= (3, 10):
+        return sys.executable
+    return "python3"
 
 
 def _get(url: str, key: str) -> dict:
@@ -304,8 +336,11 @@ def apply(settings: dict, available: list[str], options: list[dict],
 
 def _ensure_duckduckgo_mcp(settings: dict) -> None:
     server_py = Path.home() / ".cc-bridge" / "ddg_search_server.py"
-    cmd = "py" if sys.platform == "win32" else "python3"
-    args = ["-3", str(server_py)] if sys.platform == "win32" else [str(server_py)]
+    py = _clo_python()
+    if sys.platform == "win32":
+        cmd, args = "py", ["-3", str(server_py)]
+    else:
+        cmd, args = py, [str(server_py)]
     entry = {"command": cmd, "args": args}
 
     clo_claude_json = Path.home() / ".claude-clo" / ".claude.json"
@@ -331,7 +366,10 @@ def _ensure_duckduckgo_mcp(settings: dict) -> None:
 
 def _ensure_or_hook(settings: dict) -> None:
     hook_py = Path.home() / ".cc-bridge" / "clo_or_hook.py"
-    cmd = f'py -3 "{hook_py}"'
+    if sys.platform == "win32":
+        cmd = f'py -3 "{hook_py}"'
+    else:
+        cmd = f"{shlex.quote(_clo_python())} {shlex.quote(str(hook_py))}"
     hooks = settings.get("hooks")
     if not isinstance(hooks, dict):
         hooks = {}
