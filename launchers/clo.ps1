@@ -45,8 +45,10 @@ $env:ANTHROPIC_AUTH_TOKEN = $Key
 $env:ANTHROPIC_API_KEY = ""
 $env:OPENROUTER_API_KEY = $Key
 
-# Do not pin ANTHROPIC_MODEL. /model persist writes settings.json; an env pin
-# makes every new session ignore that and snap back to Union Alpha.
+# Pin Union Alpha. cwd=$HOME makes ~/.claude/settings.json load as PROJECT
+# settings and pin Opus 5. ANTHROPIC_MODEL overrides that (same as clx).
+$env:ANTHROPIC_MODEL = "stealth/union-alpha[1m]"
+$env:ANTHROPIC_DEFAULT_MODEL = "stealth/union-alpha[1m]"
 
 $env:CLAUDE_CODE_MAX_CONTEXT_TOKENS = "1000000"
 $env:CLAUDE_CODE_AUTO_COMPACT_WINDOW = "1000000"
@@ -60,6 +62,15 @@ $env:CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS = "1"
 
 if (-not (Test-Path $env:CLAUDE_CONFIG_DIR)) {
     New-Item -ItemType Directory -Path $env:CLAUDE_CONFIG_DIR | Out-Null
+}
+
+$homeResolved = (Resolve-Path $HOME).Path
+$hereResolved = (Get-Location).Path
+if ($hereResolved -eq $homeResolved) {
+    $work = Join-Path $HOME ".claude-clo\workspace"
+    New-Item -ItemType Directory -Force -Path $work | Out-Null
+    Set-Location $work
+    Write-Host "clo: started from `$HOME; using $work so ~/.claude/settings.json cannot pin Opus"
 }
 
 # Rebuild /model from the live OpenRouter catalog (all modalities).

@@ -61,6 +61,16 @@ def test_empty_query_rejected() -> None:
     assert duckduckgo_search("   ") == "Error: query is empty."
 
 
+def test_apply_puts_union_alpha_first() -> None:
+    from gateway.refresh_clo_models import apply
+
+    settings: dict = {}
+    available = ["aion-labs/aion-2.0[1m]", "stealth/union-alpha[1m]"]
+    apply(settings, available, [{"model": m} for m in available], {}, "stealth/union-alpha[1m]")
+    assert settings["model"] == "stealth/union-alpha[1m]"
+    assert settings["availableModels"][0] == "stealth/union-alpha[1m]"
+
+
 def test_clo_default_is_union_alpha() -> None:
     from gateway.refresh_clo_models import _pick_default
 

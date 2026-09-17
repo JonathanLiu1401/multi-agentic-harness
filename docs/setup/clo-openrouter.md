@@ -76,9 +76,13 @@ name. Search:
 - `/or nemotron` is a UserPromptSubmit hook (no LLM call, so it still
   works when the key is out of inference credits).
 
-Do not start `clo` from `C:\Users\jonny`. That directory's `.claude\settings.json`
-is treated as project settings and pins Opus 5 over the clo picker. Start from
-a project folder instead.
+Do not start plain `claude` and expect OpenRouter. The command is `clo`.
+
+Starting from `$HOME` used to load `~/.claude/settings.json` as **project**
+settings and pin Opus 5. The `clo` launcher now (1) sets
+`ANTHROPIC_MODEL=stealth/union-alpha[1m]` and (2) if cwd is `$HOME`, cds into
+`~/.claude-clo/workspace` so that leak cannot happen. You can still start
+`clo` from a real project directory.
 
 `behavesAs` maps Opus/Sonnet/Haiku/Fable families; everything else uses
 `claude-sonnet-5` client handling.

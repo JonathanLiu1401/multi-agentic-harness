@@ -310,6 +310,8 @@ def _write_json(path: Path, data: dict) -> None:
 def apply(settings: dict, available: list[str], options: list[dict],
           overrides: dict, default: str) -> dict:
     settings["model"] = default
+    if default in available:
+        available = [default] + [m for m in available if m != default]
     settings["availableModels"] = available
     settings["enforceAvailableModels"] = True
     settings["autoCompactWindow"] = 1000000
