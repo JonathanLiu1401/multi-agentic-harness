@@ -32,6 +32,7 @@ Official integration: [OpenRouter Claude Code docs](https://openrouter.ai/docs/g
 | `ANTHROPIC_API_KEY` | empty string | Sent as `x-api-key`. A leftover Anthropic key bypasses OpenRouter. |
 | `CLAUDE_CONFIG_DIR` | `~/.claude-clo` | Isolated profile. |
 | `CLAUDE_CODE_MAX_CONTEXT_TOKENS` / `AUTO_COMPACT_WINDOW` | `1000000` | Process-wide 1M. |
+| `CLAUDE_CODE_MAX_OUTPUT_TOKENS` | `8192` | Caps requested output tokens to 8k instead of 64k default. Leaves context headroom for sub-1M models (e.g. Union Alpha 262k). |
 | `CLAUDE_CODE_EFFORT_LEVEL` | unset | So `/effort` maps. |
 | `CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY` | unset | Binary filters ids to `/^(claude\|anthropic)/i`; the picker is `settings.json`. |
 | `ENABLE_TOOL_SEARCH` | **unset** | A custom `ANTHROPIC_BASE_URL` already disables optimistic tool-search (`not a first-party Anthropic host`). Setting `true` / `auto` / `auto:N` turns deferral back on and 400s Union Alpha / GPT. |
@@ -112,6 +113,22 @@ types inherit this profile's model.
 - PowerShell / CMD: `~/bin/clo.ps1` via `~/.local/bin/clo.cmd`
 - Default flag: `--dangerously-skip-permissions` (override with
   `--permission-mode ...`)
+
+## Sub-1M models (e.g. Union Alpha 262k) and context headroom
+
+OpenRouter checks `Prompt Tokens + Output Reservation <= Model Context Length`.
+With Sonnet 5 client handling, Claude Code requests up to 64,000 output tokens
+by default. When using a model with 262k context (like `stealth/union-alpha`),
+accumulating ~200k tokens of conversation and tool schemas plus 64k output
+reservation exceeds 262,144 tokens and returns HTTP 400.
+
+`clo` sets `CLAUDE_CODE_MAX_OUTPUT_TOKENS=8192` in the launcher and settings,
+leaving up to 254k tokens of input headroom for 262k models.
+
+If a sub-1M session ever fills up and `/compact` cannot run on that model:
+1. Switch to a true 1M model via `/model` (e.g. `google/gemini-3.8-flash[1m]`).
+2. Run `/compact` to shrink the history down to ~5k tokens.
+3. Switch back to your desired model.
 
 ## Web search (free DuckDuckGo MCP tool)
 
