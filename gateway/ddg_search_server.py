@@ -1,17 +1,20 @@
 """DuckDuckGo Search MCP Server for Claude Code (clo / free web search).
 
-Provides web search via DuckDuckGo Lite without external API keys or OpenRouter
-search plugin fees.
+Provides web search via the maintained `ddgs` library. No API keys and no
+OpenRouter server-side search plugin fees.
+
+Requires: py -3 -m pip install ddgs
+
+The previous implementation scraped lite.duckduckgo.com directly. That stopped
+working because DuckDuckGo serves an anti-bot challenge (HTTP 202) to plain
+urllib requests, so every query silently returned zero results.
 """
 from __future__ import annotations
 
 import html
-import json
 import re
-import sys
-import urllib.parse
-import urllib.request
-from typing import Any
+
+from ddgs import DDGS
 
 try:
     from mcp.server.fastmcp import FastMCP
@@ -25,55 +28,27 @@ mcp = FastMCP("duckduckgo")
 
 
 def _clean_text(s: str) -> str:
-    cleaned = re.sub(r'<[^>]+>', '', s).strip()
+    cleaned = re.sub(r"<[^>]+>", "", s).strip()
     cleaned = html.unescape(cleaned)
-    # Strip em dashes and en dashes to adhere to project rules and prevent PS5.1 encoding issues
-    cleaned = (
-        cleaned.replace("—", " - ")
-        .replace("–", " - ")
-        .replace("—", " - ")
-        .replace("–", " - ")
-    )
+    # Project rule: no em/en dashes (they corrupt PS 5.1 reads of BOM-less files).
+    cleaned = cleaned.replace("—", " - ").replace("–", " - ")
     return " ".join(cleaned.split())
 
 
 def _execute_search(query: str, max_results: int = 8) -> list[dict[str, str]]:
-    url = "https://lite.duckduckgo.com/lite/"
-    data = urllib.parse.urlencode({"q": query}).encode("utf-8")
-    req = urllib.request.Request(
-        url,
-        data=data,
-        headers={
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0)"
-                " Gecko/20100101 Firefox/128.0"
-            ),
-            "Accept-Language": "en-US,en;q=0.9",
-        },
-    )
-    with urllib.request.urlopen(req, timeout=12) as resp:
-        page = resp.read().decode("utf-8", errors="replace")
-
-    pattern = re.compile(
-        r'<a rel="nofollow" href="([^"]+)" class=[\'"]result-link[\'"]>(.*?)</a>.*?<td class=[\'"]result-snippet[\'"]>(.*?)</td>',
-        re.DOTALL,
-    )
+    rows = DDGS().text(query, max_results=max_results)
     results: list[dict[str, str]] = []
-    for m in pattern.finditer(page):
-        u = m.group(1)
-        if "uddg=" in u:
-            try:
-                parsed = urllib.parse.urlparse(u)
-                qs = urllib.parse.parse_qs(parsed.query)
-                if "uddg" in qs:
-                    u = qs["uddg"][0]
-            except Exception:
-                pass
-        results.append({
-            "title": _clean_text(m.group(2)),
-            "url": u,
-            "snippet": _clean_text(m.group(3)),
-        })
+    for row in rows:
+        url = (row.get("href") or "").strip()
+        if not url:
+            continue
+        results.append(
+            {
+                "title": _clean_text(row.get("title") or ""),
+                "url": url,
+                "snippet": _clean_text(row.get("body") or ""),
+            }
+        )
         if len(results) >= max_results:
             break
     return results
@@ -94,14 +69,15 @@ def duckduckgo_search(query: str, max_results: int = 8) -> str:
         return "Error: query is empty."
     try:
         results = _execute_search(query.strip(), max_results=max_results)
-        if not results:
-            return f'No DuckDuckGo results found for query: "{query}"'
-        formatted = []
-        for i, r in enumerate(results, 1):
-            formatted.append(f"{i}. [{r['title']}]({r['url']})\n   {r['snippet']}")
-        return "\n\n".join(formatted)
     except Exception as err:
-        return f"DuckDuckGo search error: {err}"
+        return f"DuckDuckGo search error: {type(err).__name__}: {err}"
+    if not results:
+        return f'No DuckDuckGo results found for query: "{query}"'
+    formatted = [
+        f"{i}. [{r['title']}]({r['url']})\n   {r['snippet']}"
+        for i, r in enumerate(results, 1)
+    ]
+    return "\n\n".join(formatted)
 
 
 @mcp.tool()
