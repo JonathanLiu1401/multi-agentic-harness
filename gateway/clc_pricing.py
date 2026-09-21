@@ -19,8 +19,10 @@ from typing import Any
 # (input, output, cacheRead, cacheWrite)
 RATES: dict[str, tuple[float, float, float, float]] = {
     # Cursor first-party (cursor.com/docs/models). Auto bills the routed model;
-    # default uses Grok 4.6 standard as the estimate.
+    # default uses Grok 4.7 standard as the estimate.
     "default": (2.0, 6.0, 0.5, 2.0),
+    "grok-4.7": (2.0, 6.0, 0.5, 2.0),
+    "grok-4.7-fast": (4.0, 12.0, 1.0, 4.0),
     "grok-4.6": (2.0, 6.0, 0.5, 2.0),
     "grok-4.6-fast": (4.0, 12.0, 1.0, 4.0),
     "grok-4.5": (2.0, 6.0, 0.5, 2.0),

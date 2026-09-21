@@ -48,6 +48,8 @@ KEY_FILE = Path.home() / ".cc-bridge" / "secrets" / "cursor-api.key"
 LOG_FILE = Path.home() / ".cc-bridge" / "clc-gateway.log"
 
 DEFAULT_MODELS = [
+    "grok-4.7-fast",
+    "grok-4.7",
     "grok-4.6-fast",
     "grok-4.6",
     "claude-fable-5-1",
@@ -58,7 +60,13 @@ DEFAULT_MODELS = [
 ]
 
 MODEL_ALIASES = {
-    "grok": "grok-4.6-fast",
+    "grok": "grok-4.7-fast",
+    "grok-4.7": "grok-4.7",
+    "grok-4.7-fast": "grok-4.7-fast",
+    "cursor-grok-4.7-xhigh-fast": "grok-4.7-fast",
+    "cursor-grok-4.7-high-fast": "grok-4.7-fast",
+    "cursor-grok-4.7-medium-fast": "grok-4.7-fast",
+    "cursor-grok-4.7-low-fast": "grok-4.7-fast",
     "grok-4.6": "grok-4.6",
     "grok-4.6-fast": "grok-4.6-fast",
     "cursor-grok-4.6-xhigh-fast": "grok-4.6-fast",

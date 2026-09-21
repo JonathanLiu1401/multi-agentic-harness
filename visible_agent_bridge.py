@@ -5541,12 +5541,12 @@ def _check_claude_worker_backend() -> dict[str, Any]:
 # Resume is `--resume <session_id>` (session_id is stable across turns).
 
 CURSOR_WORKER_RUNNER = Path(__file__).resolve().parent / "cursor_worker_runner.py"
-CURSOR_DEFAULT_MODEL = "cursor-grok-4.6-xhigh-fast"
+CURSOR_DEFAULT_MODEL = "cursor-grok-4.7-xhigh-fast"
 CURSOR_MODELS_BY_EFFORT = {
-    "low": "cursor-grok-4.6-low-fast",
-    "medium": "cursor-grok-4.6-medium-fast",
-    "high": "cursor-grok-4.6-high-fast",
-    "xhigh": "cursor-grok-4.6-xhigh-fast",
+    "low": "cursor-grok-4.7-low-fast",
+    "medium": "cursor-grok-4.7-medium-fast",
+    "high": "cursor-grok-4.7-high-fast",
+    "xhigh": "cursor-grok-4.7-xhigh-fast",
 }
 CURSOR_STEER_IDLE_SECONDS = CODEX_STEER_IDLE_SECONDS
 
@@ -5717,9 +5717,9 @@ def start_visible_cursor_worker(
 ) -> dict[str, Any]:
     """Launch a visible cursor-agent worker in a new console window and save logs.
 
-    Default model is always cursor-grok-4.6-xhigh-fast (Cursor Grok 4.6 Extra
+    Default model is always cursor-grok-4.7-xhigh-fast (Cursor Grok 4.7 Extra
     High Fast · MAX) unless the owner names another model. reasoning_effort
-    selects among cursor-grok-4.6-{{low,medium,high,xhigh}}-fast unless `model`
+    selects among cursor-grok-4.7-{{low,medium,high,xhigh}}-fast unless `model`
     is an explicit Cursor model id. sandbox=read-only maps to `--mode plan`;
     writes use `--force`. `--trust` and `--approve-mcps` always. Max Mode is
     turned on in ~/.cursor/cli-config.json on start.
