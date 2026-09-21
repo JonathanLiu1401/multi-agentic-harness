@@ -2878,7 +2878,7 @@ def list_visible_runs(cwd: str | None = None, limit: int = 20) -> list[dict[str,
 
 
 # --- Grok worker backend (added 2026-07-14) ---
-# Adds a Grok (grok-4.6) visible worker backend alongside the existing Codex
+# Adds a Grok (grok-4.7) visible worker backend alongside the existing Codex
 # backend. Codex is left completely untouched above this line; every symbol
 # below is new. See plugin/skills/claude-manages-codex/SKILL.md, section
 # "Grok Worker Backend (added 2026-07-14)", for the routing doctrine.
@@ -2898,8 +2898,8 @@ def _grok_cli() -> Path:
 
 GROK = _grok_cli()
 GROK_WORKER_RUNNER = Path(__file__).resolve().parent / "grok_worker_runner.py"
-GROK_MODEL = "grok-4.6"
-# grok-4.6 xhigh fully supersedes grok 4.5. xhigh is a first-class
+GROK_MODEL = "grok-4.7"
+# grok-4.7 xhigh fully supersedes grok 4.6. xhigh is a first-class
 # --reasoning-effort value in grok Build CLI. Config default is also
 # default_reasoning_effort = "xhigh" in ~/.grok/config.toml.
 GROK_CLI_REASONING_EFFORTS = ("low", "medium", "high", "xhigh")
@@ -2907,11 +2907,11 @@ GROK_STEER_IDLE_SECONDS = CODEX_STEER_IDLE_SECONDS
 
 
 def _grok_effort_flag(requested: str) -> list[str]:
-    """Return the --reasoning-effort flag for grok-4.6, or [] to inherit xhigh.
+    """Return the --reasoning-effort flag for grok-4.7, or [] to inherit xhigh.
 
     Returns ["--reasoning-effort", e] iff e.lower() is one of
     low/medium/high/xhigh. Any other value (including "max" or empty)
-    returns [], which omits the flag so the grok-4.6 CLI falls back to its
+    returns [], which omits the flag so the grok-4.7 CLI falls back to its
     config default (default_reasoning_effort = "xhigh" in ~/.grok/config.toml).
     """
     candidate = (requested or "").strip().lower()
@@ -3605,8 +3605,9 @@ def start_visible_grok_worker(
     best_of_n: int = 1,
     self_check: bool = False,
     competition_agents: int = 16,
+    model: str = "",
 ) -> dict[str, Any]:
-    """Launch a visible Grok (grok-4.6) exec worker in a separate PowerShell window and save logs.
+    """Launch a visible Grok (grok-4.7) exec worker in a separate PowerShell window and save logs.
 
     sandbox="read-only" strictly enforces no-edit by stripping Grok's Write/Edit
     tools (Bash kept for inspection). best_of_n>1 runs the initial task N ways in
@@ -3614,7 +3615,8 @@ def start_visible_grok_worker(
     self_check=True appends Grok's self-verification loop to the initial turn.
     competition_agents (2-16, default 16) enables Parallel Competition Mode: the
     prompt lets the worker spawn up to that many diverse subagents competing on hard
-    problems inside its single turn (one terminal), then compile the best; set 1 to disable."""
+    problems inside its single turn (one terminal), then compile the best; set 1 to disable.
+    model allows choosing grok-4.7, grok-4.7-build-fast, grok-4.6, etc. (defaults to grok-4.7)."""
     effort_flag = _grok_effort_flag(reasoning_effort)
     effective_reasoning = effort_flag[1] if effort_flag else "inherited-config-default-xhigh"
     auto_full_tool_access = _needs_full_tool_access("\n".join([title, prompt, session_context]))
@@ -3628,12 +3630,13 @@ def start_visible_grok_worker(
     else:
         effective_prompt = _with_session_context_bootstrap(prompt_with_permissions, cwd, "Grok worker", session_context)
     extra_args, dropped_extra = _grok_initial_extra_args(best_of_n, self_check)
+    chosen_model = (model or "").strip() or GROK_MODEL
     run_dir = _make_run(cwd, "grok-resume" if resume_session_id else "grok", title, effective_prompt, {
         "agent": "grok",
         "cwd": str(Path(cwd).resolve()),
         "sandbox": effective_sandbox,
         "requested_sandbox": sandbox,
-        "model": GROK_MODEL,
+        "model": chosen_model,
         "requested_reasoning_effort": reasoning_effort,
         "effective_reasoning_effort": effective_reasoning,
         "resume_session_id": resume_session_id or None,
@@ -3796,7 +3799,7 @@ def start_visible_first_mate_grok_pool(
     """Launch a visible Grok root session with native subagents enabled to act as first mate.
 
     Unlike the Codex first-mate pool (which fans out to separate Codex CLI
-    subagent processes), this launches a single grok-4.6 process with its
+    subagent processes), this launches a single grok-4.7 process with its
     native subagent capability left enabled (no --no-subagents flag), so Grok
     itself manages any internal fan-out.
     """
@@ -4933,11 +4936,11 @@ def _claude_worker_effort(requested: str) -> str:
 
 HARNESS_DEFAULT_MODELS = {
     "claude": "claude-opus-5",
-    "clx": "grok-4.6(high)",
+    "clx": "grok-4.7(high)",
     "clg": "gemini-3.8-flash-high(high)",
     "cld": "deepseek-flash[1m]",
     "clo": "stealth/union-alpha[1m]",
-    "clc": "grok-4.6-fast",
+    "clc": "grok-4.7-fast",
 }
 
 
@@ -5266,7 +5269,7 @@ def start_claude_worker(
 
     Supports running under:
     - 'claude': direct Anthropic OAuth (~/.claude, default: claude-opus-5)
-    - 'clx': Grok via CLIProxyAPI (~/.claude-clx, default: grok-4.6(high))
+    - 'clx': Grok via CLIProxyAPI (~/.claude-clx, default: grok-4.7(high))
     - 'clg': Gemini via CLIProxyAPI (~/.claude-clg, default: gemini-3.8-flash-high(high))
     - 'cld': DeepSeek (~/.claude-cld, default: deepseek-flash[1m])
     - 'clo': OpenRouter (~/.claude-clo, default: stealth/union-alpha[1m])

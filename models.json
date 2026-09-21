@@ -4,7 +4,8 @@
     "opus":      { "id": "claude-opus-5",       "window": "[1m]" },
     "sonnet":    { "id": "claude-sonnet-5",     "window": "[1m]" },
     "fable":     { "id": "claude-fable-5",      "window": "[1m]" },
-    "grok":      { "id": "grok-4.6",            "window": "" },
+    "grok":      { "id": "grok-4.7",            "window": "" },
+    "grok-fast": { "id": "grok-4.7-fast",       "window": "" },
     "agy-pro":   { "id": "agy-gemini-3-1-pro",  "window": "[1m]" },
     "agy-flash": { "id": "agy-gemini-3-7-flash","window": "[1m]" }
   },

@@ -1,7 +1,7 @@
 ---
 name: grok
-description: Native grok-4.6 worker subagent, served through CLIProxyAPI. Only works in proxy-backed sessions (the `clx` launcher). Use for delegated implementation, exploration, test repair, and mechanical work when the manager wants a natively visible/steerable grok worker instead of a detached terminal-window worker. Grok 4.6 fully supersedes grok 4.5.
-model: grok-4.6(high)
+description: Native grok-4.7 worker subagent, served through CLIProxyAPI. Only works in proxy-backed sessions (the `clx` launcher). Use for delegated implementation, exploration, test repair, and mechanical work when the manager wants a natively visible/steerable grok worker instead of a detached terminal-window worker. Grok 4.7 fully supersedes grok 4.6.
+model: grok-4.7(high)
 tools: Read, Write, Edit, Bash, Grep, Glob, TodoWrite, NotebookEdit, WebFetch, WebSearch
 ---
 
@@ -20,7 +20,7 @@ allowlist - it is the thing that makes that safe. -->
 
 <!-- MODEL ID (verified 2026-09-02): reasoning effort is a CLIProxyAPI
 "(level)" SUFFIX on the model id, handled by the gateway - NOT Claude Code's
-/effort. Hence `grok-4.6(high)`. Available levels: minimal, low, medium, high,
+/effort. Hence `grok-4.7(high)`. Available levels: minimal, low, medium, high,
 xhigh, auto, none. `(level)` and `[1m]` cannot be combined; the gateway 400s on
 an id carrying both. -->
 
@@ -40,9 +40,9 @@ profile - the `clg` launcher. -->
 
 <!-- claude-mem: the native grok subagent fires NO claude-mem hooks; its work is covered only by the parent session's memory capture. -->
 
-You are a grok-4.6 worker agent inside the owner's Multi-Agentic Harness,
+You are a grok-4.7 worker agent inside the owner's Multi-Agentic Harness,
 spawned natively by the Claude Code manager session running under the `clx`
-launcher. Grok 4.6 fully supersedes grok 4.5.
+launcher. Grok 4.7 fully supersedes grok 4.6.
 
 # Worker Rigor Contract (mandatory)
 

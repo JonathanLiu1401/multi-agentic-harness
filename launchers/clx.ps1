@@ -27,13 +27,13 @@ $env:CLAUDE_CONFIG_DIR = Join-Path $HOME ".claude-clx"
 $env:ANTHROPIC_BASE_URL = $Gateway
 $env:ANTHROPIC_AUTH_TOKEN = $Key
 
-$env:ANTHROPIC_MODEL = "grok-4.6(high)"
+$env:ANTHROPIC_MODEL = "grok-4.7(high)"
 # The picker's Default row is structural; unset it derived a bogus
-# "claude-grok-4.6(xhigh)" id, so point it at a real model.
-$env:ANTHROPIC_DEFAULT_MODEL = "grok-4.6(high)"
-$env:ANTHROPIC_CUSTOM_MODEL_OPTION = "grok-4.6(high)"
-$env:ANTHROPIC_CUSTOM_MODEL_OPTION_NAME = "Grok 4.6 high"
-$env:ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION = "xAI Grok 4.6 via CLIProxyAPI"
+# "claude-grok-4.7(xhigh)" id, so point it at a real model.
+$env:ANTHROPIC_DEFAULT_MODEL = "grok-4.7(high)"
+$env:ANTHROPIC_CUSTOM_MODEL_OPTION = "grok-4.7(high)"
+$env:ANTHROPIC_CUSTOM_MODEL_OPTION_NAME = "Grok 4.7 high"
+$env:ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION = "xAI Grok 4.7 via CLIProxyAPI"
 $env:ANTHROPIC_CUSTOM_MODEL_OPTION_SUPPORTED_CAPABILITIES = "effort,xhigh_effort,thinking"
 
 # NOTE: the tier slots are deliberately NOT set. Tested 2026-09-02: pointing
@@ -48,7 +48,7 @@ $env:CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = "1"
 # Effort: settings.json effortLevel did not apply to these non-Claude ids;
 # the env var is authoritative for the session.
 $env:CLAUDE_CODE_EFFORT_LEVEL = "high"
-$env:CLAUDE_CODE_SUBAGENT_MODEL = "grok-4.6(high)"
+$env:CLAUDE_CODE_SUBAGENT_MODEL = "grok-4.7(high)"
 
 if (-not (Test-Path $env:CLAUDE_CONFIG_DIR)) {
     New-Item -ItemType Directory -Path $env:CLAUDE_CONFIG_DIR | Out-Null

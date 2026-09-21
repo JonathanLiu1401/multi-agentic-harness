@@ -1,6 +1,14 @@
 {
-  "model": "grok-4.6(high)",
+  "model": "grok-4.7(high)",
   "availableModels": [
+    "grok-4.7(high)",
+    "grok-4.7(xhigh)",
+    "grok-4.7(medium)",
+    "grok-4.7(low)",
+    "grok-4.7-fast(high)",
+    "grok-4.7-fast(xhigh)",
+    "grok-4.7-fast(medium)",
+    "grok-4.7-fast(low)",
     "grok-4.6(high)",
     "grok-4.6(xhigh)",
     "grok-4.6(medium)",
@@ -11,6 +19,46 @@
   "enforceAvailableModels": true,
   "modelPicker": {
     "options": [
+      {
+        "model": "grok-4.7(xhigh)",
+        "label": "Grok 4.7 xhigh",
+        "description": "xAI Grok 4.7 - max reasoning, 500k ctx"
+      },
+      {
+        "model": "grok-4.7(high)",
+        "label": "Grok 4.7 high",
+        "description": "xAI Grok 4.7 - frontier coding, 500k ctx"
+      },
+      {
+        "model": "grok-4.7(medium)",
+        "label": "Grok 4.7 medium",
+        "description": "xAI Grok 4.7 - 500k ctx"
+      },
+      {
+        "model": "grok-4.7(low)",
+        "label": "Grok 4.7 low",
+        "description": "xAI Grok 4.7 - fast turnaround, 500k ctx"
+      },
+      {
+        "model": "grok-4.7-fast(xhigh)",
+        "label": "Grok 4.7 Fast xhigh",
+        "description": "xAI Grok 4.7 Fast - 2x output speed, max reasoning"
+      },
+      {
+        "model": "grok-4.7-fast(high)",
+        "label": "Grok 4.7 Fast high",
+        "description": "xAI Grok 4.7 Fast - 2x output speed, 500k ctx"
+      },
+      {
+        "model": "grok-4.7-fast(medium)",
+        "label": "Grok 4.7 Fast medium",
+        "description": "xAI Grok 4.7 Fast - 2x output speed, 500k ctx"
+      },
+      {
+        "model": "grok-4.7-fast(low)",
+        "label": "Grok 4.7 Fast low",
+        "description": "xAI Grok 4.7 Fast - 2x output speed, 500k ctx"
+      },
       {
         "model": "grok-4.6(xhigh)",
         "label": "Grok 4.6 xhigh",
@@ -46,6 +94,66 @@
   },
   "modelPricing": {
     "overrides": {
+      "grok-4.7(xhigh)": {
+        "input": 2.00,
+        "output": 6.00,
+        "cacheRead": 0.50,
+        "cacheWrite": 2.00
+      },
+      "grok-4.7(high)": {
+        "input": 2.00,
+        "output": 6.00,
+        "cacheRead": 0.50,
+        "cacheWrite": 2.00
+      },
+      "grok-4.7(medium)": {
+        "input": 2.00,
+        "output": 6.00,
+        "cacheRead": 0.50,
+        "cacheWrite": 2.00
+      },
+      "grok-4.7(low)": {
+        "input": 2.00,
+        "output": 6.00,
+        "cacheRead": 0.50,
+        "cacheWrite": 2.00
+      },
+      "grok-4.7": {
+        "input": 2.00,
+        "output": 6.00,
+        "cacheRead": 0.50,
+        "cacheWrite": 2.00
+      },
+      "grok-4.7-fast(xhigh)": {
+        "input": 4.00,
+        "output": 12.00,
+        "cacheRead": 1.00,
+        "cacheWrite": 4.00
+      },
+      "grok-4.7-fast(high)": {
+        "input": 4.00,
+        "output": 12.00,
+        "cacheRead": 1.00,
+        "cacheWrite": 4.00
+      },
+      "grok-4.7-fast(medium)": {
+        "input": 4.00,
+        "output": 12.00,
+        "cacheRead": 1.00,
+        "cacheWrite": 4.00
+      },
+      "grok-4.7-fast(low)": {
+        "input": 4.00,
+        "output": 12.00,
+        "cacheRead": 1.00,
+        "cacheWrite": 4.00
+      },
+      "grok-4.7-fast": {
+        "input": 4.00,
+        "output": 12.00,
+        "cacheRead": 1.00,
+        "cacheWrite": 4.00
+      },
       "grok-4.6(xhigh)": {
         "input": 2.00,
         "output": 6.00,

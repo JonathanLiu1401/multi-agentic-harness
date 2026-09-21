@@ -43,15 +43,15 @@ ANTHROPIC_AUTH_TOKEN=$(cat "$KEYFILE")
 # file. Sessions often run with cwd = the home directory, which makes your main
 # ~/.claude/settings.json load as PROJECT settings - and its "model": "opus"
 # would otherwise pin Opus 5 here ("that applies on restart" in the picker).
-ANTHROPIC_MODEL="grok-4.6(high)"
+ANTHROPIC_MODEL="grok-4.7(high)"
 # The picker's "Default (recommended)" row is structural and cannot be removed
 # (replaceBuiltInOptions keeps it). It resolves from availableModels[0] and is
 # always shown with a bogus "claude-" prefix, so keep the pinned model first in
 # that array. Cosmetic only - the labelled rows below it are what work.
-ANTHROPIC_DEFAULT_MODEL="grok-4.6(high)"
-ANTHROPIC_CUSTOM_MODEL_OPTION="grok-4.6(high)"
-ANTHROPIC_CUSTOM_MODEL_OPTION_NAME="Grok 4.6 high"
-ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION="xAI Grok 4.6 via CLIProxyAPI"
+ANTHROPIC_DEFAULT_MODEL="grok-4.7(high)"
+ANTHROPIC_CUSTOM_MODEL_OPTION="grok-4.7(high)"
+ANTHROPIC_CUSTOM_MODEL_OPTION_NAME="Grok 4.7 high"
+ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION="xAI Grok 4.7 via CLIProxyAPI"
 ANTHROPIC_CUSTOM_MODEL_OPTION_SUPPORTED_CAPABILITIES="effort,xhigh_effort,thinking"
 
 # NOTE: the tier slots are deliberately NOT set. Tested 2026-09-02: pointing
@@ -75,7 +75,7 @@ CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
 CLAUDE_CODE_EFFORT_LEVEL=high
 
 # Subagents inherit the session model unless told otherwise; keep them on grok.
-CLAUDE_CODE_SUBAGENT_MODEL="grok-4.6(high)"
+CLAUDE_CODE_SUBAGENT_MODEL="grok-4.7(high)"
 
 export CLAUDE_CONFIG_DIR ANTHROPIC_BASE_URL ANTHROPIC_AUTH_TOKEN ANTHROPIC_MODEL
 export ANTHROPIC_DEFAULT_MODEL

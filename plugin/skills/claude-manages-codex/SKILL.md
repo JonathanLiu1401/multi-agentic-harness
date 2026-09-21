@@ -147,10 +147,10 @@ Unless the owner says otherwise:
 `start_claude_worker` (headless) and `start_visible_claude_worker` (visible console window) spawn native Claude Code workers across ANY provider harness profile. Workers run under Claude Code CLI's native tool execution engine while routing inference to the configured provider:
 
 - `harness="clo"`: OpenRouter router with access to live catalog models (1M context). Default model: `stealth/union-alpha[1m]`. Accepts any OpenRouter model slug (e.g. `openai/gpt-5.6-sol`, `~anthropic/claude-sonnet-latest[1m]`, etc.).
-- `harness="clx"`: xAI Grok via local CLIProxyAPI on `127.0.0.1:8317` (500k context). Default model: `grok-4.6(high)`.
+- `harness="clx"`: xAI Grok via local CLIProxyAPI on `127.0.0.1:8317` (500k context). Default model: `grok-4.7(high)`.
 - `harness="clg"`: Antigravity Gemini via local CLIProxyAPI on `127.0.0.1:8317` (1M context). Default model: `gemini-3.8-flash-high(high)`.
 - `harness="cld"`: DeepSeek via `api.deepseek.com/anthropic` (1M context). Default model: `deepseek-flash[1m]`.
-- `harness="clc"`: Cursor models via local translator on `127.0.0.1:8318` (1M context). Default model: `grok-4.6-fast`.
+- `harness="clc"`: Cursor models via local translator on `127.0.0.1:8318` (1M context). Default model: `grok-4.7-fast`.
 - `harness="claude"`: Direct Anthropic OAuth on `api.anthropic.com` (`claude-opus-5`, `claude-sonnet-5`, etc.).
 
 Signatures:
@@ -523,19 +523,19 @@ Layer 2 callback: `~/.cursor/mcp.json` `mcpServers.agent-visibility` points at t
 
 ## Grok Worker Backend (added 2026-07-14; harness fan-out path as of 2026-09-14)
 
-**Grok Build CLI terminal. This is the harness fan-out path** (replaces cursor-agent fan-out; cursor usage exhausted 2026-09-14). grok-4.6 in a visible PowerShell window is the grok path for a **plain Claude** captain, a **clg** captain, a **clc** captain, and for `/claude-manages-codex` parallel fan-out via `start_visible_first_mate_grok_pool`. A **clx** captain uses native Agent `grok` for ordinary same-family work, but still uses these visible grok tools when `/claude-manages-codex` is invoked. Also use this path when the owner wants Parallel Competition Mode or the Work-Checker gate. See Mandatory Spawn Path. Codex remains disabled. cursor-agent remains exhausted.
+**Grok Build CLI terminal. This is the harness fan-out path** (replaces cursor-agent fan-out; cursor usage exhausted 2026-09-14). grok-4.7 in a visible PowerShell window is the grok path for a **plain Claude** captain, a **clg** captain, a **clc** captain, and for `/claude-manages-codex` parallel fan-out via `start_visible_first_mate_grok_pool`. A **clx** captain uses native Agent `grok` for ordinary same-family work, but still uses these visible grok tools when `/claude-manages-codex` is invoked. Also use this path when the owner wants Parallel Competition Mode or the Work-Checker gate. See Mandatory Spawn Path. Codex remains disabled. cursor-agent remains exhausted.
 
 The server exposes:
 
-- `start_visible_grok_worker`: launches `grok --prompt-file <prompt.md> --output-format streaming-json --cwd <cwd> --permission-mode bypassPermissions -m grok-4.6 --reasoning-effort xhigh [-r <sessionId>]` in a separate visible PowerShell window, saves prompt/event logs, and returns a run directory. (`-p`/`--single` and `--prompt-file` are alternative ways to supply the prompt - confirmed live that combining them errors with `a value is required for '--single <PROMPT>'` - so the runner uses `--prompt-file` alone.) Every turn's answer is auto-written to `captain_reports/final.json` / `final.md` (Layer 1 callback, see "Worker Backends & Routing").
+- `start_visible_grok_worker`: launches `grok --prompt-file <prompt.md> --output-format streaming-json --cwd <cwd> --permission-mode bypassPermissions -m grok-4.7 --reasoning-effort xhigh [-r <sessionId>]` in a separate visible PowerShell window, saves prompt/event logs, and returns a run directory. (`-p`/`--single` and `--prompt-file` are alternative ways to supply the prompt - confirmed live that combining them errors with `a value is required for '--single <PROMPT>'` - so the runner uses `--prompt-file` alone.) Every turn's answer is auto-written to `captain_reports/final.json` / `final.md` (Layer 1 callback, see "Worker Backends & Routing").
 - `start_visible_haiku_composed_grok_worker`: Claude passes a compact `prompt_brief`; the Haiku/low composer expands it (the same composer flow the Codex path uses, including its non-fatal fallback to the raw brief on composer failure), then Grok executes the composed prompt.
-- `start_visible_first_mate_grok_pool`: launches a single grok-4.6 process with its native subagent capability left enabled (no `--no-subagents`), using the same `_first_mate_prompt` brief as the Codex first-mate pool.
+- `start_visible_first_mate_grok_pool`: launches a single grok-4.7 process with its native subagent capability left enabled (no `--no-subagents`), using the same `_first_mate_prompt` brief as the Codex first-mate pool.
 - `steer_visible_grok_run`: sends a captain steering instruction to an existing visible Grok run, mirroring `steer_visible_codex_run`. An idle worker consumes the queued instruction within a second; an active worker is interrupted best-effort (Ctrl+C/taskkill) when a launcher pid is known, then resumed with `grok -r <sessionId>`. Grok has no on-disk session-readiness probe like Codex's thread-file check, so after an interrupt this always launches the resume run directly on the last recorded session id - queued-at-idle delivery is the more reliable v1 path.
 - Grok workers share the backend-agnostic read/report/help tools unchanged: `get_visible_run_status`, `list_visible_runs`, `submit_captain_report`, `list_captain_reports`, `request_captain_help`, `list_captain_help_requests`, `respond_to_captain_help_request` (see the callback-model limitation in "Worker Backends & Routing" for the live-MCP-callback caveat on `submit_captain_report` / `request_captain_help`).
 
-### Grok effort (grok-4.6 xhigh)
+### Grok effort (grok-4.7 xhigh)
 
-Grok 4.6 xhigh fully supersedes grok 4.5. For grok Build CLI, pass `-m grok-4.6 --reasoning-effort xhigh`, or omit the flag so `~/.grok/config.toml` `default_reasoning_effort = "xhigh"` applies. Do not Bash `cursor-agent -p` from a Claude session, and do not fan out with `start_visible_cursor_worker` (cursor-agent usage exhausted 2026-09-14). Pass a lower `reasoning_effort` only when a lower tier is deliberately wanted.
+Grok 4.7 xhigh fully supersedes grok 4.6. For grok Build CLI, pass `-m grok-4.7 --reasoning-effort xhigh` (or `grok-4.7-build-fast`), or omit the flag so `~/.grok/config.toml` `default_reasoning_effort = "xhigh"` applies. Do not Bash `cursor-agent -p` from a Claude session, and do not fan out with `start_visible_cursor_worker` (cursor-agent usage exhausted 2026-09-14). Pass a lower `reasoning_effort` only when a lower tier is deliberately wanted.
 
 ### Machine setup: `~/.grok/config.toml` MCP entry
 

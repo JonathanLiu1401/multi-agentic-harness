@@ -176,7 +176,7 @@ class Run:
             "--permission-mode",
             "bypassPermissions",
             "-m",
-            str(md.get("model") or "grok-4.6"),
+            str(md.get("model") or "grok-4.7"),
         ]
         effort = md.get("requested_reasoning_effort") or ""
         candidate = str(effort).strip().lower()
