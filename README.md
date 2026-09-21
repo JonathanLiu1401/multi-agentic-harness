@@ -102,10 +102,11 @@ Part 2 allows you to run third-party frontier models inside the official Claude 
 
 | Command | Provider | Flagship Models | Context Window | Endpoint Architecture | Config Dir |
 | --- | --- | --- | --- | --- | --- |
-| `clx` | xAI Grok | Grok 4.6 (xhigh/high/med/low), Grok 4.5 | 500k tokens | Local CLIProxyAPI gateway (`127.0.0.1:8317`) | `~/.claude-clx` |
+| `clx` | xAI Grok | Grok 4.7 & 4.7 Fast (xhigh/high/med/low), Grok 4.6 | 500k tokens | Local CLIProxyAPI gateway (`127.0.0.1:8317`) | `~/.claude-clx` |
 | `clg` | Antigravity (Gemini) | Gemini 3.8 Flash, 3.1 Pro, 3.7/3.6 Flash | 1M tokens | Local CLIProxyAPI gateway (`127.0.0.1:8317`) | `~/.claude-clg` |
 | `cld` | DeepSeek | DeepSeek V4.1 Flash, DeepSeek V4 Pro | 1M tokens | Direct Anthropic API (`https://api.deepseek.com/anthropic`) | `~/.claude-cld` |
-| `clc` | Cursor | Live Cursor catalog (Grok 4.6 Fast default, plus Fast rows) | 1M (process-wide) | Local Anthropic translator (`127.0.0.1:8318`) + `cursor-sdk` | `~/.claude-clc` |
+| `clc` | Cursor | Live Cursor catalog (Grok 4.7 Fast default, plus Fast rows) | 1M (process-wide) | Local Anthropic translator (`127.0.0.1:8318`) + `cursor-sdk` | `~/.claude-clc` |
+
 
 ### Architectural Highlights
 
@@ -132,6 +133,10 @@ All session spending calculations reflect accurate real-world API costs.
 
 #### 5. Permission Posture and Speed
 On complex agentic workflows, waiting for interactive user permission approvals was measured to cause 80% to 90% of total wall-clock time. Launchers default to `--dangerously-skip-permissions` with `"skipDangerousModePermissionPrompt": true` to match native CLI speed (e.g. completing 35 tool calls in 92 seconds instead of 11 minutes), while preserving command-line permission flag overrides (such as `clx --permission-mode plan`).
+
+#### 6. Model Upgrades & Migration Guide
+When new model versions launch (e.g. Grok 4.7 to 4.8, Gemini 3.8 to 3.9, DeepSeek V4.1 to V4.2), follow the exact procedure in:
+- [`docs/setup/model-migration-guide.md`](docs/setup/model-migration-guide.md)
 
 ---
 

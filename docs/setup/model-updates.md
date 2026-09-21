@@ -1,6 +1,13 @@
-# Model updates: hand-edited again
+# Model updates
 
-`sync-models.ps1` is gone, along with the local gateway it was built around.
+For the full, step-by-step cross-harness procedure covering `clx`, `clg`, `cld`, `clo`, `clc`, and `claude`, see:
+- [Model Migration Guide](model-migration-guide.md)
+
+---
+
+## Historical Context
+
+`sync-models.ps1` is gone, along with the original gateway it was built around.
 `-Discover` and `-Verify` worked by reading the gateway's `/v1/models` catalog and
 probing `POST /v1/messages`, and most of what it kept in sync (the `clx` world's
 settings, the `cld` launcher config, the native `grok` / `agy-*` agent files) no
