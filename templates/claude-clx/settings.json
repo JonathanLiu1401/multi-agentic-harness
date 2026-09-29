@@ -1,14 +1,14 @@
 {
-  "model": "grok-4.7(high)",
+  "model": "grok-4.7-build-fast(high)",
   "availableModels": [
     "grok-4.7(high)",
     "grok-4.7(xhigh)",
     "grok-4.7(medium)",
     "grok-4.7(low)",
-    "grok-4.7-fast(high)",
-    "grok-4.7-fast(xhigh)",
-    "grok-4.7-fast(medium)",
-    "grok-4.7-fast(low)",
+    "grok-4.7-build-fast(high)",
+    "grok-4.7-build-fast(xhigh)",
+    "grok-4.7-build-fast(medium)",
+    "grok-4.7-build-fast(low)",
     "grok-4.6(high)",
     "grok-4.6(xhigh)",
     "grok-4.6(medium)",
@@ -40,22 +40,22 @@
         "description": "xAI Grok 4.7 - fast turnaround, 500k ctx"
       },
       {
-        "model": "grok-4.7-fast(xhigh)",
+        "model": "grok-4.7-build-fast(xhigh)",
         "label": "Grok 4.7 Fast xhigh",
         "description": "xAI Grok 4.7 Fast - 2x output speed, max reasoning"
       },
       {
-        "model": "grok-4.7-fast(high)",
+        "model": "grok-4.7-build-fast(high)",
         "label": "Grok 4.7 Fast high",
         "description": "xAI Grok 4.7 Fast - 2x output speed, 500k ctx"
       },
       {
-        "model": "grok-4.7-fast(medium)",
+        "model": "grok-4.7-build-fast(medium)",
         "label": "Grok 4.7 Fast medium",
         "description": "xAI Grok 4.7 Fast - 2x output speed, 500k ctx"
       },
       {
-        "model": "grok-4.7-fast(low)",
+        "model": "grok-4.7-build-fast(low)",
         "label": "Grok 4.7 Fast low",
         "description": "xAI Grok 4.7 Fast - 2x output speed, 500k ctx"
       },
@@ -124,25 +124,25 @@
         "cacheRead": 0.50,
         "cacheWrite": 2.00
       },
-      "grok-4.7-fast(xhigh)": {
+      "grok-4.7-build-fast(xhigh)": {
         "input": 4.00,
         "output": 12.00,
         "cacheRead": 1.00,
         "cacheWrite": 4.00
       },
-      "grok-4.7-fast(high)": {
+      "grok-4.7-build-fast(high)": {
         "input": 4.00,
         "output": 12.00,
         "cacheRead": 1.00,
         "cacheWrite": 4.00
       },
-      "grok-4.7-fast(medium)": {
+      "grok-4.7-build-fast(medium)": {
         "input": 4.00,
         "output": 12.00,
         "cacheRead": 1.00,
         "cacheWrite": 4.00
       },
-      "grok-4.7-fast(low)": {
+      "grok-4.7-build-fast(low)": {
         "input": 4.00,
         "output": 12.00,
         "cacheRead": 1.00,

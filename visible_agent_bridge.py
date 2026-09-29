@@ -2898,26 +2898,27 @@ def _grok_cli() -> Path:
 
 GROK = _grok_cli()
 GROK_WORKER_RUNNER = Path(__file__).resolve().parent / "grok_worker_runner.py"
-GROK_MODEL = "grok-4.7"
-# grok-4.7 xhigh fully supersedes grok 4.6. xhigh is a first-class
-# --reasoning-effort value in grok Build CLI. Config default is also
-# default_reasoning_effort = "xhigh" in ~/.grok/config.toml.
+GROK_MODEL = "grok-4.7-build-fast"
+# Owner default (2026-09-28): grok 4.7 fast at high effort. The grok Build CLI
+# exposes the fast tier as model id grok-4.7-build-fast; high is passed as an
+# explicit --reasoning-effort so the default no longer depends on
+# ~/.grok/config.toml.
+GROK_REASONING_EFFORT = "high"
 GROK_CLI_REASONING_EFFORTS = ("low", "medium", "high", "xhigh")
 GROK_STEER_IDLE_SECONDS = CODEX_STEER_IDLE_SECONDS
 
 
 def _grok_effort_flag(requested: str) -> list[str]:
-    """Return the --reasoning-effort flag for grok-4.7, or [] to inherit xhigh.
+    """Return the --reasoning-effort flag for the grok worker.
 
-    Returns ["--reasoning-effort", e] iff e.lower() is one of
-    low/medium/high/xhigh. Any other value (including "max" or empty)
-    returns [], which omits the flag so the grok-4.7 CLI falls back to its
-    config default (default_reasoning_effort = "xhigh" in ~/.grok/config.toml).
+    Returns ["--reasoning-effort", e] when e.lower() is one of
+    low/medium/high/xhigh; any other value (including "max" or empty)
+    falls back to GROK_REASONING_EFFORT.
     """
     candidate = (requested or "").strip().lower()
-    if candidate in GROK_CLI_REASONING_EFFORTS:
-        return ["--reasoning-effort", candidate]
-    return []
+    if candidate not in GROK_CLI_REASONING_EFFORTS:
+        candidate = GROK_REASONING_EFFORT
+    return ["--reasoning-effort", candidate]
 
 
 def _grok_captain_report_note(run_dir: Path) -> str:
@@ -3607,7 +3608,7 @@ def start_visible_grok_worker(
     competition_agents: int = 16,
     model: str = "",
 ) -> dict[str, Any]:
-    """Launch a visible Grok (grok-4.7) exec worker in a separate PowerShell window and save logs.
+    """Launch a visible Grok (grok-4.7-build-fast, high) exec worker in a separate PowerShell window and save logs.
 
     sandbox="read-only" strictly enforces no-edit by stripping Grok's Write/Edit
     tools (Bash kept for inspection). best_of_n>1 runs the initial task N ways in
@@ -3616,9 +3617,9 @@ def start_visible_grok_worker(
     competition_agents (2-16, default 16) enables Parallel Competition Mode: the
     prompt lets the worker spawn up to that many diverse subagents competing on hard
     problems inside its single turn (one terminal), then compile the best; set 1 to disable.
-    model allows choosing grok-4.7, grok-4.7-build-fast, grok-4.6, etc. (defaults to grok-4.7)."""
+    model allows choosing grok-4.7, grok-4.7-build-fast, grok-4.6, etc. (defaults to grok-4.7-build-fast at high effort)."""
     effort_flag = _grok_effort_flag(reasoning_effort)
-    effective_reasoning = effort_flag[1] if effort_flag else "inherited-config-default-xhigh"
+    effective_reasoning = effort_flag[1]
     auto_full_tool_access = _needs_full_tool_access("\n".join([title, prompt, session_context]))
     effective_sandbox = CODEX_FULL_TOOL_SANDBOX
     prompt_with_permissions = "\n\n".join([

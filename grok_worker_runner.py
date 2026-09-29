@@ -176,9 +176,9 @@ class Run:
             "--permission-mode",
             "bypassPermissions",
             "-m",
-            str(md.get("model") or "grok-4.7"),
+            str(md.get("model") or "grok-4.7-build-fast"),
         ]
-        effort = md.get("requested_reasoning_effort") or ""
+        effort = md.get("requested_reasoning_effort") or "high"
         candidate = str(effort).strip().lower()
         if candidate in ("low", "medium", "high", "xhigh"):
             args += ["--reasoning-effort", candidate]
@@ -407,7 +407,7 @@ class Run:
         self.log(f"CWD: {self.cwd}")
         self.log(
             f"Model: {md.get('model')} | Requested sandbox: {md.get('requested_sandbox')} | "
-            f"Effort: {md.get('effective_reasoning_effort') or md.get('requested_reasoning_effort') or 'xhigh'}"
+            f"Effort: {md.get('effective_reasoning_effort') or md.get('requested_reasoning_effort') or 'high'}"
         )
         if self.session_id:
             self.log(f"Resuming Grok session: {self.session_id}")

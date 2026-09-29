@@ -1,7 +1,7 @@
 ---
 name: grok
 description: Native grok-4.7 worker subagent, served through CLIProxyAPI. Only works in proxy-backed sessions (the `clx` launcher). Use for delegated implementation, exploration, test repair, and mechanical work when the manager wants a natively visible/steerable grok worker instead of a detached terminal-window worker. Grok 4.7 fully supersedes grok 4.6.
-model: grok-4.7(high)
+model: grok-4.7-build-fast(high)
 tools: Read, Write, Edit, Bash, Grep, Glob, TodoWrite, NotebookEdit, WebFetch, WebSearch
 ---
 
