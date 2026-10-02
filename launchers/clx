@@ -94,6 +94,9 @@ if ! curl -fsS -m 3 -o /dev/null "$GATEWAY/v1/models" \
   if [ "$(uname -s)" = Darwin ]; then
     echo "clx: start it with:  brew services start cliproxyapi" >&2
     echo "clx: (or $HOME/.cc-bridge/start-gateway.sh)" >&2
+  elif [ "$(uname -s)" = Linux ]; then
+    echo "clx: start it with:  systemctl --user start cliproxyapi" >&2
+    echo "clx: (logs: journalctl --user -u cliproxyapi)" >&2
   else
     echo "clx: start it with:  powershell -NoProfile -Command \"Start-ScheduledTask -TaskName CLIProxyAPI\"" >&2
     echo "clx: (or run ~/cliproxyapi/start-gateway.ps1 directly)" >&2
